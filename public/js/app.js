@@ -1,77 +1,141 @@
 // ==========================================================================
-// Frontend JavaScript Controller & UI Orchestrator
+// Frontend JavaScript Controller & Department Portal Script
 // ==========================================================================
 
 const API_BASE = '/api';
 
 // Application State
 let state = {
-  currentUser: null, // { role: 'admin'|'department', departmentName?: string }
+  currentUser: null, // { role: 'department', departmentName: '...' }
   config: null,      // { academicYear, semesterType, semesterLabels, periods }
-  departments: [],   // list of department objects
-  courses: [],       // list of courses
-  faculty: [],       // list of faculty members
-  allocations: {},   // active allocations for current department
+  departments: [],
+  courses: [],       // raw list of all courses
+  faculty: [],       // raw list of all faculty
+  allocations: {},   // active allocations for department
   selectedDay: 'MONDAY',
-  currentTab: 'tab-admin-dashboard'
+  viewMode: 'day',   // 'day' or 'week'
+  filters: {
+    semester: '',
+    category: ''
+  }
 };
 
-// Cache DOM elements
-const views = {
-  login: document.getElementById('view-login'),
-  admin: document.getElementById('view-admin'),
-  department: document.getElementById('view-department')
+// Custom Modal Alerts Utility (Eliminating browser window alert/confirms)
+window.appModal = {
+  overlay: document.getElementById('app-modal'),
+  icon: document.getElementById('app-modal-icon'),
+  title: document.getElementById('app-modal-title'),
+  message: document.getElementById('app-modal-message'),
+  btnPrimary: document.getElementById('app-modal-btn-primary'),
+  btnSecondary: document.getElementById('app-modal-btn-secondary')
 };
 
-// Initialize Application
+function showModalAlert(title, message, type = 'info', callback = null) {
+  const { overlay, icon, btnPrimary, btnSecondary } = window.appModal;
+  
+  window.appModal.title.textContent = title;
+  window.appModal.message.textContent = message;
+  
+  let iconHtml = '<i class="fa-solid fa-circle-info text-primary"></i>';
+  if (type === 'success') iconHtml = '<i class="fa-solid fa-circle-check text-success"></i>';
+  else if (type === 'warning') iconHtml = '<i class="fa-solid fa-triangle-exclamation text-warning"></i>';
+  else if (type === 'danger') iconHtml = '<i class="fa-solid fa-circle-xmark text-danger"></i>';
+  window.appModal.icon.innerHTML = iconHtml;
+  
+  btnSecondary.classList.add('hidden');
+  btnPrimary.textContent = "Okay";
+  
+  // Clone to remove old event listeners
+  const newBtn = btnPrimary.cloneNode(true);
+  btnPrimary.parentNode.replaceChild(newBtn, btnPrimary);
+  window.appModal.btnPrimary = newBtn;
+  
+  window.appModal.btnPrimary.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    if (callback) callback();
+  });
+  
+  overlay.classList.remove('hidden');
+}
+
+function showModalConfirm(title, message, onConfirm) {
+  const { overlay, icon, btnPrimary, btnSecondary } = window.appModal;
+  
+  window.appModal.title.textContent = title;
+  window.appModal.message.textContent = message;
+  window.appModal.icon.innerHTML = '<i class="fa-solid fa-circle-question text-primary"></i>';
+  
+  btnSecondary.classList.remove('hidden');
+  btnSecondary.textContent = "Cancel";
+  btnPrimary.textContent = "Confirm";
+  
+  // Clone primary
+  const newBtnPrimary = btnPrimary.cloneNode(true);
+  btnPrimary.parentNode.replaceChild(newBtnPrimary, btnPrimary);
+  window.appModal.btnPrimary = newBtnPrimary;
+  
+  // Clone secondary
+  const newBtnSecondary = btnSecondary.cloneNode(true);
+  btnSecondary.parentNode.replaceChild(newBtnSecondary, btnSecondary);
+  window.appModal.btnSecondary = newBtnSecondary;
+  
+  window.appModal.btnPrimary.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    if (onConfirm) onConfirm();
+  });
+  
+  window.appModal.btnSecondary.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+  });
+  
+  overlay.classList.remove('hidden');
+}
+
+// Initializer
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
 });
 
 async function initApp() {
   bindAuthEvents();
-  bindSidebarEvents();
-  bindAdminEvents();
   bindDeptEvents();
+  bindFilterEvents();
   bindPrintEvents();
   
-  // Try to restore session from sessionStorage
+  // Restore session
   const savedUser = sessionStorage.getItem('currentUser');
   if (savedUser) {
     state.currentUser = JSON.parse(savedUser);
-    document.getElementById('current-user-display').textContent = 
-      state.currentUser.role === 'admin' ? 'Central Admin' : state.currentUser.departmentName;
+    document.getElementById('current-user-display').textContent = state.currentUser.departmentName;
     document.getElementById('header-user-info').classList.remove('hidden');
     
     await fetchGlobalData();
-    if (state.currentUser.role === 'admin') {
-      switchView('admin');
-      showTab(state.currentTab);
-    } else {
-      switchView('department');
-      await loadDepartmentWorkspace();
-    }
+    switchView('department');
+    await loadDepartmentWorkspace();
   } else {
-    // Populate departments list for login dropdown
     await loadLoginDepartments();
     switchView('login');
   }
 }
 
-// Switch between views (Login, Admin, Department)
+// View toggle
 function switchView(viewName) {
-  Object.keys(views).forEach(name => {
-    if (name === viewName) {
-      views[name].classList.add('active');
-      views[name].classList.remove('hidden');
-    } else {
-      views[name].classList.remove('active');
-      views[name].classList.add('hidden');
-    }
-  });
+  const loginView = document.getElementById('view-login');
+  const deptView = document.getElementById('view-department');
+  
+  if (viewName === 'department') {
+    deptView.classList.remove('hidden');
+    deptView.classList.add('active');
+    loginView.classList.add('hidden');
+    loginView.classList.remove('active');
+  } else {
+    loginView.classList.remove('hidden');
+    loginView.classList.add('active');
+    deptView.classList.add('hidden');
+    deptView.classList.remove('active');
+  }
 }
 
-// Fetch general configuration and list of departments
 async function loadLoginDepartments() {
   try {
     const res = await fetch(`${API_BASE}/departments`);
@@ -87,7 +151,7 @@ async function loadLoginDepartments() {
       dropdown.appendChild(opt);
     });
   } catch (err) {
-    console.error('Error loading login departments:', err);
+    console.error(err);
   }
 }
 
@@ -104,33 +168,20 @@ async function fetchGlobalData() {
     state.departments = await deptsRes.json();
     state.courses = await coursesRes.json();
     state.faculty = await facultyRes.json();
-    
-    updateAdminSummary();
   } catch (err) {
-    console.error('Failed to load global data:', err);
+    console.error(err);
   }
 }
 
 // -------------------------------------------------------------
-// Authentication Binds & Logic
+// Authentication Binds
 // -------------------------------------------------------------
 function bindAuthEvents() {
-  const roleSelect = document.getElementById('login-role');
-  const deptGroup = document.getElementById('dept-select-group');
   const loginForm = document.getElementById('login-form');
-  const logoutBtn = document.getElementById('btn-logout');
-  const pwdIcon = document.getElementById('toggle-pwd-icon');
   const pwdInput = document.getElementById('login-password');
-  
-  roleSelect.addEventListener('change', () => {
-    if (roleSelect.value === 'department') {
-      deptGroup.classList.remove('hidden');
-      document.getElementById('login-dept').setAttribute('required', 'true');
-    } else {
-      deptGroup.classList.add('hidden');
-      document.getElementById('login-dept').removeAttribute('required');
-    }
-  });
+  const pwdIcon = document.getElementById('toggle-pwd-icon');
+  const logoutBtn = document.getElementById('btn-logout');
+  const errBox = document.getElementById('login-error');
   
   pwdIcon.addEventListener('click', () => {
     if (pwdInput.type === 'password') {
@@ -141,44 +192,31 @@ function bindAuthEvents() {
       pwdIcon.classList.replace('fa-eye-slash', 'fa-eye');
     }
   });
-  
+
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const role = roleSelect.value;
-    const password = pwdInput.value;
     const departmentName = document.getElementById('login-dept').value;
-    
-    const errBox = document.getElementById('login-error');
+    const password = pwdInput.value;
     errBox.classList.add('hidden');
     
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, password, departmentName })
+        body: JSON.stringify({ role: 'department', departmentName, password })
       });
       
       const result = await res.json();
-      if (!res.ok) {
-        throw new Error(result.message || 'Login failed');
-      }
+      if (!res.ok) throw new Error(result.message || 'Login failed');
       
-      state.currentUser = { role, departmentName };
+      state.currentUser = { role: 'department', departmentName };
       sessionStorage.setItem('currentUser', JSON.stringify(state.currentUser));
-      
-      document.getElementById('current-user-display').textContent = 
-        role === 'admin' ? 'Central Admin' : departmentName;
+      document.getElementById('current-user-display').textContent = departmentName;
       document.getElementById('header-user-info').classList.remove('hidden');
       
       await fetchGlobalData();
-      
-      if (role === 'admin') {
-        switchView('admin');
-        showTab('tab-admin-dashboard');
-      } else {
-        switchView('department');
-        await loadDepartmentWorkspace();
-      }
+      switchView('department');
+      await loadDepartmentWorkspace();
     } catch (err) {
       errBox.textContent = err.message;
       errBox.classList.remove('hidden');
@@ -196,539 +234,65 @@ function bindAuthEvents() {
 }
 
 // -------------------------------------------------------------
-// Admin Navigation Tabs
+// Filters & Toggles Binds
 // -------------------------------------------------------------
-function bindSidebarEvents() {
-  const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
-  navItems.forEach(item => {
-    item.addEventListener('click', () => {
-      navItems.forEach(n => n.classList.remove('active'));
-      item.classList.add('active');
-      const tabId = item.getAttribute('data-tab');
-      showTab(tabId);
-    });
-  });
-}
-
-function showTab(tabId) {
-  state.currentTab = tabId;
-  const panes = document.querySelectorAll('.dashboard-content .tab-pane');
-  panes.forEach(pane => {
-    if (pane.id === tabId) {
-      pane.classList.remove('hidden');
-      pane.classList.add('active');
-    } else {
-      pane.classList.add('hidden');
-      pane.classList.remove('active');
-    }
+function bindFilterEvents() {
+  const semSelect = document.getElementById('filter-semester');
+  const catSelect = document.getElementById('filter-category');
+  
+  semSelect.addEventListener('change', () => {
+    state.filters.semester = semSelect.value;
+    renderAllocationMatrix();
   });
   
-  // Refresh specific tab data
-  if (tabId === 'tab-admin-dashboard') {
-    fetchGlobalData();
-  } else if (tabId === 'tab-admin-config') {
-    renderConfigForm();
-  } else if (tabId === 'tab-admin-passwords') {
-    renderPasswordTable();
-  } else if (tabId === 'tab-admin-data') {
-    renderDataManager();
-  } else if (tabId === 'tab-admin-workload') {
-    renderWorkloadSummary();
+  catSelect.addEventListener('change', () => {
+    state.filters.category = catSelect.value;
+    renderAllocationMatrix();
+  });
+
+  // Dynamic filter lists population
+  function populateFilters() {
+    const deptName = state.currentUser.departmentName;
+    const deptCourses = state.courses.filter(c => c.department === deptName);
+    
+    // Semesters
+    const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
+    semSelect.innerHTML = '<option value="">All Semesters</option>';
+    sems.forEach(s => {
+      const label = state.config.semesterLabels[s] || `Sem ${s}`;
+      semSelect.innerHTML += `<option value="${s}">${label}</option>`;
+    });
+
+    // Categories
+    const cats = Array.from(new Set(deptCourses.map(c => c.category))).sort();
+    catSelect.innerHTML = '<option value="">All Categories</option>';
+    cats.forEach(c => {
+      catSelect.innerHTML += `<option value="${c}">${c}</option>`;
+    });
   }
-}
 
-// -------------------------------------------------------------
-// Admin View Implementation
-// -------------------------------------------------------------
-function updateAdminSummary() {
-  if (!state.config) return;
-  document.getElementById('summary-year').textContent = state.config.academicYear || '-';
-  document.getElementById('summary-sem').textContent = state.config.semesterType || '-';
-  
-  let approvedCount = 0;
-  let submittedCount = 0;
-  let incompleteCount = 0;
-  
-  state.departments.forEach(d => {
-    if (d.status === 'Approved') approvedCount++;
-    else if (d.status === 'Submitted') submittedCount++;
-    else incompleteCount++;
-  });
-  
-  document.getElementById('stat-approved').textContent = approvedCount;
-  document.getElementById('stat-submitted').textContent = submittedCount;
-  document.getElementById('stat-incomplete').textContent = incompleteCount;
-  
-  // Render departments table
-  const tbody = document.querySelector('#table-admin-depts tbody');
-  tbody.innerHTML = '';
-  
-  state.departments.forEach(d => {
-    const tr = document.createElement('tr');
-    
-    let statusClass = 'recommend-none';
-    if (d.status === 'Approved') statusClass = 'badge-info';
-    else if (d.status === 'Submitted') statusClass = 'recommend-p';
-    else if (d.status === 'Returned for Changes') statusClass = 'recommend-t';
-    
-    tr.innerHTML = `
-      <td><strong>${d.name}</strong></td>
-      <td><span class="badge ${statusClass}">${d.status}</span></td>
-      <td>
-        <span class="text-sm">
-          ${d.hasPassword ? '<span class="text-success"><i class="fa-solid fa-lock"></i> Locked</span>' : '<span class="text-danger"><i class="fa-solid fa-unlock"></i> Unlocked</span>'}
-        </span>
-      </td>
-      <td><span class="text-sm text-muted">${d.comments || 'No comments'}</span></td>
-      <td>
-        <div class="flex-row gap-2">
-          <button class="btn btn-outline btn-xs" onclick="previewDeptTimetable('${d.name}')"><i class="fa-solid fa-eye"></i> View</button>
-          ${d.status === 'Submitted' ? `
-            <button class="btn btn-primary btn-xs" onclick="updateSubStatus('${d.name}', 'Approved')"><i class="fa-solid fa-check"></i> Approve</button>
-            <button class="btn btn-outline btn-xs btn-danger" onclick="promptReturnDept('${d.name}')"><i class="fa-solid fa-rotate-left"></i> Return</button>
-          ` : ''}
-          ${d.status === 'Approved' ? `
-            <button class="btn btn-outline btn-xs" onclick="updateSubStatus('${d.name}', 'Draft')"><i class="fa-solid fa-undo"></i> Revert to Draft</button>
-          ` : ''}
-        </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-// Admin API Actions (Declared globally for onclick access)
-window.previewDeptTimetable = async function(deptName) {
-  await openTimetablePrintModal(deptName);
-};
-
-window.updateSubStatus = async function(deptName, status, comments = '') {
-  try {
-    const res = await fetch(`${API_BASE}/submissions/status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ departmentName: deptName, status, comments })
-    });
-    if (res.ok) {
-      await fetchGlobalData();
-    } else {
-      const err = await res.json();
-      alert('Error updating status: ' + err.message);
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-window.promptReturnDept = function(deptName) {
-  const comments = prompt(`Enter instructions/comments for returning ${deptName}'s timetable:`);
-  if (comments !== null) {
-    window.updateSubStatus(deptName, 'Returned for Changes', comments);
-  }
-};
-
-function renderConfigForm() {
-  document.getElementById('config-year').value = state.config.academicYear;
-  document.getElementById('config-sem-type').value = state.config.semesterType;
-  
-  const container = document.getElementById('semester-labels-container');
-  container.innerHTML = '';
-  
-  // Render mapping list for semesters
-  Object.keys(state.config.semesterLabels).forEach(sem => {
-    const div = document.createElement('div');
-    div.className = 'form-group flex-row gap-2 mt-2';
-    div.innerHTML = `
-      <span class="badge badge-info" style="min-width: 60px;">Sem ${sem}</span>
-      <i class="fa-solid fa-arrow-right text-muted"></i>
-      <input type="text" class="form-control sem-mapping-input" data-sem="${sem}" value="${state.config.semesterLabels[sem]}" style="max-width: 200px;">
-    `;
-    container.appendChild(div);
-  });
-}
-
-function renderPasswordTable() {
-  const tbody = document.querySelector('#table-dept-passwords tbody');
-  tbody.innerHTML = '';
-  
-  state.departments.forEach(d => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${d.name}</strong></td>
-      <td>
-        <input type="text" class="form-control dept-pwd-input" id="pwd-${d.name}" placeholder="Enter department password" style="max-width: 250px;">
-      </td>
-      <td>
-        <button class="btn btn-primary" onclick="saveDeptPassword('${d.name}')"><i class="fa-solid fa-floppy-disk"></i> Save</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-window.saveDeptPassword = async function(deptName) {
-  const pwdInput = document.getElementById(`pwd-${deptName}`);
-  const password = pwdInput.value.trim();
-  if (!password) {
-    alert('Please enter a valid password.');
-    return;
-  }
-  
-  try {
-    const res = await fetch(`${API_BASE}/departments/password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: deptName, password })
-    });
-    if (res.ok) {
-      alert(`Password updated successfully for ${deptName}.`);
-      pwdInput.value = '';
-      await fetchGlobalData();
-    } else {
-      const err = await res.json();
-      alert('Error updating password: ' + err.message);
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-function bindAdminEvents() {
-  // Config form submit
-  document.getElementById('config-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const academicYear = document.getElementById('config-year').value;
-    const semesterType = document.getElementById('config-sem-type').value;
-    
-    const semesterLabels = {};
-    document.querySelectorAll('.sem-mapping-input').forEach(input => {
-      const sem = input.getAttribute('data-sem');
-      semesterLabels[sem] = input.value.trim();
-    });
-    
-    try {
-      const res = await fetch(`${API_BASE}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ academicYear, semesterType, semesterLabels })
-      });
-      if (res.ok) {
-        const successAlert = document.getElementById('config-success');
-        successAlert.textContent = 'Settings saved successfully!';
-        successAlert.classList.remove('hidden');
-        setTimeout(() => successAlert.classList.add('hidden'), 3000);
-        await fetchGlobalData();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  });
-
-  // Excel trigger select
-  document.querySelectorAll('.btn-file-trigger').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetId = btn.getAttribute('data-target');
-      document.getElementById(targetId).click();
-    });
-  });
-
-  // Import Course sheet
-  document.getElementById('import-courses-file').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const status = document.getElementById('courses-upload-status');
-    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Parsing Excel file...';
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      const res = await fetch(`${API_BASE}/import/courses`, {
-        method: 'POST',
-        body: formData
-      });
-      const result = await res.json();
-      if (res.ok) {
-        status.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check"></i> ${result.message}</span>`;
-        await fetchGlobalData();
-        renderImportReport(result.warnings || []);
-      } else {
-        status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> ${result.error}</span>`;
-      }
-    } catch (err) {
-      status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> Error uploading file</span>`;
-    }
-  });
-
-  // Import Staff sheet
-  document.getElementById('import-staff-file').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const status = document.getElementById('staff-upload-status');
-    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Parsing Excel file...';
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    try {
-      const res = await fetch(`${API_BASE}/import/staff`, {
-        method: 'POST',
-        body: formData
-      });
-      const result = await res.json();
-      if (res.ok) {
-        status.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check"></i> ${result.message}</span>`;
-        await fetchGlobalData();
-        renderImportReport(result.warnings || []);
-      } else {
-        status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> ${result.error}</span>`;
-      }
-    } catch (err) {
-      status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> Error uploading file</span>`;
-    }
-  });
-
-  // Data search filter
-  document.getElementById('data-select-dept').addEventListener('change', () => {
-    renderDataManager();
-  });
-
-  // Data management sub-tabs
-  document.querySelectorAll('.tab-sub-item').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-sub-item').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      
-      const subId = btn.getAttribute('data-subtab');
-      document.querySelectorAll('.subtab-pane').forEach(p => {
-        if (p.id === subId) p.classList.remove('hidden');
-        else p.classList.add('hidden');
-      });
-    });
-  });
-}
-
-function renderImportReport(warnings) {
-  const panel = document.getElementById('import-report-card');
-  const list = document.getElementById('import-report-list');
-  list.innerHTML = '';
-  
-  if (warnings.length > 0) {
-    warnings.forEach(w => {
-      const li = document.createElement('li');
-      li.textContent = w;
-      list.appendChild(li);
-    });
-    panel.classList.remove('hidden');
-  } else {
-    panel.classList.add('hidden');
-  }
+  // Hook populateFilters to trigger when loading workspace
+  window.populateFiltersDropdowns = populateFilters;
 }
 
 // -------------------------------------------------------------
-// Data Records Manager (Courses and Faculty Grid)
-// -------------------------------------------------------------
-function renderDataManager() {
-  const selectedDept = document.getElementById('data-select-dept').value;
-  
-  // Populate dropdown once if empty
-  const deptDropdown = document.getElementById('data-select-dept');
-  if (deptDropdown.options.length <= 1) {
-    const deptSet = new Set();
-    state.courses.forEach(c => deptSet.add(c.department));
-    state.faculty.forEach(f => deptSet.add(f.department));
-    
-    Array.from(deptSet).sort().forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      deptDropdown.appendChild(opt);
-    });
-  }
-
-  // Filter lists
-  let filteredCourses = state.courses;
-  let filteredFaculty = state.faculty;
-  if (selectedDept) {
-    filteredCourses = filteredCourses.filter(c => c.department === selectedDept);
-    filteredFaculty = filteredFaculty.filter(f => f.department === selectedDept);
-  }
-
-  document.getElementById('count-courses').textContent = filteredCourses.length;
-  document.getElementById('count-faculty').textContent = filteredFaculty.length;
-
-  // Render Courses
-  const coursesTbody = document.querySelector('#table-manage-courses tbody');
-  coursesTbody.innerHTML = '';
-  filteredCourses.forEach(c => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${c.code}</strong></td>
-      <td>${c.semester}</td>
-      <td>${c.category}</td>
-      <td>
-        <input type="text" class="form-control text-sm" id="cname-${c.code}" value="${c.name}">
-      </td>
-      <td>
-        <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}">
-      </td>
-      <td>
-        <button class="btn btn-outline btn-xs" onclick="saveCourseRecord('${c.code}')"><i class="fa-solid fa-save"></i> Save</button>
-      </td>
-    `;
-    coursesTbody.appendChild(tr);
-  });
-
-  // Render Faculty
-  const facultyTbody = document.querySelector('#table-manage-faculty tbody');
-  facultyTbody.innerHTML = '';
-  filteredFaculty.forEach(f => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${f.staffId}</td>
-      <td><strong>${f.name}</strong></td>
-      <td>${f.department}</td>
-      <td>
-        <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width: 100px;">
-      </td>
-      <td>
-        <button class="btn btn-outline btn-xs" onclick="saveFacultyCode('${f.staffId}')"><i class="fa-solid fa-save"></i> Save</button>
-      </td>
-    `;
-    facultyTbody.appendChild(tr);
-  });
-}
-
-window.saveCourseRecord = async function(code) {
-  const name = document.getElementById(`cname-${code}`).value.trim();
-  const alias = document.getElementById(`calias-${code}`).value.trim();
-  
-  try {
-    const res = await fetch(`${API_BASE}/courses/alias`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, name, alias })
-    });
-    if (res.ok) {
-      alert('Course details updated successfully!');
-      await fetchGlobalData();
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-window.saveFacultyCode = async function(staffId) {
-  const code = document.getElementById(`fcode-${staffId}`).value.trim();
-  
-  try {
-    const res = await fetch(`${API_BASE}/faculty/code`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ staffId, code })
-    });
-    if (res.ok) {
-      alert('Faculty code updated successfully!');
-      await fetchGlobalData();
-      renderDataManager();
-    } else {
-      const err = await res.json();
-      alert('Error updating code: ' + err.message);
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-// -------------------------------------------------------------
-// Workload Analytics Report
-// -------------------------------------------------------------
-async function renderWorkloadSummary() {
-  try {
-    const res = await fetch(`${API_BASE}/reports/workload`);
-    const workloadData = await res.json();
-    
-    const tbody = document.querySelector('#table-workload-summary tbody');
-    tbody.innerHTML = '';
-    
-    workloadData.forEach(row => {
-      // Map courses to readable pills
-      const courseKeys = Object.keys(row.workload);
-      const coursesInfo = courseKeys.map(k => {
-        const item = row.workload[k];
-        return `<span class="badge badge-info" title="${k}">${k} (T:${item.theory}, P:${item.practical})</span>`;
-      }).join(' ');
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${row.staffId}</td>
-        <td><strong>${row.name}</strong></td>
-        <td><span class="fac-pill">${row.code}</span></td>
-        <td>${row.department}</td>
-        <td>${coursesInfo || '<span class="text-muted">None</span>'}</td>
-        <td><strong class="text-primary">${row.totalHours} hrs</strong></td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-// Export Workload summaries to CSV
-document.getElementById('btn-export-workload-csv').addEventListener('click', () => {
-  const table = document.getElementById('table-workload-summary');
-  let csv = [];
-  
-  // Headers
-  const ths = table.querySelectorAll('thead th');
-  csv.push(Array.from(ths).map(th => `"${th.textContent}"`).join(','));
-  
-  // Rows
-  const trs = table.querySelectorAll('tbody tr');
-  trs.forEach(tr => {
-    const tds = tr.querySelectorAll('td');
-    const rowValues = Array.from(tds).map(td => {
-      // Clean tags out of cells
-      return `"${td.textContent.replace(/[\n\r]+/g, ' ').trim()}"`;
-    });
-    csv.push(rowValues.join(','));
-  });
-  
-  const csvContent = "data:text/csv;charset=utf-8," + csv.join("\n");
-  const encodedUri = encodeURI(csvContent);
-  const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
-  link.setAttribute("download", `Faculty_Workload_Report_${state.config.academicYear}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-});
-
-// -------------------------------------------------------------
-// Department Workspace View
+// Department Workspace
 // -------------------------------------------------------------
 async function loadDepartmentWorkspace() {
   const deptName = state.currentUser.departmentName;
   document.getElementById('dept-title-name').textContent = `Department of ${deptName}`;
   
-  // Fetch department allocations
   try {
     const res = await fetch(`${API_BASE}/allocations?department=${deptName}`);
     state.allocations = await res.json();
     
-    // Refresh status badge
     updateDeptStatusBadge();
-    
-    // Render Day Matrix
+    window.populateFiltersDropdowns();
     renderAllocationMatrix();
-    
-    // Render Workload live tracker
     updateDeptLiveWorkloadTracker();
+    renderDeptDataEditors();
   } catch (err) {
-    console.error('Failed to load department workspace:', err);
+    console.error(err);
   }
 }
 
@@ -747,7 +311,7 @@ function updateDeptStatusBadge() {
 }
 
 function bindDeptEvents() {
-  // Weekday tabs click listener
+  // Day tab switch
   document.querySelectorAll('.weekday-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.weekday-tab').forEach(t => t.classList.remove('active'));
@@ -757,165 +321,373 @@ function bindDeptEvents() {
     });
   });
 
-  // Save Draft
-  document.getElementById('btn-save-draft').addEventListener('click', async () => {
-    await saveDepartmentAllocations(false);
+  // Toggle Grid View Mode (Single Day vs Full Week)
+  document.getElementById('btn-toggle-grid-mode').addEventListener('click', () => {
+    const btn = document.getElementById('btn-toggle-grid-mode');
+    const daySelector = document.getElementById('weekday-selector-wrapper');
+    const fullWeekHeader = document.getElementById('full-week-header-label');
+    
+    if (state.viewMode === 'day') {
+      state.viewMode = 'week';
+      btn.innerHTML = '<i class="fa-solid fa-calendar-day"></i> Switch to Day View';
+      daySelector.style.display = 'none';
+      fullWeekHeader.style.display = 'block';
+    } else {
+      state.viewMode = 'day';
+      btn.innerHTML = '<i class="fa-solid fa-table-cells"></i> Switch to Full Week View';
+      daySelector.style.display = 'flex';
+      fullWeekHeader.style.display = 'none';
+    }
+    renderAllocationMatrix();
   });
 
-  // Submit timetable
-  document.getElementById('btn-submit-timetable').addEventListener('click', async () => {
-    await saveDepartmentAllocations(true);
+  // Department Sub-tabs for inline editors
+  document.querySelectorAll('.tab-sub-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-sub-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      const subId = btn.getAttribute('data-subtab');
+      document.querySelectorAll('.subtab-pane').forEach(p => {
+        if (p.id === subId) p.classList.remove('hidden');
+        else p.classList.add('hidden');
+      });
+    });
   });
 
-  // Preview Print Timetable
+  // Bottom action buttons
+  document.getElementById('btn-save-draft').addEventListener('click', () => {
+    saveDepartmentAllocations(false);
+  });
+  document.getElementById('btn-submit-timetable').addEventListener('click', () => {
+    saveDepartmentAllocations(true);
+  });
   document.getElementById('btn-preview-timetable').addEventListener('click', () => {
-    openTimetablePrintModal(state.currentUser.departmentName);
+    openTimetablePrintPreview(state.currentUser.departmentName);
+  });
+
+  // Save All buttons
+  document.getElementById('btn-save-all-courses').addEventListener('click', async () => {
+    const deptName = state.currentUser.departmentName;
+    const deptCourses = state.courses.filter(c => c.department === deptName);
+    const coursesToSave = deptCourses.map(c => {
+      const name = document.getElementById(`cname-${c.code}`).value.trim();
+      const alias = document.getElementById(`calias-${c.code}`).value.trim();
+      return { code: c.code, name, alias };
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/courses/alias/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courses: coursesToSave, departmentName: deptName })
+      });
+      if (res.ok) {
+        showModalAlert('Success', 'All course details updated successfully!', 'success');
+        await fetchGlobalData();
+        renderAllocationMatrix();
+        renderDeptDataEditors();
+      } else {
+        const err = await res.json();
+        showModalAlert('Error', err.message || 'Failed to update courses.', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showModalAlert('Error', 'Failed to communicate with server.', 'danger');
+    }
+  });
+
+  document.getElementById('btn-save-all-faculty').addEventListener('click', async () => {
+    const deptName = state.currentUser.departmentName;
+    const deptFaculty = state.faculty.filter(f => f.department === deptName);
+    const facultyToSave = deptFaculty.map(f => {
+      const code = document.getElementById(`fcode-${f.staffId}`).value.trim();
+      return { staffId: f.staffId, code };
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/faculty/code/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ faculty: facultyToSave, departmentName: deptName })
+      });
+      if (res.ok) {
+        showModalAlert('Success', 'All faculty initials codes updated successfully!', 'success');
+        await fetchGlobalData();
+        renderAllocationMatrix();
+        renderDeptDataEditors();
+        updateDeptLiveWorkloadTracker();
+      } else {
+        const err = await res.json();
+        showModalAlert('Error', err.message || 'Failed to update faculty codes.', 'danger');
+      }
+    } catch (err) {
+      console.error(err);
+      showModalAlert('Error', 'Failed to communicate with server.', 'danger');
+    }
   });
 }
 
-// Render Compact Day-Wise Allocation Grid
+
+// Dynamic Row Merge Layout & Matrix Compiler
 function renderAllocationMatrix() {
   const deptName = state.currentUser.departmentName;
-  const day = state.selectedDay;
   const periods = state.config.periods;
-  
-  // Filter courses for this department
-  const deptCourses = state.courses.filter(c => c.department === deptName);
-  // Filter faculty for this department
-  const deptFaculty = state.faculty.filter(f => f.department === deptName);
-  
   const table = document.getElementById('table-allocation-matrix');
   const thead = table.querySelector('thead');
   const tbody = table.querySelector('tbody');
   
-  // 1. Build Header
-  let headerHtml = `
-    <tr>
-      <th style="min-width: 120px; text-align: left;">Course Code</th>
-      <th style="min-width: 150px; text-align: left;">Alias / Course Name</th>
-      <th style="width: 80px;">Sem.</th>
-      <th style="width: 80px;">Category</th>
-  `;
-  periods.forEach(p => {
-    headerHtml += `<th style="width: 120px;">${p}</th>`;
-  });
-  headerHtml += `</tr>`;
-  thead.innerHTML = headerHtml;
-
-  // 2. Build rows
-  tbody.innerHTML = '';
+  // Clean table styling
+  table.className = 'table table-grid';
   
-  if (deptCourses.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${periods.length + 4}" class="text-center text-muted">No courses loaded. Import structure Excel in Admin Panel first.</td></tr>`;
-    return;
+  // Filter courses for this department
+  let deptCourses = state.courses.filter(c => c.department === deptName);
+  
+  // Apply Dropdown Filters
+  if (state.filters.semester) {
+    deptCourses = deptCourses.filter(c => c.semester === state.filters.semester);
+  }
+  if (state.filters.category) {
+    deptCourses = deptCourses.filter(c => c.category === state.filters.category);
   }
 
-  deptCourses.forEach(course => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td style="text-align: left;"><strong>${course.code}</strong></td>
-      <td style="text-align: left;"><span class="badge badge-info">${course.alias || course.code}</span> <span class="text-sm text-muted block">${course.name}</span></td>
-      <td>${course.semester}</td>
-      <td>${course.category}</td>
-    `;
+  // Merge theory (-T) and practical (-P) courses sharing same base code into unique list
+  const baseCourseCodes = Array.from(new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '')))).sort();
+
+  // -----------------------------------------------------------
+  // CASE A: FULL WEEK VIEW (30 period columns)
+  // -----------------------------------------------------------
+  if (state.viewMode === 'week') {
+    table.classList.add('full-week-mode');
+    const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    const weekdaysShort = ["MON", "TUE", "WED", "THU", "FRI"];
     
-    // Add inputs for each period slot
-    periods.forEach(p => {
-      const td = document.createElement('td');
-      
-      // Check if this period represents a static Lunch Break
-      if (p.toUpperCase() === 'LB') {
-        td.className = 'slot-lb';
-        td.textContent = 'LB';
-        tr.appendChild(td);
-        return;
-      }
-
-      // Check recommendation tags (T/P)
-      const rec = (course.recommendations[day] && course.recommendations[day][p]) || '';
-      let highlightClass = 'slot-recommend-none';
-      let slotLabel = '';
-      if (rec === 'T') {
-        highlightClass = 'slot-recommend-t';
-        slotLabel = 'Theory Rec';
-      } else if (rec === 'P') {
-        highlightClass = 'slot-recommend-p';
-        slotLabel = 'Practical Rec';
-      }
-      
-      // Determine if currently allocated
-      const currentAssigned = (state.allocations[course.code] && state.allocations[course.code][day] && state.allocations[course.code][day][p]) || [];
-
-      td.className = `slot-interactive ${highlightClass}`;
-      
-      // Dynamic rendering of dropdown choices and active tags
-      let selectOptions = `<option value="">+ Assign</option>`;
-      deptFaculty.forEach(f => {
-        const isSelected = currentAssigned.includes(f.code) ? 'disabled' : '';
-        selectOptions += `<option value="${f.code}" ${isSelected}>${f.code} - ${f.name}</option>`;
+    // Build headers double row
+    let headerRow1 = `<tr><th rowspan="2" style="min-width:110px; text-align:left;">Course Code</th><th rowspan="2" style="min-width:160px; text-align:left;">Course Name / Alias</th>`;
+    let headerRow2 = `<tr>`;
+    
+    weekdays.forEach((day, dIdx) => {
+      // Calculate period count to set colspan
+      headerRow1 += `<th colspan="${periods.length}" style="border-bottom:2px solid var(--primary);">${weekdaysShort[dIdx]}</th>`;
+      periods.forEach(p => {
+        headerRow2 += `<th>${p}</th>`;
       });
-
-      let assignedBadgesHtml = '';
-      currentAssigned.forEach(facCode => {
-        assignedBadgesHtml += `
-          <span class="fac-pill">
-            ${facCode}
-            <i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${course.code}', '${day}', '${p}', '${facCode}')"></i>
-          </span>
-        `;
-      });
-
-      td.innerHTML = `
-        <div class="cell-slot" onclick="activateSlot(this)">
-          <div class="cell-info text-sm bold text-muted">${slotLabel}</div>
-          <div class="cell-select-wrapper hidden">
-            <select class="slot-select" onchange="assignFaculty(this, '${course.code}', '${day}', '${p}')">
-              ${selectOptions}
-            </select>
-          </div>
-          <div class="cell-assigned-box">
-            ${assignedBadgesHtml}
-          </div>
-        </div>
-      `;
-      tr.appendChild(td);
     });
-    tbody.appendChild(tr);
-  });
+    headerRow1 += `</tr>`;
+    headerRow2 += `</tr>`;
+    thead.innerHTML = headerRow1 + headerRow2;
+
+    tbody.innerHTML = '';
+    if (baseCourseCodes.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${5 * periods.length + 2}" class="text-center text-muted">No courses found matching active filters.</td></tr>`;
+      return;
+    }
+
+    baseCourseCodes.forEach(baseCode => {
+      const { courseT, courseP, dispName, dispAlias, sem, cat } = getMergedCourseInfo(baseCode, deptCourses);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="text-align:left;"><strong>${baseCode}</strong></td>
+        <td style="text-align:left;">
+          <span class="badge badge-info">${dispAlias}</span>
+          <div class="text-sm bold text-muted">${dispName}</div>
+        </td>
+      `;
+
+      // Render cells sequentially for MON-FRI and P1-P6
+      weekdays.forEach(day => {
+        periods.forEach(p => {
+          const td = document.createElement('td');
+          if (p.toUpperCase() === 'LB') {
+            td.className = 'slot-lb';
+            td.textContent = 'LB';
+            tr.appendChild(td);
+            return;
+          }
+
+          const cellHtml = renderCellSlot(baseCode, courseT, courseP, day, p);
+          td.className = cellHtml.classes;
+          td.innerHTML = cellHtml.html;
+          tr.appendChild(td);
+        });
+      });
+
+      tbody.appendChild(tr);
+    });
+
+  // -----------------------------------------------------------
+  // CASE B: SINGLE DAY VIEW
+  // -----------------------------------------------------------
+  } else {
+    // 1. Build Header
+    let headerHtml = `
+      <tr>
+        <th style="min-width:120px; text-align:left;">Course Code</th>
+        <th style="min-width:180px; text-align:left;">Course Name / Alias</th>
+        <th style="width:70px;">Sem.</th>
+        <th style="width:80px;">Category</th>
+    `;
+    periods.forEach(p => {
+      headerHtml += `<th style="width:120px;">${p}</th>`;
+    });
+    headerHtml += `</tr>`;
+    thead.innerHTML = headerHtml;
+
+    tbody.innerHTML = '';
+    if (baseCourseCodes.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${periods.length + 4}" class="text-center text-muted">No courses found matching active filters.</td></tr>`;
+      return;
+    }
+
+    baseCourseCodes.forEach(baseCode => {
+      const { courseT, courseP, dispName, dispAlias, sem, cat } = getMergedCourseInfo(baseCode, deptCourses);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="text-align:left;"><strong>${baseCode}</strong></td>
+        <td style="text-align:left;">
+          <span class="badge badge-info">${dispAlias}</span>
+          <div class="text-sm bold text-muted">${dispName}</div>
+        </td>
+        <td>${sem}</td>
+        <td>${cat}</td>
+      `;
+
+      periods.forEach(p => {
+        const td = document.createElement('td');
+        if (p.toUpperCase() === 'LB') {
+          td.className = 'slot-lb';
+          td.textContent = 'LB';
+          tr.appendChild(td);
+          return;
+        }
+
+        const cellHtml = renderCellSlot(baseCode, courseT, courseP, state.selectedDay, p);
+        td.className = cellHtml.classes;
+        td.innerHTML = cellHtml.html;
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
 }
 
-// Slot click activator (reveals dropdown on selection)
+// Merges data representation of -T and -P suffixes
+function getMergedCourseInfo(baseCode, deptCourses) {
+  const courseT = deptCourses.find(c => c.code === `${baseCode}-T`);
+  const courseP = deptCourses.find(c => c.code === `${baseCode}-P`);
+  
+  const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-' };
+  
+  return {
+    courseT,
+    courseP,
+    dispName: activeCourse.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, ''),
+    dispAlias: (activeCourse.alias || baseCode).replace(/-(T|P)$/, ''),
+    sem: activeCourse.semester,
+    cat: activeCourse.category
+  };
+}
+
+
+// Renders the interactive contents of a grid cell
+function renderCellSlot(baseCode, courseT, courseP, day, period) {
+  // Determine if there is a recommendation for Theory or Practical on this day/period
+  const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
+  const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
+  
+  let highlightClass = 'slot-recommend-none';
+  let slotLabel = '';
+  let activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
+
+  if (recT === 'T') {
+    highlightClass = 'slot-recommend-t';
+    slotLabel = 'Theory Rec';
+    activeCourseCode = courseT.code;
+  } else if (recP === 'P') {
+    highlightClass = 'slot-recommend-p';
+    slotLabel = 'Practical Rec';
+    activeCourseCode = courseP.code;
+  } else {
+    // Non-recommended slots: we save to -T by default, or fallback to -P
+    activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
+  }
+
+  // Load active assigned codes for this slot (merging allocations from both suffixes if any)
+  const assignedT = (courseT && state.allocations[courseT.code] && state.allocations[courseT.code][day] && state.allocations[courseT.code][day][period]) || [];
+  const assignedP = (courseP && state.allocations[courseP.code] && state.allocations[courseP.code][day] && state.allocations[courseP.code][day][period]) || [];
+  const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
+
+  // Populate dropdown items
+  const deptFaculty = state.faculty.filter(f => f.department === state.currentUser.departmentName);
+  let selectOptions = `<option value="">+ Assign</option>`;
+  deptFaculty.forEach(f => {
+    const isSelected = mergedAssigned.includes(f.code) ? 'disabled' : '';
+    selectOptions += `<option value="${f.code}" ${isSelected}>${f.code}</option>`;
+  });
+
+  // Render assigned pills with dark red crosses and tooltips
+  let pillsHtml = '';
+  mergedAssigned.forEach(facCode => {
+    const facObj = state.faculty.find(f => f.code === facCode);
+    const fullName = facObj ? facObj.name : facCode;
+    
+    // Detect which course code holds this allocation to allow clean delete
+    let targetCode = activeCourseCode;
+    if (courseT && assignedT.includes(facCode)) targetCode = courseT.code;
+    else if (courseP && assignedP.includes(facCode)) targetCode = courseP.code;
+
+    pillsHtml += `
+      <span class="fac-pill" title="Faculty Name: ${fullName}">
+        ${facCode}
+        <i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>
+      </span>
+    `;
+  });
+
+  const classes = `slot-interactive ${highlightClass}`;
+  const html = `
+    <div class="cell-slot" onclick="activateSlot(this)">
+      <div class="cell-info text-sm bold text-muted">${slotLabel}</div>
+      <div class="cell-select-wrapper hidden">
+        <select class="slot-select" onchange="assignFaculty(this, '${activeCourseCode}', '${day}', '${period}')">
+          ${selectOptions}
+        </select>
+      </div>
+      <div class="cell-assigned-box">
+        ${pillsHtml}
+      </div>
+    </div>
+  `;
+
+  return { classes, html };
+}
+
 window.activateSlot = function(container) {
-  // Grey slots are disabled until explicit click confirmation
   const cell = container.closest('td');
   if (cell.classList.contains('slot-recommend-none')) {
     if (!cell.classList.contains('slot-active')) {
-      const confirmEdit = confirm("This is a non-recommended timetable slot. Are you sure you want to assign faculty here?");
-      if (!confirmEdit) return;
-      cell.classList.add('slot-active');
+      showModalConfirm(
+        'Unlock Slot?', 
+        'This is a non-recommended timetable slot. Are you sure you want to unlock it for allocation?', 
+        () => {
+          cell.classList.add('slot-active');
+          container.querySelector('.cell-select-wrapper').classList.remove('hidden');
+        }
+      );
+      return;
     }
   }
-  
-  const selectWrapper = container.querySelector('.cell-select-wrapper');
-  selectWrapper.classList.remove('hidden');
+  container.querySelector('.cell-select-wrapper').classList.remove('hidden');
 };
 
-// Handle Faculty Assignment
 window.assignFaculty = async function(selectEl, courseCode, day, period) {
   const facultyCode = selectEl.value;
   if (!facultyCode) return;
   
   const deptName = state.currentUser.departmentName;
   
-  // 1. Get current assignments for this slot
-  if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-  if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
-  if (!state.allocations[courseCode][day][period]) state.allocations[courseCode][day][period] = [];
-  
-  const currentList = [...state.allocations[courseCode][day][period]];
-  currentList.push(facultyCode);
-
-  // 2. Validate clash against server
+  // Verify clash
   try {
     const res = await fetch(`${API_BASE}/allocations/validate`, {
       method: 'POST',
@@ -931,17 +703,24 @@ window.assignFaculty = async function(selectEl, courseCode, day, period) {
     const validation = await res.json();
     
     if (!validation.valid) {
-      // Clash detected! Play error actions
       const conf = validation.conflicts[0];
-      alert(`[CLASH ERROR] Hard validation rule violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to course '${conf.clashingCourseName}' (${conf.clashingCourseCode}) on ${day} Period ${period} in department ${conf.department}.`);
+      showModalAlert(
+        'Hard Booking Clash!', 
+        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '')}) on ${day} Period ${period} in department ${conf.department}.`,
+        'danger'
+      );
       selectEl.value = '';
       return;
     }
 
-    // No clash! Save locally
-    state.allocations[courseCode][day][period] = currentList;
+    // Save locally
+    if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+    if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
+    if (!state.allocations[courseCode][day][period]) state.allocations[courseCode][day][period] = [];
     
-    // 3. Trigger Auto-fill behavior for recommendations
+    state.allocations[courseCode][day][period].push(facultyCode);
+    
+    // Auto-fill triggers
     const course = state.courses.find(c => c.code === courseCode);
     const recType = (course.recommendations[day] && course.recommendations[day][period]) || '';
     if (recType === 'T' || recType === 'P') {
@@ -955,7 +734,6 @@ window.assignFaculty = async function(selectEl, courseCode, day, period) {
   }
 };
 
-// Handle unassign faculty
 window.unassignFaculty = function(courseCode, day, period, facultyCode) {
   if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
@@ -964,7 +742,7 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
   }
 };
 
-// Auto-fill confirmation dialog
+// Auto fill logic
 let autoFillContext = null;
 function showAutoFillPrompt(courseCode, type, facultyCode) {
   autoFillContext = { courseCode, type, facultyCode };
@@ -977,14 +755,12 @@ document.getElementById('btn-autofill-all').addEventListener('click', () => {
   if (autoFillContext) {
     const { courseCode, type, facultyCode } = autoFillContext;
     const course = state.courses.find(c => c.code === courseCode);
-    
-    // Check all weekdays and periods for recommended type slots
     const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    
     weekdays.forEach(d => {
       const recs = course.recommendations[d] || {};
       Object.keys(recs).forEach(p => {
         if (recs[p] === type) {
-          // Verify no clash exists before auto-filling
           const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
           if (!hasClash) {
             if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
@@ -1013,7 +789,6 @@ function closeAutoFill() {
   updateDeptLiveWorkloadTracker();
 }
 
-// Local clash check before applying autofills
 function checkLocalClash(facultyCode, day, period, excludeCourseCode) {
   for (const courseCode of Object.keys(state.allocations)) {
     if (courseCode === excludeCourseCode) continue;
@@ -1025,45 +800,39 @@ function checkLocalClash(facultyCode, day, period, excludeCourseCode) {
   return false;
 }
 
-// Department Live workload counter
+// Live Workload count
 function updateDeptLiveWorkloadTracker() {
   const deptName = state.currentUser.departmentName;
   const deptFaculty = state.faculty.filter(f => f.department === deptName);
-  
   const container = document.getElementById('dept-live-workload');
   container.innerHTML = '';
 
   deptFaculty.forEach(f => {
-    // Calculate total hours allocated to this faculty
     let hours = 0;
     Object.keys(state.allocations).forEach(courseCode => {
       const days = state.allocations[courseCode];
       Object.keys(days).forEach(day => {
         Object.keys(days[day]).forEach(p => {
-          if (days[day][p] && days[day][p].includes(f.code)) {
-            hours++;
-          }
+          if (days[day][p] && days[day][p].includes(f.code)) hours++;
         });
       });
     });
 
-    const pill = document.createElement('div');
-    pill.className = 'workload-pill';
-    pill.innerHTML = `
-      <span class="fac-code">${f.code}</span>
-      <span class="fac-hours">${hours} hrs</span>
+    container.innerHTML += `
+      <div class="workload-pill">
+        <span class="fac-code">${f.code}</span>
+        <span class="fac-hours">${hours} hrs</span>
+      </div>
     `;
-    container.appendChild(pill);
   });
 }
 
-// Save or submit database updates
+// Save or submit allocations
 async function saveDepartmentAllocations(isSubmission = false) {
   const deptName = state.currentUser.departmentName;
   
-  // 1. Dry run submit check
   if (isSubmission) {
-    // Find missing recommendations warning
+    // Missing allocations warnings check
     const missing = [];
     const deptCourses = state.courses.filter(c => c.department === deptName);
     
@@ -1074,19 +843,27 @@ async function saveDepartmentAllocations(isSubmission = false) {
         Object.keys(recs).forEach(p => {
           const alloc = (state.allocations[course.code] && state.allocations[course.code][day] && state.allocations[course.code][day][p]) || [];
           if (alloc.length === 0) {
-            missing.push(`${course.code} alias '${course.alias}' requires allocation on ${day} Period ${p}`);
+            missing.push(`${course.code.replace(/-(T|P)$/, '')} alias '${(course.alias || course.code).replace(/-(T|P)$/, '')}' requires allocation on ${day} Period ${p}`);
           }
         });
       });
     });
 
     if (missing.length > 0) {
-      const proceed = confirm(`[SUBMIT WARNING] Some recommended slots are missing allocations:\n\n${missing.slice(0,5).join('\n')}\n${missing.length > 5 ? '... and ' + (missing.length - 5) + ' more' : ''}\n\nDo you still want to proceed with submission?`);
-      if (!proceed) return;
+      showModalConfirm(
+        'Missing Recommended Slots', 
+        `Some recommended slots are missing allocations:\n\n${missing.slice(0, 4).join('\n')}\n${missing.length > 4 ? '... and ' + (missing.length - 4) + ' more' : ''}\n\nDo you want to proceed with submission?`,
+        () => executeSave(isSubmission)
+      );
+      return;
     }
   }
 
-  // 2. Save allocations to backend
+  executeSave(isSubmission);
+}
+
+async function executeSave(isSubmission) {
+  const deptName = state.currentUser.departmentName;
   try {
     const saveRes = await fetch(`${API_BASE}/allocations`, {
       method: 'POST',
@@ -1099,11 +876,10 @@ async function saveDepartmentAllocations(isSubmission = false) {
     const result = await saveRes.json();
     
     if (!saveRes.ok) {
-      alert('Failed to save allocation data: ' + result.message);
+      showModalAlert('Clash Error', 'Save aborted: ' + result.message, 'danger');
       return;
     }
 
-    // 3. Update submission status if submitting
     if (isSubmission) {
       const subRes = await fetch(`${API_BASE}/submissions/status`, {
         method: 'POST',
@@ -1111,15 +887,15 @@ async function saveDepartmentAllocations(isSubmission = false) {
         body: JSON.stringify({
           departmentName: deptName,
           status: 'Submitted',
-          comments: 'Timetable submitted by coordinator.'
+          comments: 'Timetable submitted by department coordinator.'
         })
       });
       if (subRes.ok) {
-        alert('Timetable submitted successfully!');
+        showModalAlert('Timetable Submitted', 'Your timetable schedule has been submitted for Admin approval.', 'success');
         await loadDepartmentWorkspace();
       }
     } else {
-      alert('Draft saved successfully!');
+      showModalAlert('Draft Saved', 'Your draft changes have been successfully saved on the server.', 'success');
     }
   } catch (err) {
     console.error(err);
@@ -1127,15 +903,118 @@ async function saveDepartmentAllocations(isSubmission = false) {
 }
 
 // -------------------------------------------------------------
-// Timetable Print Center (Dynamic Layout Builder)
+// Inline Editors (Shuffled from Admin Panel to Department View)
 // -------------------------------------------------------------
+function renderDeptDataEditors() {
+  const deptName = state.currentUser.departmentName;
+  const deptCourses = state.courses.filter(c => c.department === deptName);
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+
+  document.getElementById('count-dept-courses').textContent = deptCourses.length;
+  document.getElementById('count-dept-faculty').textContent = deptFaculty.length;
+
+  // Render Courses Edit list
+  const coursesTbody = document.querySelector('#table-dept-courses tbody');
+  coursesTbody.innerHTML = '';
+  deptCourses.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${c.code.replace(/-(T|P)$/, '')}</strong></td>
+      <td>${c.semester}</td>
+      <td>${c.category}</td>
+      <td>
+        <input type="text" class="form-control text-sm" id="cname-${c.code}" value="${c.name}">
+      </td>
+      <td>
+        <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}">
+      </td>
+      <td>
+        <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')"><i class="fa-solid fa-save"></i> Save</button>
+      </td>
+    `;
+    coursesTbody.appendChild(tr);
+  });
+
+  // Render Faculty Edit list
+  const facultyTbody = document.querySelector('#table-dept-faculty tbody');
+  facultyTbody.innerHTML = '';
+  deptFaculty.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${f.staffId}</td>
+      <td><strong>${f.name}</strong></td>
+      <td>
+        <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width:120px;">
+      </td>
+      <td>
+        <button class="btn btn-outline btn-xs" onclick="saveDeptFacultyCode('${f.staffId}')"><i class="fa-solid fa-save"></i> Save</button>
+      </td>
+    `;
+    facultyTbody.appendChild(tr);
+  });
+}
+
+window.saveDeptCourseRecord = async function(code) {
+  const name = document.getElementById(`cname-${code}`).value.trim();
+  const alias = document.getElementById(`calias-${code}`).value.trim();
+  const deptName = state.currentUser.departmentName;
+  
+  try {
+    const res = await fetch(`${API_BASE}/courses/alias`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, name, alias, departmentName: deptName })
+    });
+    if (res.ok) {
+      showModalAlert('Success', 'Course details updated successfully!', 'success');
+      await fetchGlobalData();
+      renderAllocationMatrix();
+      renderDeptDataEditors();
+    } else {
+      const err = await res.json();
+      showModalAlert('Error', err.message, 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+window.saveDeptFacultyCode = async function(staffId) {
+  const code = document.getElementById(`fcode-${staffId}`).value.trim();
+  const deptName = state.currentUser.departmentName;
+  
+  try {
+    const res = await fetch(`${API_BASE}/faculty/code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staffId, code, departmentName: deptName })
+    });
+    if (res.ok) {
+      showModalAlert('Success', 'Faculty initials code updated.', 'success');
+      await fetchGlobalData();
+      renderAllocationMatrix();
+      renderDeptDataEditors();
+      updateDeptLiveWorkloadTracker();
+    } else {
+      const err = await res.json();
+      showModalAlert('Conflict Error', err.message, 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+// -------------------------------------------------------------
+// Print Preview timetime modal
+// -------------------------------------------------------------
+let activePrintDept = "";
+
 function bindPrintEvents() {
   document.getElementById('btn-close-print-modal').addEventListener('click', () => {
     document.getElementById('modal-print-preview').classList.add('hidden');
   });
   
   document.getElementById('print-mode-select').addEventListener('change', () => {
-    // Re-render based on selected mode
     buildPrintTimetableHtml(document.getElementById('print-mode-select').value);
   });
   
@@ -1148,95 +1027,51 @@ function bindPrintEvents() {
   });
 }
 
-let activePrintDept = "";
-
-async function openTimetablePrintModal(deptName) {
+function openTimetablePrintPreview(deptName) {
   activePrintDept = deptName;
   document.getElementById('print-dept-name').textContent = `DEPARTMENT OF ${deptName}`;
   document.getElementById('print-active-sem').textContent = `${state.config.semesterType} SEMESTER`;
   document.getElementById('print-active-year').textContent = state.config.academicYear;
   
-  // Build Grid HTML
   buildPrintTimetableHtml('medium');
-  
   document.getElementById('modal-print-preview').classList.remove('hidden');
 }
 
-// Parallel Rows Grid Algorithm (groups by category, places parallel courses on sub-rows)
 function buildPrintTimetableHtml(displayMode) {
   const periods = state.config.periods;
   const table = document.getElementById('print-grid-table');
   const thead = table.querySelector('thead');
   const tbody = table.querySelector('tbody');
   
-  // 1. Build Header
-  let headerHtml = `
+  thead.innerHTML = `
     <tr>
       <th style="width: 80px;">Day</th>
       <th style="width: 100px; text-align: left;">Class/Semester</th>
+      ${periods.map(p => `<th>${p}</th>`).join('')}
+    </tr>
   `;
-  periods.forEach(p => {
-    headerHtml += `<th>${p}</th>`;
-  });
-  headerHtml += `</tr>`;
-  thead.innerHTML = headerHtml;
 
-  // Fetch all courses and allocations of department
   const deptCourses = state.courses.filter(c => c.department === activePrintDept);
-  
-  // We need to fetch allocations for this department
-  // If the active user is not this department, fetch it asynchronously
-  let deptAllocations = state.allocations;
-  if (state.currentUser.role === 'admin' || state.currentUser.departmentName !== activePrintDept) {
-    // In admin mode or previewing other departments
-    deptAllocations = {};
-    // Load allocations from global fetch or server
-    fetchAllocationsForPrint(displayMode);
-    return;
-  }
-  
-  renderPrintGridRows(deptCourses, deptAllocations, periods, displayMode, tbody);
+  renderPrintGridRows(deptCourses, state.allocations, periods, displayMode, tbody);
 }
 
-async function fetchAllocationsForPrint(displayMode) {
-  try {
-    const res = await fetch(`${API_BASE}/allocations?department=${activePrintDept}`);
-    const allocs = await res.json();
-    const deptCourses = state.courses.filter(c => c.department === activePrintDept);
-    const periods = state.config.periods;
-    const tbody = document.querySelector('#print-grid-table tbody');
-    renderPrintGridRows(deptCourses, allocs, periods, displayMode, tbody);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-// Maps course semester label and category to output row categories
 function getTimetableRowCategory(course) {
   const semLabel = state.config.semesterLabels[course.semester] || `${course.semester} Sem`;
-  
-  // If course contains MSC/M.Sc (case-insensitive) in course code or pathway
   if (course.code.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('POST GRADUATE')) {
     return semLabel + " MSC";
   }
-
-  // If course is minor
   if (course.category.toUpperCase().includes('MINOR')) {
     return semLabel + " MINOR";
   }
-  
-  // Default to semLabel + BSC
   return semLabel + " BSC";
 }
 
 function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) {
   tbody.innerHTML = '';
-  
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   const weekdayShort = { "MONDAY": "MON", "TUESDAY": "TUES", "WEDNESDAY": "WED", "THURSDAY": "THUR", "FRIDAY": "FRI" };
 
   weekdays.forEach(day => {
-    // 1. Group courses by row category for this day
     const categoriesMap = {};
     courses.forEach(c => {
       const cat = getTimetableRowCategory(c);
@@ -1244,9 +1079,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
       categoriesMap[cat].push(c);
     });
 
-    // We sort categories so major BSC classes are first, MSC second, Minors third
     const categories = Object.keys(categoriesMap).sort((a, b) => {
-      // Sort priority: MSC first, BSC second, MINOR third
       const getPriority = (x) => {
         if (x.includes("MSC")) return 1;
         if (x.includes("BSC")) return 2;
@@ -1256,35 +1089,27 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
       return getPriority(a) - getPriority(b) || a.localeCompare(b);
     });
 
-    // Calculate total rows needed for this weekday to set the day merged column rowspan
     let weekdayTotalRows = 0;
-    const categoryLayouts = {}; // Maps category -> list of sub-rows (each sub-row is a map of period -> courseAllocText)
+    const categoryLayouts = {};
 
     categories.forEach(cat => {
       const catCourses = categoriesMap[cat];
-      
-      // We perform interval scheduling (bin packing) to arrange parallel courses in minimum sub-rows
-      const subRows = []; // Array of sub-row grids: each grid is a map of period -> courseAllocationText
+      const subRows = [];
 
       catCourses.forEach(course => {
-        // Collect periods where this course has allocation
         const coursePeriods = [];
         periods.forEach(p => {
           if (p.toUpperCase() === 'LB') return;
           const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-          if (assigned.length > 0) {
-            coursePeriods.push(p);
-          }
+          if (assigned.length > 0) coursePeriods.push(p);
         });
 
-        if (coursePeriods.length === 0) return; // No allocation on this day, skip course
+        if (coursePeriods.length === 0) return;
 
-        // Find the first sub-row where there are no period clashes
         let placed = false;
         for (let r = 0; r < subRows.length; r++) {
           const hasClash = coursePeriods.some(p => !!subRows[r][p]);
           if (!hasClash) {
-            // Place in this sub-row
             coursePeriods.forEach(p => {
               subRows[r][p] = formatAllocationCell(course, day, p, allocations, displayMode);
             });
@@ -1294,7 +1119,6 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         }
 
         if (!placed) {
-          // Create new sub-row
           const newRow = {};
           coursePeriods.forEach(p => {
             newRow[p] = formatAllocationCell(course, day, p, allocations, displayMode);
@@ -1303,23 +1127,16 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         }
       });
 
-      // If category has no allocations at all, we render a single empty row for it
-      if (subRows.length === 0) {
-        subRows.push({});
-      }
-
+      if (subRows.length === 0) subRows.push({});
       categoryLayouts[cat] = subRows;
       weekdayTotalRows += subRows.length;
     });
 
-    // 2. Render HTML rows
     categories.forEach((cat, catIdx) => {
       const subRows = categoryLayouts[cat];
-      
       subRows.forEach((srow, sidx) => {
         const tr = document.createElement('tr');
         
-        // Merge Day column for first row of the weekday
         if (catIdx === 0 && sidx === 0) {
           const tdDay = document.createElement('td');
           tdDay.rowSpan = weekdayTotalRows;
@@ -1328,7 +1145,6 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           tr.appendChild(tdDay);
         }
 
-        // Merge Class/Semester column for first row of the category
         if (sidx === 0) {
           const tdClass = document.createElement('td');
           tdClass.rowSpan = subRows.length;
@@ -1337,79 +1153,61 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           tr.appendChild(tdClass);
         }
 
-        // Add period cells
         periods.forEach(p => {
           const td = document.createElement('td');
-          
           if (p.toUpperCase() === 'LB') {
             td.className = 'break-cell';
             td.textContent = 'LB';
-            tr.appendChild(td);
-            return;
+          } else {
+            td.innerHTML = srow[p] || '';
           }
-
-          td.innerHTML = srow[p] || ''; // Insert formatted allocation text
           tr.appendChild(td);
         });
-
         tbody.appendChild(tr);
       });
     });
   });
 }
 
-// Cell print text formatter based on mode selections
 function formatAllocationCell(course, day, period, allocations, mode) {
   const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
   if (assignedCodes.length === 0) return '';
 
-  const alias = course.alias || course.code;
+  const alias = (course.alias || course.code).replace(/-(T|P)$/, '');
   const isPractical = (course.recommendations[day] && course.recommendations[day][period]) === 'P';
   const suffix = isPractical ? ' PR' : '';
 
   if (mode === 'short') {
-    // E.g. SJ OOPS or JP/SS OOPS PR
-    const facs = assignedCodes.join('/');
-    return `${facs} ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} ${alias}${suffix}`;
   } else if (mode === 'medium') {
-    // E.g. SJ - OOPS or JP/SS - OOPS PR
-    const facs = assignedCodes.join('/');
-    return `${facs} - ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} - ${alias}${suffix}`;
   } else {
-    // Full mode: Susan Joseph <br> Object Oriented Programming
     const facNames = assignedCodes.map(code => {
       const facObj = state.faculty.find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
-    return `<div class="bold">${facNames}</div><div class="text-sm">${course.name}${suffix}</div>`;
+    const cleanName = course.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
+    return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${suffix}</div>`;
   }
 }
 
-// Export Print Timetable to CSV
+
 function exportPrintTimetableToCSV() {
   const table = document.getElementById('print-grid-table');
   let csv = [];
-  
-  // Headers
   const ths = table.querySelectorAll('thead th');
   csv.push(Array.from(ths).map(th => `"${th.textContent}"`).join(','));
   
-  // Rows
   const trs = table.querySelectorAll('tbody tr');
   let currentDay = '';
-  
   trs.forEach(tr => {
     const tds = tr.querySelectorAll('td');
     let tdValues = Array.from(tds).map(td => td.textContent.replace(/[\n\r]+/g, ' ').trim());
-    
-    // Check if the first cell is day, if so, cache it
     if (tds[0] && tds[0].className === 'day-cell') {
       currentDay = tdValues[0];
     } else {
-      // If it doesn't have the day cell, prepend cached day value
       tdValues.unshift(currentDay);
     }
-    
     csv.push(tdValues.map(v => `"${v}"`).join(','));
   });
   

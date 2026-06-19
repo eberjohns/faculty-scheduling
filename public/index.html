@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>College Timetable & Faculty Allocation System</title>
+  <title>Department Portal - College Timetable System</title>
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,347 +22,71 @@
     <header class="app-header no-print">
       <div class="header-logo">
         <i class="fa-solid fa-calendar-days text-primary"></i>
-        <span>St. Thomas College Timetable Portal</span>
+        <span>College Timetable Department Portal</span>
       </div>
       <div id="header-user-info" class="header-actions hidden">
-        <span class="user-badge"><i class="fa-solid fa-user"></i> <span id="current-user-display"></span></span>
+        <span class="user-badge"><i class="fa-solid fa-users"></i> <span id="current-user-display"></span></span>
         <button id="btn-logout" class="btn btn-outline"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
       </div>
     </header>
 
-    <!-- LOGIN PANEL -->
+    <!-- COMMON DEPARTMENT LOGIN -->
     <main id="view-login" class="view-panel active no-print">
       <div class="login-card">
         <div class="login-brand">
           <div class="logo-box"><i class="fa-solid fa-graduation-cap"></i></div>
-          <h2>College Timetable Portal</h2>
-          <p>Assign faculty to courses and manage department schedules</p>
+          <h2>Department Login</h2>
+          <p>Select your department and enter the passcode managed by Admin</p>
         </div>
 
         <form id="login-form">
           <div class="form-group">
-            <label for="login-role">Log in as</label>
-            <select id="login-role" class="form-control" required>
-              <option value="" disabled selected>Select Role</option>
-              <option value="admin">Central Administrator</option>
-              <option value="department">Department Coordinator</option>
-            </select>
-          </div>
-
-          <div id="dept-select-group" class="form-group hidden">
             <label for="login-dept">Select Department</label>
-            <select id="login-dept" class="form-control">
+            <select id="login-dept" class="form-control" required>
               <option value="" disabled selected>Select Department</option>
             </select>
           </div>
 
           <div class="form-group">
-            <label for="login-password">Access Password</label>
+            <label for="login-password">Access Passcode</label>
             <div class="password-input-wrapper">
               <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
               <i class="fa-solid fa-eye toggle-password" id="toggle-pwd-icon"></i>
             </div>
           </div>
 
-          <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-right-to-bracket"></i> Sign In</button>
+          <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-right-to-bracket"></i> Department Sign In</button>
         </form>
         <div id="login-error" class="alert alert-danger hidden"></div>
       </div>
     </main>
 
-    <!-- ADMIN PANEL -->
-    <main id="view-admin" class="view-panel no-print hidden">
-      <div class="dashboard-layout">
-        
-        <!-- Sidebar Navigation -->
-        <aside class="dashboard-sidebar">
-          <nav class="sidebar-nav">
-            <button class="nav-item active" data-tab="tab-admin-dashboard"><i class="fa-solid fa-chart-line"></i> Status Dashboard</button>
-            <button class="nav-item" data-tab="tab-admin-config"><i class="fa-solid fa-gears"></i> Academic Config</button>
-            <button class="nav-item" data-tab="tab-admin-passwords"><i class="fa-solid fa-key"></i> Coordinator Passwords</button>
-            <button class="nav-item" data-tab="tab-admin-import"><i class="fa-solid fa-file-excel"></i> Import Excel Data</button>
-            <button class="nav-item" data-tab="tab-admin-data"><i class="fa-solid fa-list"></i> Manage Data</button>
-            <button class="nav-item" data-tab="tab-admin-workload"><i class="fa-solid fa-users-viewfinder"></i> Workload Summary</button>
-          </nav>
-        </aside>
-
-        <!-- Main Content Area -->
-        <section class="dashboard-content">
-          
-          <!-- TAB 1: Status Dashboard -->
-          <div id="tab-admin-dashboard" class="tab-pane active">
-            <div class="content-header">
-              <h1>Central Admin Dashboard</h1>
-              <div class="config-summary">
-                <span class="badge badge-info"><i class="fa-solid fa-calendar"></i> Year: <strong id="summary-year">-</strong></span>
-                <span class="badge badge-info"><i class="fa-solid fa-circle-nodes"></i> Sem Type: <strong id="summary-sem">-</strong></span>
-              </div>
-            </div>
-            
-            <div class="metrics-grid">
-              <div class="metric-card">
-                <div class="metric-icon bg-success-light text-success"><i class="fa-solid fa-circle-check"></i></div>
-                <div class="metric-info">
-                  <h3 id="stat-approved">0</h3>
-                  <p>Approved Schedules</p>
-                </div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-icon bg-warning-light text-warning"><i class="fa-solid fa-clock"></i></div>
-                <div class="metric-info">
-                  <h3 id="stat-submitted">0</h3>
-                  <p>Pending Review</p>
-                </div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-icon bg-danger-light text-danger"><i class="fa-solid fa-spinner"></i></div>
-                <div class="metric-info">
-                  <h3 id="stat-incomplete">0</h3>
-                  <p>Incomplete Drafts</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="card mt-4">
-              <div class="card-header">
-                <h2>Department Lifecycles</h2>
-              </div>
-              <div class="card-body">
-                <div class="table-responsive">
-                  <table class="table" id="table-admin-depts">
-                    <thead>
-                      <tr>
-                        <th>Department</th>
-                        <th>Workflow Status</th>
-                        <th>Admin Password Locked</th>
-                        <th>Comments</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 2: Academic Config -->
-          <div id="tab-admin-config" class="tab-pane hidden">
-            <div class="content-header">
-              <h1>Academic Settings</h1>
-            </div>
-            <div class="card">
-              <div class="card-body">
-                <form id="config-form">
-                  <div class="row">
-                    <div class="col-md-6 form-group">
-                      <label for="config-year">Academic Year</label>
-                      <input type="text" id="config-year" class="form-control" placeholder="e.g. 2026-2027" required>
-                    </div>
-                    <div class="col-md-6 form-group">
-                      <label for="config-sem-type">Active Semester Type</label>
-                      <select id="config-sem-type" class="form-control" required>
-                        <option value="Odd">Odd Semester</option>
-                        <option value="Even">Even Semester</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div class="form-group mt-3">
-                    <label>Semester Display Mappings (Label Mappings)</label>
-                    <p class="text-muted text-sm">Define dynamic labels representing semesters. Changes do not affect the Excel mappings.</p>
-                    <div id="semester-labels-container" class="mt-2">
-                      <!-- Rendered dynamically -->
-                    </div>
-                  </div>
-
-                  <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-save"></i> Save Configuration</button>
-                </form>
-                <div id="config-success" class="alert alert-success hidden mt-3"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 3: Coordinator Passwords -->
-          <div id="tab-admin-passwords" class="tab-pane hidden">
-            <div class="content-header">
-              <h1>Department Access Passwords</h1>
-            </div>
-            <div class="card">
-              <div class="card-body">
-                <p class="text-muted">Set specific sign-in credentials for each department coordinator.</p>
-                <div class="table-responsive mt-3">
-                  <table class="table" id="table-dept-passwords">
-                    <thead>
-                      <tr>
-                        <th>Department</th>
-                        <th>Passcode</th>
-                        <th>Save Password</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 4: Import Excel Data -->
-          <div id="tab-admin-import" class="tab-pane hidden">
-            <div class="content-header">
-              <h1>Upload Structure Sheets</h1>
-            </div>
-            
-            <div class="row">
-              <div class="col-md-6">
-                <div class="card card-dropzone">
-                  <div class="card-body text-center">
-                    <i class="fa-solid fa-file-excel drop-icon text-success"></i>
-                    <h3>1. Course Structure Excel</h3>
-                    <p class="text-muted text-sm">Upload `timetable_26_27 Odd.xlsx` sheet mapping courses, recommended hours, and recommended slots.</p>
-                    <input type="file" id="import-courses-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-courses-file">Select File</button>
-                    <div id="courses-upload-status" class="upload-status-info mt-2"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="col-md-6">
-                <div class="card card-dropzone">
-                  <div class="card-body text-center">
-                    <i class="fa-solid fa-id-card drop-icon text-primary"></i>
-                    <h3>2. Staff Directory Excel</h3>
-                    <p class="text-muted text-sm">Upload `staff.xlsx` mapping Staff ID, Names, and Departments.</p>
-                    <input type="file" id="import-staff-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-staff-file">Select File</button>
-                    <div id="staff-upload-status" class="upload-status-info mt-2"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Warning/Error Report Panel -->
-            <div id="import-report-card" class="card mt-4 hidden">
-              <div class="card-header bg-warning-light text-warning-dark">
-                <h2><i class="fa-solid fa-triangle-exclamation"></i> Import Warnings Report</h2>
-              </div>
-              <div class="card-body">
-                <ul id="import-report-list" class="warning-list"></ul>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 5: Manage Data -->
-          <div id="tab-admin-data" class="tab-pane hidden">
-            <div class="content-header">
-              <h1>Academic Records Data Management</h1>
-              <div class="header-search-bar">
-                <select id="data-select-dept" class="form-control width-auto">
-                  <option value="">All Departments</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="tab-sub-nav">
-              <button class="tab-sub-item active" data-subtab="subtab-courses">Courses (<span id="count-courses">0</span>)</button>
-              <button class="tab-sub-item" data-subtab="subtab-faculty">Faculty (<span id="count-faculty">0</span>)</button>
-            </div>
-
-            <!-- Subtab A: Courses List -->
-            <div id="subtab-courses" class="subtab-pane active">
-              <div class="card mt-2">
-                <div class="table-responsive">
-                  <table class="table" id="table-manage-courses">
-                    <thead>
-                      <tr>
-                        <th>Course Code</th>
-                        <th>Semester</th>
-                        <th>Category</th>
-                        <th>Course Name (Editable)</th>
-                        <th>Visual Alias (Editable)</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <!-- Subtab B: Faculty List -->
-            <div id="subtab-faculty" class="subtab-pane hidden">
-              <div class="card mt-2">
-                <div class="table-responsive">
-                  <table class="table" id="table-manage-faculty">
-                    <thead>
-                      <tr>
-                        <th>Staff ID</th>
-                        <th>Name</th>
-                        <th>Department</th>
-                        <th>Visual Code (Editable)</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 6: Workload Summary -->
-          <div id="tab-admin-workload" class="tab-pane hidden">
-            <div class="content-header">
-              <h1>Faculty Workload Analytics</h1>
-              <div class="actions">
-                <button id="btn-export-workload-csv" class="btn btn-outline"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-body">
-                <div class="table-responsive">
-                  <table class="table" id="table-workload-summary">
-                    <thead>
-                      <tr>
-                        <th>Staff ID</th>
-                        <th>Faculty Name</th>
-                        <th>Visual Code</th>
-                        <th>Department</th>
-                        <th>Course Allocations</th>
-                        <th>Total Assigned Periods</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-        </section>
-      </div>
-    </main>
-
-    <!-- DEPARTMENT PANEL -->
+    <!-- DEPARTMENT WORKSPACE PANEL -->
     <main id="view-department" class="view-panel no-print hidden">
+      
+      <!-- Top Department Header -->
       <div class="department-header">
         <div class="title-section">
-          <h1 id="dept-title-name">Department of Computer Science</h1>
-          <p class="subtitle">Assign faculty to periods for dynamic timetable compilation</p>
+          <h1 id="dept-title-name">Department Portal</h1>
+          <p class="subtitle">Complete faculty allocations and customize visual aliases</p>
         </div>
         <div class="status-section">
           <span class="badge" id="dept-status-badge">Draft</span>
-          <button id="btn-submit-timetable" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Submit Allocation</button>
+        </div>
+      </div>
+
+      <!-- LEGEND AT THE TOP -->
+      <div class="card legend-top-card">
+        <div class="card-body py-2 flex-row justify-between items-center wrap-gap">
+          <div class="legend-items flex-row gap-3">
+            <div class="legend-row"><span class="legend-box recommend-t">T</span> <span class="bold text-sm">Recommended Theory Slot</span></div>
+            <div class="legend-row"><span class="legend-box recommend-p">P</span> <span class="bold text-sm">Recommended Practical Slot</span></div>
+            <div class="legend-row"><span class="legend-box recommend-none"></span> <span class="bold text-sm">Non-Recommended Slot</span> (Click to Unlock)</div>
+            <div class="legend-row"><span class="legend-box lb-box">LB</span> <span class="bold text-sm">Lunch Break</span></div>
+          </div>
+          <div class="view-toggle-actions flex-row gap-2">
+            <button id="btn-toggle-grid-mode" class="btn btn-outline"><i class="fa-solid fa-table-cells"></i> Switch to Full Week View</button>
+          </div>
         </div>
       </div>
 
@@ -374,70 +98,138 @@
         </div>
       </div>
 
-      <!-- Weekday Selector -->
-      <div class="weekday-tabs mt-3">
-        <button class="weekday-tab active" data-day="MONDAY">MONDAY</button>
-        <button class="weekday-tab" data-day="TUESDAY">TUESDAY</button>
-        <button class="weekday-tab" data-day="WEDNESDAY">WEDNESDAY</button>
-        <button class="weekday-tab" data-day="THURSDAY">THURSDAY</button>
-        <button class="weekday-tab" data-day="FRIDAY">FRIDAY</button>
+      <!-- Filters & Weekday Selector Panel -->
+      <div class="card filters-card mt-3">
+        <div class="card-body py-3 flex-row justify-between items-center wrap-gap">
+          <!-- Weekday Selector -->
+          <div id="weekday-selector-wrapper" class="weekday-tabs">
+            <button class="weekday-tab active" data-day="MONDAY">MONDAY</button>
+            <button class="weekday-tab" data-day="TUESDAY">TUESDAY</button>
+            <button class="weekday-tab" data-day="WEDNESDAY">WEDNESDAY</button>
+            <button class="weekday-tab" data-day="THURSDAY">THURSDAY</button>
+            <button class="weekday-tab" data-day="FRIDAY">FRIDAY</button>
+          </div>
+          <div class="placeholder-span" id="full-week-header-label" style="display: none;"><h3 class="text-primary"><i class="fa-solid fa-calendar-week"></i> Full Week Timetable Matrix</h3></div>
+          
+          <!-- Filters (Semester and Category) -->
+          <div class="filters-group flex-row gap-2">
+            <div class="filter-item">
+              <select id="filter-semester" class="form-control form-control-sm">
+                <option value="">All Semesters</option>
+              </select>
+            </div>
+            <div class="filter-item">
+              <select id="filter-category" class="form-control form-control-sm">
+                <option value="">All Categories</option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Core Allocation Matrix -->
+      <!-- Core Allocation Grid -->
       <div class="card mt-3">
         <div class="card-body padding-0">
           <div class="table-responsive">
             <table class="table table-grid" id="table-allocation-matrix">
               <thead>
-                <!-- Rendered dynamically depending on dynamic period names -->
+                <!-- Dynamic Header -->
               </thead>
               <tbody>
-                <!-- Rendered dynamically -->
+                <!-- Dynamic Rows -->
               </tbody>
             </table>
           </div>
         </div>
       </div>
 
-      <!-- Live Workload Tracker & Legend -->
-      <div class="row mt-4 mb-4">
-        <div class="col-md-7">
-          <div class="card h-100">
-            <div class="card-header">
-              <h2>Department Workload Live Tracker</h2>
+      <!-- IN-FLOW ACTION BAR (Repositioned just below the grid) -->
+      <div class="grid-actions-bar mt-4 mb-4">
+        <button id="btn-save-draft" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-floppy-disk"></i> Save Draft Schedule</button>
+        <button id="btn-preview-timetable" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-eye"></i> View & Print Table</button>
+        <button id="btn-submit-timetable" class="btn btn-primary btn-lg shadow-btn"><i class="fa-solid fa-paper-plane"></i> Submit Timetable</button>
+      </div>
+
+      <!-- Inline Editors Section -->
+      <div class="card mt-4" style="margin-bottom: 40px;">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-pen-to-square text-primary"></i> Edit Course Aliases & Faculty Visual Codes</h2>
+        </div>
+        <div class="card-body">
+          <div class="tab-sub-nav">
+            <button class="tab-sub-item active" data-subtab="subtab-dept-courses">My Courses (<span id="count-dept-courses">0</span>)</button>
+            <button class="tab-sub-item" data-subtab="subtab-dept-faculty">My Faculty (<span id="count-dept-faculty">0</span>)</button>
+          </div>
+          
+          <!-- Course Editor with Save All Courses button -->
+          <div id="subtab-dept-courses" class="subtab-pane active mt-3">
+            <div class="flex-row justify-between items-center mb-3">
+              <span class="text-muted text-sm">Modify course names and aliases locally.</span>
+              <button id="btn-save-all-courses" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Course Details</button>
             </div>
-            <div class="card-body">
-              <div class="workload-pill-box" id="dept-live-workload">
-                <!-- Rendered Dynamically -->
-              </div>
+            <div class="table-responsive">
+              <table class="table" id="table-dept-courses">
+                <thead>
+                  <tr>
+                    <th>Course Code</th>
+                    <th>Semester</th>
+                    <th>Category</th>
+                    <th>Display Name</th>
+                    <th>Visual Alias</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-        <div class="col-md-5">
-          <div class="card h-100">
-            <div class="card-header">
-              <h2>Timetable Legend</h2>
+
+          <!-- Faculty Editor with Save All Faculty button -->
+          <div id="subtab-dept-faculty" class="subtab-pane hidden mt-3">
+            <div class="flex-row justify-between items-center mb-3">
+              <span class="text-muted text-sm">Modify faculty visual codes.</span>
+              <button id="btn-save-all-faculty" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Faculty Codes</button>
             </div>
-            <div class="card-body flex-column gap-2 text-sm">
-              <div class="legend-row"><span class="legend-box recommend-t">T</span> <strong>Recommended Theory Slot</strong></div>
-              <div class="legend-row"><span class="legend-box recommend-p">P</span> <strong>Recommended Practical Slot</strong></div>
-              <div class="legend-row"><span class="legend-box recommend-none"></span> <strong>Non-Recommended Slot</strong> (editable upon confirmation)</div>
-              <div class="legend-row"><span class="legend-box lb-box">LB</span> <strong>Lunch Break</strong> (not editable)</div>
-              <div class="action-footer mt-3">
-                <button id="btn-save-draft" class="btn btn-outline"><i class="fa-solid fa-floppy-disk"></i> Save Draft Schedule</button>
-                <button id="btn-preview-timetable" class="btn btn-outline"><i class="fa-solid fa-eye"></i> View & Print Table</button>
-              </div>
+            <div class="table-responsive">
+              <table class="table" id="table-dept-faculty">
+                <thead>
+                  <tr>
+                    <th>Staff ID</th>
+                    <th>Faculty Name</th>
+                    <th>Visual Code</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Filled dynamically -->
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- Real-Time Workload Live Tracker -->
+      <div class="card mt-4 mb-4 workload-dept-card">
+        <div class="card-header">
+          <h2>Department Workload Live Tracker</h2>
+        </div>
+        <div class="card-body">
+          <div class="workload-pill-box" id="dept-live-workload">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
     </main>
 
     <!-- MODAL: PRINT TIMETABLE PREVIEW -->
     <div id="modal-print-preview" class="modal no-print hidden">
       <div class="modal-content modal-lg">
         <div class="modal-header">
-          <h2>Timetable View & Print Configuration</h2>
+          <h2>Timetable Print Preview</h2>
           <div class="actions flex-row gap-2 no-print">
             <button id="btn-close-print-modal" class="btn btn-outline"><i class="fa-solid fa-xmark"></i> Close</button>
           </div>
@@ -449,9 +241,9 @@
                 <div class="col-md-4 form-group">
                   <label for="print-mode-select">Display Format Mode</label>
                   <select id="print-mode-select" class="form-control">
-                    <option value="short">Short Mode (SJ OOPS)</option>
-                    <option value="medium" selected>Medium Mode (SJ - OOPS)</option>
-                    <option value="full">Full Mode (Susan Joseph - Object Oriented Programming)</option>
+                    <option value="short">Short Mode (EJ OOPS)</option>
+                    <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
+                    <option value="full">Full Mode (Eber Johns - Object Oriented Programming)</option>
                   </select>
                 </div>
                 <div class="col-md-8 text-right flex-row justify-end gap-2 mt-3-md">
@@ -463,21 +255,19 @@
           </div>
         </div>
 
-        <!-- Render Target for Printable PDF Timetable Structure (Matching St. Thomas College layout) -->
         <div id="print-area" class="timetable-print-sheet">
           <div class="print-header text-center">
-            <img src="" id="print-college-logo" class="print-logo hidden" alt="St Thomas Logo">
-            <h2 id="print-dept-name" class="uppercase">DEPARTMENT OF COMPUTER SCIENCE</h2>
+            <h2 id="print-dept-name" class="uppercase">DEPARTMENT TIMETABLE</h2>
             <h3>ST. THOMAS COLLEGE (AUTONOMOUS), THRISSUR - 680001, KERALA, INDIA</h3>
             <h4>TIME TABLE – <span id="print-active-sem" class="uppercase">ODD SEMESTER</span> <span id="print-active-year">2026-2027</span></h4>
           </div>
 
           <table class="print-table" id="print-grid-table">
             <thead>
-              <!-- Dynamic Period Headers -->
+              <!-- Dynamic Headers -->
             </thead>
             <tbody>
-              <!-- Dynamic Timetable Rows (Weekday merged columns, parallel semester rows) -->
+              <!-- Dynamic Rows -->
             </tbody>
           </table>
         </div>
@@ -493,6 +283,19 @@
         <div class="actions flex-row justify-center gap-2 mt-4">
           <button id="btn-autofill-all" class="btn btn-primary">Apply to All Slots</button>
           <button id="btn-autofill-single" class="btn btn-outline">Apply to Current Only</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CUSTOM APP ALERT MODAL -->
+    <div id="app-modal" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-sm text-center">
+        <div id="app-modal-icon" class="modal-icon"><i class="fa-solid fa-circle-info text-primary"></i></div>
+        <h2 id="app-modal-title">Notification</h2>
+        <p id="app-modal-message" class="text-muted mt-2">Notification message.</p>
+        <div id="app-modal-actions" class="actions flex-row justify-center gap-2 mt-4">
+          <button id="app-modal-btn-primary" class="btn btn-primary">Okay</button>
+          <button id="app-modal-btn-secondary" class="btn btn-outline hidden">Cancel</button>
         </div>
       </div>
     </div>

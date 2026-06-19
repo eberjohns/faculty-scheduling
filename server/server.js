@@ -215,12 +215,16 @@ app.get('/api/courses', (req, res) => {
 });
 
 app.post('/api/courses/alias', (req, res) => {
-  const { code, alias, name } = req.body;
+  const { code, alias, name, departmentName } = req.body;
   if (!code) return res.status(400).json({ success: false, message: 'Course code is required' });
   
   const db = readDb();
   const course = db.courses.find(c => c.code === code);
   if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+
+  if (departmentName && course.department.toUpperCase() !== departmentName.toUpperCase()) {
+    return res.status(403).json({ success: false, message: 'Unauthorized to edit this course.' });
+  }
   
   if (alias !== undefined) course.alias = alias.trim();
   if (name !== undefined) course.name = name.trim();
@@ -228,6 +232,33 @@ app.post('/api/courses/alias', (req, res) => {
   writeDb(db);
   res.json({ success: true, message: 'Course details updated.' });
 });
+
+app.post('/api/courses/alias/batch', (req, res) => {
+  const { courses, departmentName } = req.body;
+  if (!Array.isArray(courses)) {
+    return res.status(400).json({ success: false, message: 'Courses must be an array.' });
+  }
+  
+  const db = readDb();
+  for (const item of courses) {
+    const { code, alias, name } = item;
+    if (!code) continue;
+    
+    const course = db.courses.find(c => c.code === code);
+    if (!course) continue;
+    
+    if (departmentName && course.department.toUpperCase() !== departmentName.toUpperCase()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized to edit some courses.' });
+    }
+    
+    if (alias !== undefined) course.alias = alias.trim();
+    if (name !== undefined) course.name = name.trim();
+  }
+  
+  writeDb(db);
+  res.json({ success: true, message: 'All course details updated successfully.' });
+});
+
 
 app.get('/api/faculty', (req, res) => {
   const { department } = req.query;
@@ -240,7 +271,7 @@ app.get('/api/faculty', (req, res) => {
 });
 
 app.post('/api/faculty/code', (req, res) => {
-  const { staffId, code } = req.body;
+  const { staffId, code, departmentName } = req.body;
   if (!staffId || !code) return res.status(400).json({ success: false, message: 'Staff ID and code are required' });
   
   const db = readDb();
@@ -254,6 +285,10 @@ app.post('/api/faculty/code', (req, res) => {
   
   const fac = db.faculty.find(f => f.staffId === staffId);
   if (!fac) return res.status(404).json({ success: false, message: 'Faculty not found' });
+
+  if (departmentName && fac.department.toUpperCase() !== departmentName.toUpperCase()) {
+    return res.status(403).json({ success: false, message: 'Unauthorized to edit this faculty.' });
+  }
   
   const oldCode = fac.code;
   fac.code = cleanCode;
@@ -277,6 +312,74 @@ app.post('/api/faculty/code', (req, res) => {
   writeDb(db);
   res.json({ success: true, message: 'Faculty code updated.' });
 });
+
+app.post('/api/faculty/code/batch', (req, res) => {
+  const { faculty, departmentName } = req.body;
+  if (!Array.isArray(faculty)) {
+    return res.status(400).json({ success: false, message: 'Faculty must be an array.' });
+  }
+  
+  const db = readDb();
+  
+  // Validate duplicate codes within database, except for self
+  const tempCodes = new Map(); // staffId -> code
+  db.faculty.forEach(f => tempCodes.set(f.staffId, f.code));
+  
+  for (const item of faculty) {
+    const { staffId, code } = item;
+    const cleanCode = code.trim().toUpperCase();
+    if (!staffId || !cleanCode) continue;
+    
+    for (const [otherStaffId, otherCode] of tempCodes.entries()) {
+      if (otherStaffId !== staffId && otherCode === cleanCode) {
+        const conflictFac = db.faculty.find(f => f.staffId === otherStaffId);
+        return res.status(400).json({ 
+          success: false, 
+          message: `Visual initials code '${cleanCode}' is already assigned to ${conflictFac.name}.` 
+        });
+      }
+    }
+    tempCodes.set(staffId, cleanCode);
+  }
+  
+  // Apply all updates
+  for (const item of faculty) {
+    const { staffId, code } = item;
+    const cleanCode = code.trim().toUpperCase();
+    const fac = db.faculty.find(f => f.staffId === staffId);
+    
+    if (fac) {
+      if (departmentName && fac.department.toUpperCase() !== departmentName.toUpperCase()) {
+        return res.status(403).json({ success: false, message: 'Unauthorized to edit some faculty.' });
+      }
+      
+      const oldCode = fac.code;
+      fac.code = cleanCode;
+      
+      if (oldCode !== cleanCode) {
+        // Update visual codes in allocations if changed
+        for (const dept of Object.keys(db.allocations)) {
+          const deptAlloc = db.allocations[dept];
+          for (const courseCode of Object.keys(deptAlloc)) {
+            const courseDays = deptAlloc[courseCode];
+            for (const day of Object.keys(courseDays)) {
+              for (const period of Object.keys(courseDays[day])) {
+                let facs = courseDays[day][period] || [];
+                if (facs.includes(oldCode)) {
+                  courseDays[day][period] = facs.map(c => c === oldCode ? cleanCode : c);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  writeDb(db);
+  res.json({ success: true, message: 'All faculty codes updated successfully.' });
+});
+
 
 // -------------------------------------------------------------
 // Excel Import Routes
