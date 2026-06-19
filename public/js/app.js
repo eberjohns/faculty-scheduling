@@ -101,6 +101,7 @@ async function initApp() {
   bindDeptEvents();
   bindFilterEvents();
   bindPrintEvents();
+  bindFacultySelectEvents();
   
   // Restore session
   const savedUser = sessionStorage.getItem('currentUser');
@@ -419,7 +420,11 @@ function bindDeptEvents() {
         updateDeptLiveWorkloadTracker();
       } else {
         const err = await res.json();
-        showModalAlert('Error', err.message || 'Failed to update faculty codes.', 'danger');
+        let explanation = err.message || 'Failed to update faculty codes.';
+        if (explanation.includes('already assigned')) {
+          explanation += '\n\nNote: Faculty visual initials codes must be unique across the entire college to prevent scheduling overlaps and distinguish between faculty members during allocation.';
+        }
+        showModalAlert('Conflict Error', explanation, 'danger');
       }
     } catch (err) {
       console.error(err);
@@ -618,14 +623,6 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
   const assignedP = (courseP && state.allocations[courseP.code] && state.allocations[courseP.code][day] && state.allocations[courseP.code][day][period]) || [];
   const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
 
-  // Populate dropdown items
-  const deptFaculty = state.faculty.filter(f => f.department === state.currentUser.departmentName);
-  let selectOptions = `<option value="">+ Assign</option>`;
-  deptFaculty.forEach(f => {
-    const isSelected = mergedAssigned.includes(f.code) ? 'disabled' : '';
-    selectOptions += `<option value="${f.code}" ${isSelected}>${f.code}</option>`;
-  });
-
   // Render assigned pills with dark red crosses and tooltips
   let pillsHtml = '';
   mergedAssigned.forEach(facCode => {
@@ -647,13 +644,8 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
 
   const classes = `slot-interactive ${highlightClass}`;
   const html = `
-    <div class="cell-slot" onclick="activateSlot(this)">
+    <div class="cell-slot" onclick="activateSlot(this, '${baseCode}', '${activeCourseCode}', '${day}', '${period}')">
       <div class="cell-info text-sm bold text-muted">${slotLabel}</div>
-      <div class="cell-select-wrapper hidden">
-        <select class="slot-select" onchange="assignFaculty(this, '${activeCourseCode}', '${day}', '${period}')">
-          ${selectOptions}
-        </select>
-      </div>
       <div class="cell-assigned-box">
         ${pillsHtml}
       </div>
@@ -663,31 +655,100 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
   return { classes, html };
 }
 
-window.activateSlot = function(container) {
-  const cell = container.closest('td');
+window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, period) {
+  const cell = cellContainer.closest('td');
+  
+  const openSelector = () => {
+    cell.classList.add('slot-active');
+    openFacultySelectModal(baseCode, activeCourseCode, day, period, cell);
+  };
+
   if (cell.classList.contains('slot-recommend-none')) {
     if (!cell.classList.contains('slot-active')) {
       showModalConfirm(
         'Unlock Slot?', 
         'This is a non-recommended timetable slot. Are you sure you want to unlock it for allocation?', 
         () => {
-          cell.classList.add('slot-active');
-          container.querySelector('.cell-select-wrapper').classList.remove('hidden');
+          openSelector();
         }
       );
       return;
     }
   }
-  container.querySelector('.cell-select-wrapper').classList.remove('hidden');
+  openSelector();
 };
 
-window.assignFaculty = async function(selectEl, courseCode, day, period) {
-  const facultyCode = selectEl.value;
-  if (!facultyCode) return;
+// Global active slot context
+let activeSlotContext = null;
+
+window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
+  activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
+  
+  // Set details text
+  const typeText = courseCode.endsWith('-P') ? 'Practical' : 'Theory';
+  document.getElementById('fac-select-details').textContent = 
+    `Course: ${baseCode} (${typeText}) | Day: ${day} | Period: ${period}`;
+  
+  // Reset search input
+  const searchInput = document.getElementById('fac-search-input');
+  searchInput.value = '';
+  
+  // Populate the list
+  renderFacultySelectList();
+  
+  // Show modal
+  document.getElementById('modal-faculty-select').classList.remove('hidden');
+};
+
+function renderFacultySelectList() {
+  if (!activeSlotContext) return;
+  const { courseCode, day, period } = activeSlotContext;
+  
+  const tbody = document.querySelector('#table-fac-select-list tbody');
+  tbody.innerHTML = '';
   
   const deptName = state.currentUser.departmentName;
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
   
-  // Verify clash
+  // Get active assignments
+  const baseCode = courseCode.replace(/-(T|P)$/, '');
+  const courseTCode = `${baseCode}-T`;
+  const coursePCode = `${baseCode}-P`;
+  
+  const assignedT = (state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period]) || [];
+  const assignedP = (state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period]) || [];
+  const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
+  
+  deptFaculty.forEach(f => {
+    const isAssigned = mergedAssigned.includes(f.code);
+    const tr = document.createElement('tr');
+    
+    // Check which actual course holds this allocation (T or P)
+    let assignedCourseCode = courseCode;
+    if (isAssigned) {
+      if (assignedT.includes(f.code)) assignedCourseCode = courseTCode;
+      else if (assignedP.includes(f.code)) assignedCourseCode = coursePCode;
+    }
+    
+    tr.innerHTML = `
+      <td style="text-align: center;"><span class="fac-pill">${f.code}</span></td>
+      <td><strong>${f.name}</strong></td>
+      <td style="text-align: center;">
+        ${isAssigned ? 
+          `<button class="btn btn-outline btn-xs btn-danger" onclick="unassignFacultyFromModal('${assignedCourseCode}', '${f.code}')"><i class="fa-solid fa-user-minus"></i> Remove</button>` : 
+          `<button class="btn btn-primary btn-xs" onclick="assignFacultyFromModal('${courseCode}', '${f.code}')"><i class="fa-solid fa-user-plus"></i> Assign</button>`
+        }
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+window.assignFacultyFromModal = async function(courseCode, facultyCode) {
+  if (!activeSlotContext) return;
+  const { day, period } = activeSlotContext;
+  const deptName = state.currentUser.departmentName;
+  
   try {
     const res = await fetch(`${API_BASE}/allocations/validate`, {
       method: 'POST',
@@ -709,10 +770,9 @@ window.assignFaculty = async function(selectEl, courseCode, day, period) {
         `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '')}) on ${day} Period ${period} in department ${conf.department}.`,
         'danger'
       );
-      selectEl.value = '';
       return;
     }
-
+    
     // Save locally
     if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
     if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
@@ -720,17 +780,33 @@ window.assignFaculty = async function(selectEl, courseCode, day, period) {
     
     state.allocations[courseCode][day][period].push(facultyCode);
     
+    // Close faculty selector modal first
+    document.getElementById('modal-faculty-select').classList.add('hidden');
+    
     // Auto-fill triggers
     const course = state.courses.find(c => c.code === courseCode);
-    const recType = (course.recommendations[day] && course.recommendations[day][period]) || '';
+    const recType = (course && course.recommendations[day] && course.recommendations[day][period]) || '';
     if (recType === 'T' || recType === 'P') {
       showAutoFillPrompt(courseCode, recType, facultyCode);
     } else {
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
+      activeSlotContext = null;
     }
   } catch (err) {
     console.error(err);
+  }
+};
+
+window.unassignFacultyFromModal = function(courseCode, facultyCode) {
+  if (!activeSlotContext) return;
+  const { day, period } = activeSlotContext;
+  
+  if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
+    state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
+    renderFacultySelectList(); // refresh list in modal
+    renderAllocationMatrix(); // refresh grid
+    updateDeptLiveWorkloadTracker(); // refresh workload
   }
 };
 
@@ -997,7 +1073,11 @@ window.saveDeptFacultyCode = async function(staffId) {
       updateDeptLiveWorkloadTracker();
     } else {
       const err = await res.json();
-      showModalAlert('Conflict Error', err.message, 'danger');
+      let explanation = err.message || 'Faculty code update failed.';
+      if (explanation.includes('already assigned')) {
+        explanation += '\n\nNote: Faculty visual initials codes must be unique across the entire college to prevent scheduling overlaps and distinguish between faculty members during allocation.';
+      }
+      showModalAlert('Conflict Error', explanation, 'danger');
     }
   } catch (err) {
     console.error(err);
@@ -1026,6 +1106,30 @@ function bindPrintEvents() {
     exportPrintTimetableToCSV();
   });
 }
+
+function bindFacultySelectEvents() {
+  const modal = document.getElementById('modal-faculty-select');
+  const btnClose = document.getElementById('btn-close-fac-select');
+  const searchInput = document.getElementById('fac-search-input');
+  
+  btnClose.addEventListener('click', () => {
+    modal.classList.add('hidden');
+    if (activeSlotContext && activeSlotContext.cell) {
+      activeSlotContext.cell.closest('td').classList.remove('slot-active');
+    }
+    activeSlotContext = null;
+  });
+  
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase().trim();
+    const rows = document.querySelectorAll('#table-fac-select-list tbody tr');
+    rows.forEach(row => {
+      const text = row.innerText.toLowerCase();
+      row.style.display = text.includes(query) ? '' : 'none';
+    });
+  });
+}
+
 
 function openTimetablePrintPreview(deptName) {
   activePrintDept = deptName;

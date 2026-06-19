@@ -287,6 +287,36 @@
       </div>
     </div>
 
+    <!-- MODAL: SELECT FACULTY FOR SLOT -->
+    <div id="modal-faculty-select" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="width: 100%; max-width: 580px;">
+        <div class="modal-header">
+          <h2 id="fac-select-title">Assign Faculty</h2>
+          <button id="btn-close-fac-select" class="btn btn-outline btn-xs"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group flex-column" style="gap: 4px; margin-bottom: 16px;">
+            <div id="fac-select-details" class="text-sm text-muted mb-2" style="font-weight: 500;"></div>
+            <input type="text" id="fac-search-input" class="form-control" placeholder="Search faculty by name or initials code...">
+          </div>
+          <div class="table-responsive" style="max-height: 380px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
+            <table class="table" id="table-fac-select-list">
+              <thead>
+                <tr>
+                  <th style="width: 80px; text-align: center;">Initials</th>
+                  <th style="text-align: left;">Faculty Name</th>
+                  <th style="width: 140px; text-align: center;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- CUSTOM APP ALERT MODAL -->
     <div id="app-modal" class="modal flex-center hidden no-print">
       <div class="modal-content modal-sm text-center">

@@ -1093,7 +1093,7 @@
       "roomNo": "AC 127 A",
       "batch": "CS",
       "hours": 2,
-      "alias": "1CJ101 PR",
+      "alias": "Python",
       "recommendations": {
         "MONDAY": {},
         "TUESDAY": {},
@@ -1115,7 +1115,7 @@
       "roomNo": "AC 223",
       "batch": "CS",
       "hours": 3,
-      "alias": "1CJ101",
+      "alias": "OOP",
       "recommendations": {
         "MONDAY": {
           "3": "T"
@@ -3744,7 +3744,7 @@
       "roomNo": "AC 122",
       "batch": "CS",
       "hours": 3,
-      "alias": "3CJ202",
+      "alias": "JAVA",
       "recommendations": {
         "MONDAY": {},
         "TUESDAY": {
@@ -5963,7 +5963,7 @@
     {
       "staffId": "CSC001",
       "name": "Dr. Jiju A Mathew",
-      "code": "JAM1",
+      "code": "DJAM",
       "department": "COMPUTER SCIENCE"
     },
     {
@@ -5999,7 +5999,7 @@
     {
       "staffId": "CSC028",
       "name": "Dr. JOHNPAUL C .I",
-      "code": "JC.",
+      "code": "JPC",
       "department": "COMPUTER SCIENCE"
     },
     {
@@ -6825,8 +6825,61 @@
       "department": "ZOOLOGY"
     }
   ],
-  "allocations": {},
-  "submissions": {},
+  "allocations": {
+    "COMPUTER SCIENCE": {
+      "CSC1MN108-T": {
+        "MONDAY": {
+          "1": [],
+          "2": []
+        },
+        "FRIDAY": {
+          "4": [
+            "SSC"
+          ]
+        }
+      },
+      "CSC1CJ101-T": {
+        "MONDAY": {
+          "3": [
+            "SJ"
+          ]
+        },
+        "WEDNESDAY": {
+          "1": [
+            "SJ"
+          ]
+        },
+        "THURSDAY": {
+          "4": [
+            "SJ"
+          ]
+        }
+      },
+      "CSC1CJ101-P": {
+        "FRIDAY": {
+          "1": [
+            "SJ"
+          ],
+          "2": [
+            "SJ"
+          ]
+        }
+      },
+      "CSC3CJ202-T": {
+        "MONDAY": {
+          "4": [
+            "JC."
+          ]
+        }
+      }
+    }
+  },
+  "submissions": {
+    "COMPUTER SCIENCE": {
+      "status": "Draft",
+      "comments": ""
+    }
+  },
   "periods": [
     "1",
     "2",

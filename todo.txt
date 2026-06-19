@@ -1,0 +1,7 @@
+- add a way to clear database
+- show if its theory/practical in final out
+- save draft store in backend
+- contrast color for faculty code in unrecomended slot
+- tool tip shows faculty name
+- auto save after some time
+- after assigning the faculty to slot, when we change the alias, it doesn't update
