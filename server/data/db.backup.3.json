@@ -1,0 +1,26 @@
+{
+  "config": {
+    "academicYear": "2026-2027",
+    "semesterType": "Odd",
+    "semesterLabels": {
+      "1": "I BSC",
+      "3": "III BSC",
+      "5": "V BSC"
+    },
+    "adminPassword": "admin"
+  },
+  "departments": {},
+  "courses": [],
+  "faculty": [],
+  "allocations": {},
+  "submissions": {},
+  "periods": [
+    "1",
+    "2",
+    "3",
+    "LB",
+    "4",
+    "5",
+    "6"
+  ]
+}
