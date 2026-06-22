@@ -19,12 +19,128 @@ document.addEventListener('DOMContentLoaded', () => {
   initAdmin();
 });
 
+let isAdminVerified = false;
+let pendingRevealDept = null;
+
+function openAdminVerifyModal() {
+  const modal = document.getElementById('modal-verify-admin');
+  const input = document.getElementById('verify-admin-pwd-input');
+  const err = document.getElementById('verify-admin-error');
+  
+  if (input) input.value = '';
+  if (err) err.classList.add('hidden');
+  if (modal) modal.classList.remove('hidden');
+  if (input) input.focus();
+}
+
+function closeAdminVerifyModal() {
+  const modal = document.getElementById('modal-verify-admin');
+  if (modal) modal.classList.add('hidden');
+  pendingRevealDept = null;
+}
+
+function bindCustomModals() {
+  // Return comments modal
+  const btnSubmitReturn = document.getElementById('btn-submit-return-comments');
+  const btnCancelReturn = document.getElementById('btn-cancel-return-comments');
+  const returnInput = document.getElementById('return-comments-input');
+  const modalReturn = document.getElementById('modal-return-comments');
+
+  if (btnCancelReturn) {
+    btnCancelReturn.addEventListener('click', () => {
+      if (modalReturn) modalReturn.classList.add('hidden');
+    });
+  }
+
+  if (btnSubmitReturn) {
+    btnSubmitReturn.addEventListener('click', async () => {
+      const deptName = modalReturn.getAttribute('data-target-dept');
+      const comments = returnInput.value.trim();
+      const err = document.getElementById('return-comments-error');
+      
+      if (!comments) {
+        if (err) {
+          err.textContent = 'Please enter return comments/instructions.';
+          err.classList.remove('hidden');
+        }
+        return;
+      }
+      
+      if (modalReturn) modalReturn.classList.add('hidden');
+      await window.updateSubStatus(deptName, 'Returned for Changes', comments);
+    });
+  }
+
+  // Admin verify modal
+  const btnSubmitVerify = document.getElementById('btn-submit-verify-admin');
+  const btnCancelVerify = document.getElementById('btn-cancel-verify-admin');
+  const verifyInput = document.getElementById('verify-admin-pwd-input');
+
+  if (btnCancelVerify) {
+    btnCancelVerify.addEventListener('click', () => {
+      closeAdminVerifyModal();
+    });
+  }
+
+  const handleVerifySubmit = async () => {
+    const password = verifyInput.value;
+    const err = document.getElementById('verify-admin-error');
+    if (err) err.classList.add('hidden');
+    
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'admin', password })
+      });
+      const result = await res.json();
+      if (res.ok) {
+        isAdminVerified = true;
+        closeAdminVerifyModal();
+        showModalAlert('Access Approved', 'Admin credentials verified. Passcodes unlocked.', 'success');
+        if (pendingRevealDept) {
+          const deptName = pendingRevealDept;
+          pendingRevealDept = null;
+          const pwdInput = document.getElementById(`pwd-${deptName}`);
+          const eyeIcon = document.getElementById(`eye-${deptName}`);
+          if (pwdInput && eyeIcon) {
+            pwdInput.type = 'text';
+            eyeIcon.classList.replace('fa-eye', 'fa-eye-slash');
+          }
+        }
+      } else {
+        if (err) {
+          err.textContent = result.message || 'Incorrect password.';
+          err.classList.remove('hidden');
+        }
+      }
+    } catch (e) {
+      if (err) {
+        err.textContent = 'Connection error.';
+        err.classList.remove('hidden');
+      }
+    }
+  };
+
+  if (btnSubmitVerify) {
+    btnSubmitVerify.addEventListener('click', handleVerifySubmit);
+  }
+  if (verifyInput) {
+    verifyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        handleVerifySubmit();
+      }
+    });
+  }
+}
+
 async function initAdmin() {
   bindAuthEvents();
   bindSidebarEvents();
   bindConfigEvents();
   bindImportEvents();
   bindSearchEvents();
+  bindCustomModals();
   
   // Custom Modal dialog elements
   window.appModal = {
@@ -131,9 +247,12 @@ function switchView(viewName) {
 
 async function fetchGlobalData() {
   try {
+    const token = sessionStorage.getItem('adminToken') || 'admin-token';
     const [configRes, deptsRes, coursesRes, facultyRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
-      fetch(`${API_BASE}/departments`),
+      fetch(`${API_BASE}/admin/departments`, {
+        headers: { 'Authorization': token }
+      }),
       fetch(`${API_BASE}/courses`),
       fetch(`${API_BASE}/faculty`)
     ]);
@@ -188,6 +307,7 @@ function bindAuthEvents() {
       
       state.currentUser = { role: 'admin' };
       sessionStorage.setItem('adminUser', JSON.stringify(state.currentUser));
+      sessionStorage.setItem('adminToken', result.token || 'admin-token');
       document.getElementById('header-user-info').classList.remove('hidden');
       
       await fetchGlobalData();
@@ -333,10 +453,17 @@ window.updateSubStatus = async function(deptName, status, comments = '') {
 };
 
 window.promptReturnDept = function(deptName) {
-  const comments = prompt(`Enter instructions/comments for returning ${deptName}'s timetable:`);
-  if (comments !== null) {
-    window.updateSubStatus(deptName, 'Returned for Changes', comments);
+  const modal = document.getElementById('modal-return-comments');
+  const input = document.getElementById('return-comments-input');
+  const err = document.getElementById('return-comments-error');
+  
+  if (input) input.value = '';
+  if (err) err.classList.add('hidden');
+  if (modal) {
+    modal.setAttribute('data-target-dept', deptName);
+    modal.classList.remove('hidden');
   }
+  if (input) input.focus();
 };
 
 // Config Settings Form
@@ -385,6 +512,59 @@ function bindConfigEvents() {
       console.error(err);
     }
   });
+
+  // Clear Database button and confirmation modal bindings
+  const btnClearDb = document.getElementById('btn-clear-db');
+  const modalClearDb = document.getElementById('modal-clear-db-confirm');
+  const clearDbInput = document.getElementById('clear-db-confirm-input');
+  const btnConfirmClearDb = document.getElementById('btn-confirm-clear-db');
+  const btnCancelClearDb = document.getElementById('btn-cancel-clear-db');
+
+  if (btnClearDb) {
+    btnClearDb.addEventListener('click', () => {
+      clearDbInput.value = '';
+      btnConfirmClearDb.disabled = true;
+      modalClearDb.classList.remove('hidden');
+    });
+  }
+
+  if (clearDbInput) {
+    clearDbInput.addEventListener('input', (e) => {
+      if (e.target.value.trim().toUpperCase() === 'CLEAR') {
+        btnConfirmClearDb.disabled = false;
+      } else {
+        btnConfirmClearDb.disabled = true;
+      }
+    });
+  }
+
+  if (btnCancelClearDb) {
+    btnCancelClearDb.addEventListener('click', () => {
+      modalClearDb.classList.add('hidden');
+    });
+  }
+
+  if (btnConfirmClearDb) {
+    btnConfirmClearDb.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE}/admin/clear-database`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          modalClearDb.classList.add('hidden');
+          showModalAlert('Database Reset', 'The database has been successfully cleared.', 'success');
+          await fetchGlobalData();
+          showTab('tab-admin-dashboard');
+        } else {
+          const err = await res.json();
+          showModalAlert('Error', 'Failed to clear database: ' + err.message, 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Error', 'An error occurred while clearing the database.', 'danger');
+      }
+    });
+  }
 }
 
 // Passwords Editor
@@ -397,7 +577,10 @@ function renderPasswordTable() {
     tr.innerHTML = `
       <td><strong>${d.name}</strong></td>
       <td>
-        <input type="text" class="form-control dept-pwd-input" id="pwd-${d.name}" placeholder="Enter passcode" style="max-width: 250px;">
+        <div class="password-input-wrapper" style="max-width: 250px;">
+          <input type="password" class="form-control dept-pwd-input" id="pwd-${d.name}" value="${d.passcode || ''}" placeholder="Enter passcode" autocomplete="off">
+          <i class="fa-solid fa-eye toggle-password" id="eye-${d.name}" onclick="toggleDeptPasscodeVisibility('${d.name}')"></i>
+        </div>
       </td>
       <td>
         <button class="btn btn-primary" onclick="saveDeptPassword('${d.name}')"><i class="fa-solid fa-floppy-disk"></i> Save</button>
@@ -406,6 +589,26 @@ function renderPasswordTable() {
     tbody.appendChild(tr);
   });
 }
+
+window.toggleDeptPasscodeVisibility = function(deptName) {
+  const pwdInput = document.getElementById(`pwd-${deptName}`);
+  const eyeIcon = document.getElementById(`eye-${deptName}`);
+  
+  if (!pwdInput || !eyeIcon) return;
+  
+  if (pwdInput.type === 'text') {
+    pwdInput.type = 'password';
+    eyeIcon.classList.replace('fa-eye-slash', 'fa-eye');
+  } else {
+    if (isAdminVerified) {
+      pwdInput.type = 'text';
+      eyeIcon.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+      pendingRevealDept = deptName;
+      openAdminVerifyModal();
+    }
+  }
+};
 
 window.saveDeptPassword = async function(deptName) {
   const pwdInput = document.getElementById(`pwd-${deptName}`);
@@ -423,8 +626,11 @@ window.saveDeptPassword = async function(deptName) {
     });
     if (res.ok) {
       showModalAlert('Success', `Sign-in password saved for department ${deptName}.`, 'success');
-      pwdInput.value = '';
       await fetchGlobalData();
+      renderPasswordTable();
+    } else {
+      const err = await res.json();
+      showModalAlert('Error', err.message || 'Failed to save passcode.', 'danger');
     }
   } catch (err) {
     console.error(err);
@@ -807,7 +1013,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const hasClash = coursePeriods.some(p => !!subRows[r][p]);
           if (!hasClash) {
             coursePeriods.forEach(p => {
-              subRows[r][p] = formatAllocationCell(course, day, p, allocations, displayMode);
+              const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+              const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
+              const tooltip = assigned.map(code => {
+                const facObj = state.faculty.find(f => f.code === code);
+                return facObj ? facObj.name : code;
+              }).join(' / ');
+              
+              subRows[r][p] = {
+                html: formatAllocationCell(course, day, p, allocations, displayMode),
+                classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+                tooltip: tooltip
+              };
             });
             placed = true;
             break;
@@ -817,7 +1034,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         if (!placed) {
           const newRow = {};
           coursePeriods.forEach(p => {
-            newRow[p] = formatAllocationCell(course, day, p, allocations, displayMode);
+            const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+            const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
+            const tooltip = assigned.map(code => {
+              const facObj = state.faculty.find(f => f.code === code);
+              return facObj ? facObj.name : code;
+            }).join(' / ');
+
+            newRow[p] = {
+              html: formatAllocationCell(course, day, p, allocations, displayMode),
+              classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+              tooltip: tooltip
+            };
           });
           subRows.push(newRow);
         }
@@ -855,7 +1083,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
             td.className = 'break-cell';
             td.textContent = 'LB';
           } else {
-            td.innerHTML = srow[p] || '';
+            const cellData = srow[p];
+            if (cellData) {
+              td.innerHTML = cellData.html || '';
+              if (cellData.classes) {
+                cellData.classes.split(' ').filter(Boolean).forEach(cls => td.classList.add(cls));
+              }
+              if (cellData.tooltip) {
+                td.setAttribute('title', cellData.tooltip);
+              }
+            } else {
+              td.innerHTML = '';
+            }
           }
           tr.appendChild(td);
         });
@@ -870,8 +1109,12 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   if (assignedCodes.length === 0) return '';
 
   const alias = (course.alias || course.code).replace(/-(T|P)$/, '');
-  const isPractical = (course.recommendations[day] && course.recommendations[day][period]) === 'P';
-  const suffix = isPractical ? ' PR' : '';
+  const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
+
+  let suffix = '';
+  if (mode === 'full') {
+    suffix = isPractical ? ' (PR)' : ' (TH)';
+  }
 
   if (mode === 'short') {
     return `${assignedCodes.join('/')} ${alias}${suffix}`;

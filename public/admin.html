@@ -165,6 +165,17 @@
                 <div id="config-success" class="alert alert-success hidden mt-3"></div>
               </div>
             </div>
+            
+            <!-- Danger Zone -->
+            <div class="card mt-4" style="border-color: var(--danger);">
+              <div class="card-header" style="background-color: var(--danger-light); color: var(--danger-dark); border-bottom: 1.5px solid var(--danger);">
+                <h2 style="color: var(--danger-dark);"><i class="fa-solid fa-triangle-exclamation"></i> Danger Zone</h2>
+              </div>
+              <div class="card-body">
+                <p class="text-muted text-sm">Reset the application database. This will permanently clear all courses, faculty records, allocations, submissions, and credentials.</p>
+                <button type="button" id="btn-clear-db" class="btn btn-danger mt-3" style="background-color: var(--danger); color: white;"><i class="fa-solid fa-trash-can"></i> Clear Database...</button>
+              </div>
+            </div>
           </div>
 
           <!-- TAB 3: Passwords Config -->
@@ -336,7 +347,7 @@
     </main>
 
     <!-- MODAL: PRINT PREVIEW (Admin can view department tables) -->
-    <div id="modal-print-preview" class="modal no-print hidden">
+    <div id="modal-print-preview" class="modal hidden">
       <div class="modal-content modal-lg">
         <div class="modal-header">
           <h2>Department Timetable Preview</h2>
@@ -372,6 +383,18 @@
             <h4>TIME TABLE – <span id="print-active-sem" class="uppercase">ODD SEMESTER</span> <span id="print-active-year">2026-2027</span></h4>
           </div>
 
+          <!-- Print Legend showing Theory and Practical Colors -->
+          <div class="print-legend" style="display: flex; justify-content: center; gap: 24px; font-size: 12px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--warning); background-color: var(--warning-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <strong>Theory Slot (TH)</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--success); background-color: var(--success-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <strong>Practical Slot (PR)</strong>
+            </div>
+          </div>
+
           <table class="print-table" id="print-grid-table">
             <thead>
               <!-- Dynamic Period Headers -->
@@ -380,6 +403,59 @@
               <!-- Dynamic Timetable Rows -->
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIALOG: CONFIRM DATABASE CLEAR -->
+    <div id="modal-clear-db-confirm" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-sm text-center" style="max-width: 440px; width: 100%; padding: 24px;">
+        <div class="modal-icon text-danger" style="font-size: 40px; margin-bottom: 12px;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h2 style="color: var(--danger); font-size: 20px;">Clear Database?</h2>
+        <p class="text-muted mt-2 text-sm">This action is permanent and clears all timetables, courses, faculty, and submissions. To confirm, please type <strong style="color: var(--danger);">CLEAR</strong> below:</p>
+        
+        <input type="text" id="clear-db-confirm-input" class="form-control mt-3 text-center" placeholder="Type CLEAR" style="font-weight: bold; text-transform: uppercase;" autocomplete="off">
+        
+        <div class="actions flex-row justify-center gap-2 mt-4">
+          <button id="btn-confirm-clear-db" class="btn btn-danger" style="background-color: var(--danger); color: white;" disabled>Clear Database</button>
+          <button id="btn-cancel-clear-db" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: VERIFY ADMIN PASSWORD -->
+    <div id="modal-verify-admin" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-sm text-center" style="max-width: 400px; width: 100%; padding: 24px;">
+        <div class="modal-icon text-primary" style="font-size: 40px; margin-bottom: 12px;"><i class="fa-solid fa-shield-halved"></i></div>
+        <h2>Verify Admin Password</h2>
+        <p class="text-muted mt-2 text-sm">Please verify the administrator password to view department passcodes:</p>
+        
+        <input type="password" id="verify-admin-pwd-input" class="form-control mt-3 text-center" placeholder="Enter Admin Password" autocomplete="off">
+        <div id="verify-admin-error" class="text-danger text-sm mt-2 hidden"></div>
+        
+        <div class="actions flex-row justify-center gap-2 mt-4">
+          <button id="btn-submit-verify-admin" class="btn btn-primary">Verify</button>
+          <button id="btn-cancel-verify-admin" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: RETURN COMMENTS -->
+    <div id="modal-return-comments" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 500px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <h2><i class="fa-solid fa-comment-dots text-primary"></i> Return Timetable for Changes</h2>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0; overflow-y: visible;">
+          <div class="form-group">
+            <label for="return-comments-input">Instructions / Revision Comments</label>
+            <textarea id="return-comments-input" class="form-control" rows="5" placeholder="Specify what changes are needed (e.g. adjust slot clashes, change faculty allocation, etc.)..." style="resize: vertical;"></textarea>
+          </div>
+          <div id="return-comments-error" class="text-danger text-sm mt-2 hidden"></div>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button id="btn-submit-return-comments" class="btn btn-primary">Submit Feedback</button>
+          <button id="btn-cancel-return-comments" class="btn btn-outline">Cancel</button>
         </div>
       </div>
     </div>

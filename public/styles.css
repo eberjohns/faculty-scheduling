@@ -634,14 +634,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 .slot-recommend-none {
   background-color: #e2e8f0 !important;
-  color: #475569 !important;
-  opacity: 0.45 !important;
-  border: 1px dashed #cbd5e1;
+  color: #0f172a !important;
+  opacity: 0.7 !important;
+  border: 1.5px dashed #475569 !important;
 }
-.slot-recommend-none.slot-active {
+.slot-recommend-none.slot-active,
+.slot-recommend-none.slot-has-assignments {
   opacity: 1 !important;
   background-color: var(--surface) !important;
-  border: 1.5px solid var(--primary) !important;
+  border: 2px solid var(--primary) !important;
+  color: var(--text-main) !important;
 }
 
 /* Lunch Break LB static style */
@@ -847,7 +849,7 @@ h1, h2, h3, h4, h5, h6 {
 .timetable-print-sheet {
   background-color: #ffffff;
   padding: 40px;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 .print-header {
@@ -901,21 +903,49 @@ h1, h2, h3, h4, h5, h6 {
    PRINT CSS OVERRIDES
    ========================================================================== */
 @media print {
-  body {
-    background-color: #ffffff;
-    color: #000000;
-    font-size: 10pt;
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
-  .no-print {
-    display: none !important;
+  body * {
+    visibility: hidden;
   }
-  .app-container {
-    box-shadow: none;
-    padding: 0;
+  #modal-print-preview, #modal-print-preview * {
+    visibility: visible;
+  }
+  #modal-print-preview {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    overflow: visible !important;
+    z-index: 9999 !important;
+  }
+  #modal-print-preview .modal-content {
+    box-shadow: none !important;
+    border: none !important;
+    max-height: none !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: none !important;
   }
   .timetable-print-sheet {
-    padding: 0;
-    overflow: visible;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
   }
   .print-table {
     page-break-inside: avoid;
@@ -923,23 +953,48 @@ h1, h2, h3, h4, h5, h6 {
   .print-table th, .print-table td {
     border: 1px solid #000000 !important;
   }
+  .no-print, .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
   @page {
     size: A4 landscape;
-    margin: 1cm;
+    margin: 0.5cm;
   }
 }
 
-/* Print Modal Scroll Overrides - Let the modal container scroll naturally */
-#modal-print-preview {
-  overflow-y: auto;
-  display: block;
-}
+/* Print Modal Screen Layout Settings */
 #modal-print-preview .modal-content {
-  max-height: none !important;
-  height: auto !important;
-  margin: 40px auto !important;
-  overflow: visible !important;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
+
 #modal-print-preview .modal-body {
-  overflow-y: visible !important;
+  flex-shrink: 0;
+  overflow: visible;
+  padding: 20px 24px 10px 24px;
+}
+
+#modal-print-preview .timetable-print-sheet {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 24px 24px 24px;
+  background-color: #ffffff;
+}
+
+/* Color print styles for Theory/Practical in final print out */
+.print-table td.print-recommend-t {
+  background-color: var(--warning-light) !important;
+  color: var(--warning-dark) !important;
+  border-left: 5px solid var(--warning) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.print-table td.print-recommend-p {
+  background-color: var(--success-light) !important;
+  color: var(--success-dark) !important;
+  border-left: 5px solid var(--success) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }

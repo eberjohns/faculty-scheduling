@@ -70,7 +70,8 @@
           <h1 id="dept-title-name">Department Portal</h1>
           <p class="subtitle">Complete faculty allocations and customize visual aliases</p>
         </div>
-        <div class="status-section">
+        <div class="status-section flex-row items-center gap-2">
+          <span id="autosave-status" class="text-sm text-muted" style="font-weight: 500; font-style: italic; margin-right: 8px;"></span>
           <span class="badge" id="dept-status-badge">Draft</span>
         </div>
       </div>
@@ -87,6 +88,14 @@
           <div class="view-toggle-actions flex-row gap-2">
             <button id="btn-toggle-grid-mode" class="btn btn-outline"><i class="fa-solid fa-table-cells"></i> Switch to Full Week View</button>
           </div>
+        </div>
+      </div>
+
+      <!-- Admin Feedback Card -->
+      <div id="admin-feedback-card" class="card card-alert alert-danger hidden mb-4" style="border-left: 5px solid var(--danger); background-color: var(--danger-light); color: var(--danger-dark);">
+        <div class="card-body">
+          <h3 style="color: var(--danger-dark);"><i class="fa-solid fa-comment-dots"></i> Feedback from Admin</h3>
+          <p id="admin-feedback-text" class="mt-2" style="font-weight: 500; font-size: 14px; white-space: pre-wrap;"></p>
         </div>
       </div>
 
@@ -148,6 +157,7 @@
         <button id="btn-save-draft" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-floppy-disk"></i> Save Draft Schedule</button>
         <button id="btn-preview-timetable" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-eye"></i> View & Print Table</button>
         <button id="btn-submit-timetable" class="btn btn-primary btn-lg shadow-btn"><i class="fa-solid fa-paper-plane"></i> Submit Timetable</button>
+        <button id="btn-revert-submission" class="btn btn-danger btn-lg shadow-btn hidden" style="background-color: var(--danger); color: white;"><i class="fa-solid fa-undo"></i> Revert Submission to Edit</button>
       </div>
 
       <!-- Inline Editors Section -->
@@ -226,7 +236,7 @@
     </main>
 
     <!-- MODAL: PRINT TIMETABLE PREVIEW -->
-    <div id="modal-print-preview" class="modal no-print hidden">
+    <div id="modal-print-preview" class="modal hidden">
       <div class="modal-content modal-lg">
         <div class="modal-header">
           <h2>Timetable Print Preview</h2>
@@ -260,6 +270,18 @@
             <h2 id="print-dept-name" class="uppercase">DEPARTMENT TIMETABLE</h2>
             <h3>ST. THOMAS COLLEGE (AUTONOMOUS), THRISSUR - 680001, KERALA, INDIA</h3>
             <h4>TIME TABLE – <span id="print-active-sem" class="uppercase">ODD SEMESTER</span> <span id="print-active-year">2026-2027</span></h4>
+          </div>
+
+          <!-- Print Legend showing Theory and Practical Colors -->
+          <div class="print-legend" style="display: flex; justify-content: center; gap: 24px; font-size: 12px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--warning); background-color: var(--warning-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <strong>Theory Slot (TH)</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--success); background-color: var(--success-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <strong>Practical Slot (PR)</strong>
+            </div>
           </div>
 
           <table class="print-table" id="print-grid-table">

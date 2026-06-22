@@ -20,6 +20,110 @@ let state = {
   }
 };
 
+let autosaveTimer = null;
+
+function isTimetableLocked() {
+  if (!state.currentUser || !state.currentUser.departmentName) return false;
+  const deptName = state.currentUser.departmentName;
+  const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft', comments: '' };
+  return deptInfo.status === 'Submitted' || deptInfo.status === 'Approved';
+}
+
+function applyEditLocksUI() {
+  const locked = isTimetableLocked();
+  const deptName = state.currentUser ? state.currentUser.departmentName : null;
+  const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft', comments: '' };
+
+  const btnSaveDraft = document.getElementById('btn-save-draft');
+  const btnSubmit = document.getElementById('btn-submit-timetable');
+  const btnRevert = document.getElementById('btn-revert-submission');
+  const btnSaveAllCourses = document.getElementById('btn-save-all-courses');
+  const btnSaveAllFaculty = document.getElementById('btn-save-all-faculty');
+  const feedbackCard = document.getElementById('admin-feedback-card');
+  const feedbackText = document.getElementById('admin-feedback-text');
+  const autosaveStatus = document.getElementById('autosave-status');
+
+  if (locked) {
+    if (btnSaveDraft) btnSaveDraft.classList.add('hidden');
+    if (btnSubmit) btnSubmit.classList.add('hidden');
+    if (btnRevert) {
+      if (deptInfo.status === 'Submitted') {
+        btnRevert.classList.remove('hidden');
+      } else {
+        btnRevert.classList.add('hidden');
+      }
+    }
+    if (autosaveStatus) autosaveStatus.textContent = '';
+  } else {
+    if (btnSaveDraft) btnSaveDraft.classList.remove('hidden');
+    if (btnSubmit) btnSubmit.classList.remove('hidden');
+    if (btnRevert) btnRevert.classList.add('hidden');
+  }
+
+  if (btnSaveAllCourses) btnSaveAllCourses.disabled = locked;
+  if (btnSaveAllFaculty) btnSaveAllFaculty.disabled = locked;
+
+  // Feedback Card visibility
+  if (deptInfo.status === 'Returned for Changes') {
+    if (feedbackCard) feedbackCard.classList.remove('hidden');
+    if (feedbackText) feedbackText.textContent = deptInfo.comments || 'Please revise your timetable allocations according to admin requirements.';
+  } else {
+    if (feedbackCard) feedbackCard.classList.add('hidden');
+  }
+}
+
+function triggerAutosave() {
+  if (isTimetableLocked()) return; // block autosave if locked
+
+  const statusEl = document.getElementById('autosave-status');
+  if (statusEl) {
+    statusEl.textContent = 'Draft changes pending...';
+  }
+
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+  }
+
+  autosaveTimer = setTimeout(async () => {
+    if (statusEl) {
+      statusEl.textContent = 'Saving draft...';
+    }
+    
+    const deptName = state.currentUser.departmentName;
+    try {
+      const saveRes = await fetch(`${API_BASE}/allocations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departmentName: deptName,
+          allocations: state.allocations
+        })
+      });
+      const result = await saveRes.json();
+      
+      if (!saveRes.ok) {
+        if (statusEl) {
+          statusEl.textContent = 'Autosave failed: ' + result.message;
+        }
+        return;
+      }
+      
+      const timeStr = new Date().toLocaleTimeString();
+      if (statusEl) {
+        statusEl.textContent = `Draft autosaved at ${timeStr}`;
+      }
+      
+      await fetchGlobalData();
+      updateDeptStatusBadge();
+    } catch (err) {
+      console.error(err);
+      if (statusEl) {
+        statusEl.textContent = 'Autosave failed: Connection error';
+      }
+    }
+  }, 5000);
+}
+
 // Custom Modal Alerts Utility (Eliminating browser window alert/confirms)
 window.appModal = {
   overlay: document.getElementById('app-modal'),
@@ -292,6 +396,7 @@ async function loadDepartmentWorkspace() {
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
     renderDeptDataEditors();
+    applyEditLocksUI();
   } catch (err) {
     console.error(err);
   }
@@ -366,6 +471,41 @@ function bindDeptEvents() {
   document.getElementById('btn-preview-timetable').addEventListener('click', () => {
     openTimetablePrintPreview(state.currentUser.departmentName);
   });
+  
+  const btnRevert = document.getElementById('btn-revert-submission');
+  if (btnRevert) {
+    btnRevert.addEventListener('click', () => {
+      const deptName = state.currentUser.departmentName;
+      showModalConfirm(
+        'Revert Submission?',
+        'Are you sure you want to revert your submission back to Draft? This will allow you to edit your timetable allocations again.',
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/submissions/status`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                departmentName: deptName,
+                status: 'Draft',
+                comments: 'Reverted to Draft by department coordinator.'
+              })
+            });
+            if (res.ok) {
+              showModalAlert('Success', 'Submission reverted to Draft. You can now edit the timetable.', 'success');
+              await fetchGlobalData();
+              await loadDepartmentWorkspace();
+            } else {
+              const err = await res.json();
+              showModalAlert('Error', err.message || 'Failed to revert submission.', 'danger');
+            }
+          } catch (err) {
+            console.error(err);
+            showModalAlert('Error', 'Connection error while reverting submission.', 'danger');
+          }
+        }
+      );
+    });
+  }
 
   // Save All buttons
   document.getElementById('btn-save-all-courses').addEventListener('click', async () => {
@@ -391,10 +531,12 @@ function bindDeptEvents() {
       } else {
         const err = await res.json();
         showModalAlert('Error', err.message || 'Failed to update courses.', 'danger');
+        renderDeptDataEditors();
       }
     } catch (err) {
       console.error(err);
       showModalAlert('Error', 'Failed to communicate with server.', 'danger');
+      renderDeptDataEditors();
     }
   });
 
@@ -415,9 +557,7 @@ function bindDeptEvents() {
       if (res.ok) {
         showModalAlert('Success', 'All faculty initials codes updated successfully!', 'success');
         await fetchGlobalData();
-        renderAllocationMatrix();
-        renderDeptDataEditors();
-        updateDeptLiveWorkloadTracker();
+        await loadDepartmentWorkspace();
       } else {
         const err = await res.json();
         let explanation = err.message || 'Failed to update faculty codes.';
@@ -425,10 +565,12 @@ function bindDeptEvents() {
           explanation += '\n\nNote: Faculty visual initials codes must be unique across the entire college to prevent scheduling overlaps and distinguish between faculty members during allocation.';
         }
         showModalAlert('Conflict Error', explanation, 'danger');
+        renderDeptDataEditors();
       }
     } catch (err) {
       console.error(err);
       showModalAlert('Error', 'Failed to communicate with server.', 'danger');
+      renderDeptDataEditors();
     }
   });
 }
@@ -579,8 +721,15 @@ function renderAllocationMatrix() {
 
 // Merges data representation of -T and -P suffixes
 function getMergedCourseInfo(baseCode, deptCourses) {
-  const courseT = deptCourses.find(c => c.code === `${baseCode}-T`);
-  const courseP = deptCourses.find(c => c.code === `${baseCode}-P`);
+  let courseT = deptCourses.find(c => c.code === `${baseCode}-T`);
+  let courseP = deptCourses.find(c => c.code === `${baseCode}-P`);
+  
+  if (!courseT && !courseP) {
+    const fallbackCourse = deptCourses.find(c => c.code === baseCode);
+    if (fallbackCourse) {
+      courseT = fallbackCourse;
+    }
+  }
   
   const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-' };
   
@@ -613,6 +762,14 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
     activeCourseCode = courseP.code;
+  } else if (recT === 'P') {
+    highlightClass = 'slot-recommend-p';
+    slotLabel = 'Practical Rec';
+    activeCourseCode = courseT.code;
+  } else if (recP === 'T') {
+    highlightClass = 'slot-recommend-t';
+    slotLabel = 'Theory Rec';
+    activeCourseCode = courseP.code;
   } else {
     // Non-recommended slots: we save to -T by default, or fallback to -P
     activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
@@ -625,6 +782,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
 
   // Render assigned pills with dark red crosses and tooltips
   let pillsHtml = '';
+  const locked = isTimetableLocked();
   mergedAssigned.forEach(facCode => {
     const facObj = state.faculty.find(f => f.code === facCode);
     const fullName = facObj ? facObj.name : facCode;
@@ -634,15 +792,21 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
     if (courseT && assignedT.includes(facCode)) targetCode = courseT.code;
     else if (courseP && assignedP.includes(facCode)) targetCode = courseP.code;
 
+    const crossIcon = locked ? '' : `<i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>`;
+
     pillsHtml += `
       <span class="fac-pill" title="Faculty Name: ${fullName}">
         ${facCode}
-        <i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>
+        ${crossIcon}
       </span>
     `;
   });
 
-  const classes = `slot-interactive ${highlightClass}`;
+  let classes = `slot-interactive ${highlightClass}`;
+  if (mergedAssigned.length > 0) {
+    classes += ' slot-has-assignments';
+  }
+  
   const html = `
     <div class="cell-slot" onclick="activateSlot(this, '${baseCode}', '${activeCourseCode}', '${day}', '${period}')">
       <div class="cell-info text-sm bold text-muted">${slotLabel}</div>
@@ -656,6 +820,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
 }
 
 window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, period) {
+  if (isTimetableLocked()) return;
   const cell = cellContainer.closest('td');
   
   const openSelector = () => {
@@ -792,6 +957,7 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
       activeSlotContext = null;
+      triggerAutosave();
     }
   } catch (err) {
     console.error(err);
@@ -807,6 +973,7 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
     renderFacultySelectList(); // refresh list in modal
     renderAllocationMatrix(); // refresh grid
     updateDeptLiveWorkloadTracker(); // refresh workload
+    triggerAutosave();
   }
 };
 
@@ -815,6 +982,7 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
+    triggerAutosave();
   }
 };
 
@@ -863,6 +1031,7 @@ function closeAutoFill() {
   autoFillContext = null;
   renderAllocationMatrix();
   updateDeptLiveWorkloadTracker();
+  triggerAutosave();
 }
 
 function checkLocalClash(facultyCode, day, period, excludeCourseCode) {
@@ -985,6 +1154,7 @@ function renderDeptDataEditors() {
   const deptName = state.currentUser.departmentName;
   const deptCourses = state.courses.filter(c => c.department === deptName);
   const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const locked = isTimetableLocked();
 
   document.getElementById('count-dept-courses').textContent = deptCourses.length;
   document.getElementById('count-dept-faculty').textContent = deptFaculty.length;
@@ -999,13 +1169,13 @@ function renderDeptDataEditors() {
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>
-        <input type="text" class="form-control text-sm" id="cname-${c.code}" value="${c.name}">
+        <input type="text" class="form-control text-sm" id="cname-${c.code}" value="${c.name}" ${locked ? 'disabled' : ''}>
       </td>
       <td>
-        <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}">
+        <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}" ${locked ? 'disabled' : ''}>
       </td>
       <td>
-        <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')"><i class="fa-solid fa-save"></i> Save</button>
+        <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
       </td>
     `;
     coursesTbody.appendChild(tr);
@@ -1020,10 +1190,10 @@ function renderDeptDataEditors() {
       <td>${f.staffId}</td>
       <td><strong>${f.name}</strong></td>
       <td>
-        <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width:120px;">
+        <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width:120px;" ${locked ? 'disabled' : ''}>
       </td>
       <td>
-        <button class="btn btn-outline btn-xs" onclick="saveDeptFacultyCode('${f.staffId}')"><i class="fa-solid fa-save"></i> Save</button>
+        <button class="btn btn-outline btn-xs" onclick="saveDeptFacultyCode('${f.staffId}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
       </td>
     `;
     facultyTbody.appendChild(tr);
@@ -1049,9 +1219,11 @@ window.saveDeptCourseRecord = async function(code) {
     } else {
       const err = await res.json();
       showModalAlert('Error', err.message, 'danger');
+      renderDeptDataEditors();
     }
   } catch (err) {
     console.error(err);
+    renderDeptDataEditors();
   }
 };
 
@@ -1068,9 +1240,7 @@ window.saveDeptFacultyCode = async function(staffId) {
     if (res.ok) {
       showModalAlert('Success', 'Faculty initials code updated.', 'success');
       await fetchGlobalData();
-      renderAllocationMatrix();
-      renderDeptDataEditors();
-      updateDeptLiveWorkloadTracker();
+      await loadDepartmentWorkspace();
     } else {
       const err = await res.json();
       let explanation = err.message || 'Faculty code update failed.';
@@ -1078,9 +1248,11 @@ window.saveDeptFacultyCode = async function(staffId) {
         explanation += '\n\nNote: Faculty visual initials codes must be unique across the entire college to prevent scheduling overlaps and distinguish between faculty members during allocation.';
       }
       showModalAlert('Conflict Error', explanation, 'danger');
+      renderDeptDataEditors();
     }
   } catch (err) {
     console.error(err);
+    renderDeptDataEditors();
   }
 };
 
@@ -1215,7 +1387,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const hasClash = coursePeriods.some(p => !!subRows[r][p]);
           if (!hasClash) {
             coursePeriods.forEach(p => {
-              subRows[r][p] = formatAllocationCell(course, day, p, allocations, displayMode);
+              const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+              const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
+              const tooltip = assigned.map(code => {
+                const facObj = state.faculty.find(f => f.code === code);
+                return facObj ? facObj.name : code;
+              }).join(' / ');
+              
+              subRows[r][p] = {
+                html: formatAllocationCell(course, day, p, allocations, displayMode),
+                classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+                tooltip: tooltip
+              };
             });
             placed = true;
             break;
@@ -1225,7 +1408,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         if (!placed) {
           const newRow = {};
           coursePeriods.forEach(p => {
-            newRow[p] = formatAllocationCell(course, day, p, allocations, displayMode);
+            const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+            const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
+            const tooltip = assigned.map(code => {
+              const facObj = state.faculty.find(f => f.code === code);
+              return facObj ? facObj.name : code;
+            }).join(' / ');
+
+            newRow[p] = {
+              html: formatAllocationCell(course, day, p, allocations, displayMode),
+              classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+              tooltip: tooltip
+            };
           });
           subRows.push(newRow);
         }
@@ -1263,7 +1457,18 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
             td.className = 'break-cell';
             td.textContent = 'LB';
           } else {
-            td.innerHTML = srow[p] || '';
+            const cellData = srow[p];
+            if (cellData) {
+              td.innerHTML = cellData.html || '';
+              if (cellData.classes) {
+                cellData.classes.split(' ').filter(Boolean).forEach(cls => td.classList.add(cls));
+              }
+              if (cellData.tooltip) {
+                td.setAttribute('title', cellData.tooltip);
+              }
+            } else {
+              td.innerHTML = '';
+            }
           }
           tr.appendChild(td);
         });
@@ -1278,8 +1483,12 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   if (assignedCodes.length === 0) return '';
 
   const alias = (course.alias || course.code).replace(/-(T|P)$/, '');
-  const isPractical = (course.recommendations[day] && course.recommendations[day][period]) === 'P';
-  const suffix = isPractical ? ' PR' : '';
+  const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
+
+  let suffix = '';
+  if (mode === 'full') {
+    suffix = isPractical ? ' (PR)' : ' (TH)';
+  }
 
   if (mode === 'short') {
     return `${assignedCodes.join('/')} ${alias}${suffix}`;

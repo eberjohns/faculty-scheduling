@@ -201,9 +201,45 @@ app.post('/api/departments/password', (req, res) => {
   res.json({ success: true, message: `Password updated for department ${name}.` });
 });
 
+app.get('/api/admin/departments', (req, res) => {
+  const token = req.headers['authorization'];
+  if (token !== 'admin-token') {
+    return res.status(401).json({ success: false, message: 'Unauthorized access' });
+  }
+
+  const db = readDb();
+  const deptSet = new Set();
+  db.courses.forEach(c => deptSet.add(c.department));
+  db.faculty.forEach(f => deptSet.add(f.department));
+  
+  const depts = Array.from(deptSet).sort();
+  
+  const result = depts.map(name => {
+    const passcode = db.departments[name] ? db.departments[name].password || '' : '';
+    const hasPassword = !!passcode;
+    const submission = db.submissions[name] || { status: 'Draft', comments: '' };
+    return {
+      name,
+      hasPassword,
+      passcode,
+      status: submission.status,
+      comments: submission.comments
+    };
+  });
+  
+  res.json(result);
+});
+
 // -------------------------------------------------------------
 // Course & Faculty Administration Endpoints
 // -------------------------------------------------------------
+function isDepartmentLocked(db, departmentName) {
+  if (!departmentName) return false;
+  const deptUpper = departmentName.toUpperCase();
+  const submission = db.submissions[deptUpper] || { status: 'Draft' };
+  return submission.status === 'Submitted' || submission.status === 'Approved';
+}
+
 app.get('/api/courses', (req, res) => {
   const { department } = req.query;
   const db = readDb();
@@ -219,6 +255,13 @@ app.post('/api/courses/alias', (req, res) => {
   if (!code) return res.status(400).json({ success: false, message: 'Course code is required' });
   
   const db = readDb();
+  if (departmentName && isDepartmentLocked(db, departmentName)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[departmentName.toUpperCase()].status}.`
+    });
+  }
+
   const course = db.courses.find(c => c.code === code);
   if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
 
@@ -240,6 +283,13 @@ app.post('/api/courses/alias/batch', (req, res) => {
   }
   
   const db = readDb();
+  if (departmentName && isDepartmentLocked(db, departmentName)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[departmentName.toUpperCase()].status}.`
+    });
+  }
+
   for (const item of courses) {
     const { code, alias, name } = item;
     if (!code) continue;
@@ -275,6 +325,13 @@ app.post('/api/faculty/code', (req, res) => {
   if (!staffId || !code) return res.status(400).json({ success: false, message: 'Staff ID and code are required' });
   
   const db = readDb();
+  if (departmentName && isDepartmentLocked(db, departmentName)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[departmentName.toUpperCase()].status}.`
+    });
+  }
+
   const cleanCode = code.trim().toUpperCase();
   
   // Verify code uniqueness
@@ -320,7 +377,13 @@ app.post('/api/faculty/code/batch', (req, res) => {
   }
   
   const db = readDb();
-  
+  if (departmentName && isDepartmentLocked(db, departmentName)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[departmentName.toUpperCase()].status}.`
+    });
+  }
+
   // Validate duplicate codes within database, except for self
   const tempCodes = new Map(); // staffId -> code
   db.faculty.forEach(f => tempCodes.set(f.staffId, f.code));
@@ -481,6 +544,29 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
           }
         }
       });
+
+      // Consolidation check for duplicate Excel entries
+      const existing = importedCourses.find(c => c.code === courseCode);
+      if (existing) {
+        weekdays.forEach(day => {
+          if (recommendations[day]) {
+            if (!existing.recommendations[day]) {
+              existing.recommendations[day] = {};
+            }
+            Object.keys(recommendations[day]).forEach(p => {
+              existing.recommendations[day][p] = recommendations[day][p];
+            });
+          }
+        });
+        existing.hours += hours;
+        if (roomNo && !existing.roomNo.includes(roomNo)) {
+          existing.roomNo += `, ${roomNo}`;
+        }
+        if (batch && !existing.batch.includes(batch)) {
+          existing.batch += `, ${batch}`;
+        }
+        continue;
+      }
 
       // Default course alias based on course code extraction (e.g. CSC1CJ101-T -> CJ101)
       let alias = courseCode;
@@ -658,6 +744,15 @@ app.post('/api/allocations', (req, res) => {
   const db = readDb();
   const deptUpper = departmentName.toUpperCase();
 
+  // Edit Lock Verification
+  const submission = db.submissions[deptUpper] || { status: 'Draft' };
+  if (submission.status === 'Submitted' || submission.status === 'Approved') {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${submission.status}.`
+    });
+  }
+
   // Dry run clash validation
   const testAllocations = JSON.parse(JSON.stringify(db.allocations));
   testAllocations[deptUpper] = allocations;
@@ -768,10 +863,69 @@ app.get('/api/reports/workload', (req, res) => {
   res.json(summary);
 });
 
+// Clear database endpoint
+app.post('/api/admin/clear-database', (req, res) => {
+  const db = readDb();
+  
+  db.courses = [];
+  db.faculty = [];
+  db.allocations = {};
+  db.submissions = {};
+  db.departments = {};
+  db.config.semesterLabels = {
+    "1": "I BSC",
+    "3": "III BSC",
+    "5": "V BSC"
+  };
+  db.periods = ["1", "2", "3", "LB", "4", "5", "6"];
+  
+  writeDb(db);
+  res.json({ success: true, message: 'Database cleared successfully.' });
+});
+
 // Fallback to serve index.html for undefined requests
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
+
+// Clean up existing duplicates in db.json on startup
+try {
+  const db = readDb();
+  if (db && db.courses && db.courses.length > 0) {
+    const uniqueCourses = [];
+    db.courses.forEach(c => {
+      const existing = uniqueCourses.find(ec => ec.code === c.code);
+      if (existing) {
+        if (c.recommendations) {
+          Object.keys(c.recommendations).forEach(day => {
+            if (!existing.recommendations[day]) {
+              existing.recommendations[day] = {};
+            }
+            Object.keys(c.recommendations[day]).forEach(period => {
+              existing.recommendations[day][period] = c.recommendations[day][period];
+            });
+          });
+        }
+        existing.hours += c.hours;
+        if (c.roomNo && !existing.roomNo.includes(c.roomNo)) {
+          existing.roomNo += `, ${c.roomNo}`;
+        }
+        if (c.batch && !existing.batch.includes(c.batch)) {
+          existing.batch += `, ${c.batch}`;
+        }
+      } else {
+        uniqueCourses.push(c);
+      }
+    });
+    if (uniqueCourses.length !== db.courses.length) {
+      console.log(`Consolidated ${db.courses.length} courses down to ${uniqueCourses.length} unique courses.`);
+      db.courses = uniqueCourses;
+      writeDb(db);
+    }
+  }
+} catch (err) {
+  console.error("Failed to consolidate duplicate courses on startup:", err);
+}
 
 // Start Server
 app.listen(PORT, () => {

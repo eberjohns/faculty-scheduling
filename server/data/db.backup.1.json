@@ -2167,31 +2167,9 @@
       "pathway": "SINGLE MAJOR",
       "semester": "1",
       "category": "MINOR2",
-      "roomNo": "AC 221",
+      "roomNo": "AC 221, AC 209",
       "batch": "",
-      "hours": 2,
-      "alias": "1MN110",
-      "recommendations": {
-        "MONDAY": {},
-        "TUESDAY": {},
-        "WEDNESDAY": {},
-        "THURSDAY": {
-          "5": "T",
-          "6": "T"
-        },
-        "FRIDAY": {}
-      }
-    },
-    {
-      "code": "CSC1MN110-T",
-      "name": "CSC1MN110 T",
-      "department": "COMPUTER SCIENCE",
-      "pathway": "SINGLE MAJOR",
-      "semester": "1",
-      "category": "MINOR2",
-      "roomNo": "AC 209",
-      "batch": "",
-      "hours": 1,
+      "hours": 3,
       "alias": "1MN110",
       "recommendations": {
         "MONDAY": {},
@@ -2199,7 +2177,10 @@
         "WEDNESDAY": {
           "4": "T"
         },
-        "THURSDAY": {},
+        "THURSDAY": {
+          "5": "T",
+          "6": "T"
+        },
         "FRIDAY": {}
       }
     },
@@ -2854,41 +2835,22 @@
       "pathway": "SINGLE MAJOR",
       "semester": "3",
       "category": "MDC3",
-      "roomNo": "AC 209",
+      "roomNo": "AC 209, AC 223",
       "batch": "EC",
-      "hours": 2,
+      "hours": 3,
       "alias": "3FM107",
       "recommendations": {
         "MONDAY": {
           "2": "T"
         },
-        "TUESDAY": {},
-        "WEDNESDAY": {},
-        "THURSDAY": {},
-        "FRIDAY": {
-          "5": "T"
-        }
-      }
-    },
-    {
-      "code": "HIN3FM107(1)",
-      "name": "HIN3FM107(1)",
-      "department": "HINDI",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MDC3",
-      "roomNo": "AC 223",
-      "batch": "EC",
-      "hours": 1,
-      "alias": "3FM107",
-      "recommendations": {
-        "MONDAY": {},
         "TUESDAY": {
           "1": "T"
         },
         "WEDNESDAY": {},
         "THURSDAY": {},
-        "FRIDAY": {}
+        "FRIDAY": {
+          "5": "T"
+        }
       }
     },
     {
@@ -3073,41 +3035,22 @@
       "pathway": "SINGLE MAJOR",
       "semester": "3",
       "category": "MDC3",
-      "roomNo": "AC 228",
+      "roomNo": "AC 228, AC 109 A",
       "batch": "EC",
-      "hours": 2,
+      "hours": 3,
       "alias": "3FM107",
       "recommendations": {
         "MONDAY": {
           "2": "T"
         },
-        "TUESDAY": {},
-        "WEDNESDAY": {},
-        "THURSDAY": {},
-        "FRIDAY": {
-          "5": "T"
-        }
-      }
-    },
-    {
-      "code": "SAN3FM107(1)",
-      "name": "SAN3FM107(1)",
-      "department": "SANSKRIT",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MDC3",
-      "roomNo": "AC 109 A",
-      "batch": "EC",
-      "hours": 1,
-      "alias": "3FM107",
-      "recommendations": {
-        "MONDAY": {},
         "TUESDAY": {
           "1": "T"
         },
         "WEDNESDAY": {},
         "THURSDAY": {},
-        "FRIDAY": {}
+        "FRIDAY": {
+          "5": "T"
+        }
       }
     },
     {
@@ -3142,9 +3085,9 @@
       "pathway": "SINGLE MAJOR",
       "semester": "3",
       "category": "MDC3",
-      "roomNo": "AC 227",
+      "roomNo": "AC 227, AD 018, AC 228",
       "batch": "COM1/COM2",
-      "hours": 1,
+      "hours": 3,
       "alias": "3FM107",
       "recommendations": {
         "MONDAY": {},
@@ -3152,47 +3095,9 @@
         "WEDNESDAY": {
           "3": "T"
         },
-        "THURSDAY": {},
-        "FRIDAY": {}
-      }
-    },
-    {
-      "code": "SAN3FM107(3)",
-      "name": "SAN3FM107(3)",
-      "department": "SANSKRIT",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MDC3",
-      "roomNo": "AD 018",
-      "batch": "COM1/COM2",
-      "hours": 1,
-      "alias": "3FM107",
-      "recommendations": {
-        "MONDAY": {},
-        "TUESDAY": {},
-        "WEDNESDAY": {},
         "THURSDAY": {
           "4": "T"
         },
-        "FRIDAY": {}
-      }
-    },
-    {
-      "code": "SAN3FM107(3)",
-      "name": "SAN3FM107(3)",
-      "department": "SANSKRIT",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MDC3",
-      "roomNo": "AC 228",
-      "batch": "COM1/COM2",
-      "hours": 1,
-      "alias": "3FM107",
-      "recommendations": {
-        "MONDAY": {},
-        "TUESDAY": {},
-        "WEDNESDAY": {},
-        "THURSDAY": {},
         "FRIDAY": {
           "4": "T"
         }
@@ -4748,34 +4653,15 @@
       "pathway": "SINGLE MAJOR",
       "semester": "3",
       "category": "MINOR6",
-      "roomNo": "AC 121",
+      "roomNo": "AC 121, AC 223",
       "batch": "",
-      "hours": 2,
+      "hours": 3,
       "alias": "3MN210",
       "recommendations": {
         "MONDAY": {
           "5": "T",
           "6": "T"
         },
-        "TUESDAY": {},
-        "WEDNESDAY": {},
-        "THURSDAY": {},
-        "FRIDAY": {}
-      }
-    },
-    {
-      "code": "CSC3MN210-T",
-      "name": "CSC3MN210 T",
-      "department": "COMPUTER SCIENCE",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MINOR6",
-      "roomNo": "AC 223",
-      "batch": "",
-      "hours": 1,
-      "alias": "3MN210",
-      "recommendations": {
-        "MONDAY": {},
         "TUESDAY": {},
         "WEDNESDAY": {},
         "THURSDAY": {},
@@ -6827,10 +6713,48 @@
   ],
   "allocations": {
     "COMPUTER SCIENCE": {
+      "CSC1CJ101-T": {
+        "MONDAY": {
+          "3": [
+            "DJAM"
+          ]
+        },
+        "WEDNESDAY": {
+          "1": [
+            "DJAM"
+          ]
+        },
+        "THURSDAY": {
+          "4": [
+            "DJAM"
+          ]
+        }
+      },
+      "CSC1FM105": {
+        "TUESDAY": {
+          "3": [
+            "RRK"
+          ]
+        },
+        "THURSDAY": {
+          "3": [
+            "RRK"
+          ]
+        },
+        "FRIDAY": {
+          "3": [
+            "RRK"
+          ]
+        }
+      },
       "CSC1MN108-T": {
         "MONDAY": {
-          "1": [],
-          "2": []
+          "1": [
+            "SSC"
+          ],
+          "2": [
+            "SSC"
+          ]
         },
         "FRIDAY": {
           "4": [
@@ -6838,37 +6762,443 @@
           ]
         }
       },
-      "CSC1CJ101-T": {
-        "MONDAY": {
-          "3": [
-            "SJ"
+      "CSC1MN109-T": {
+        "TUESDAY": {
+          "1": [
+            "AGK"
+          ],
+          "2": [
+            "AGK"
           ]
         },
         "WEDNESDAY": {
+          "4": [
+            "AGK"
+          ]
+        }
+      },
+      "CSC1MN110-T": {
+        "WEDNESDAY": {
+          "4": [
+            "RV"
+          ]
+        },
+        "THURSDAY": {
+          "5": [
+            "RV"
+          ],
+          "6": [
+            "RV"
+          ]
+        }
+      },
+      "CSC3CJ201-T": {
+        "MONDAY": {
+          "4": [
+            "SJ"
+          ]
+        },
+        "TUESDAY": {
           "1": [
             "SJ"
           ]
         },
         "THURSDAY": {
-          "4": [
+          "3": [
             "SJ"
+          ]
+        },
+        "FRIDAY": {
+          "3": [
+            "SJ"
+          ]
+        }
+      },
+      "CSC3CJ202-T": {
+        "WEDNESDAY": {
+          "3": [
+            "JPC"
+          ]
+        },
+        "TUESDAY": {
+          "4": [
+            "JPC"
+          ]
+        },
+        "THURSDAY": {
+          "4": [
+            "JPC"
+          ]
+        }
+      },
+      "CSC3MN208-T": {
+        "THURSDAY": {
+          "1": [
+            "MMK"
+          ],
+          "2": [
+            "MMK"
+          ]
+        },
+        "MONDAY": {
+          "3": [
+            "MMK"
+          ]
+        }
+      },
+      "CSC3MN209-T": {
+        "WEDNESDAY": {
+          "1": [
+            "DA"
+          ],
+          "2": [
+            "DA"
+          ]
+        },
+        "FRIDAY": {
+          "2": [
+            "DA"
+          ]
+        }
+      },
+      "CSC3MN210-T": {
+        "MONDAY": {
+          "5": [
+            "DJAM"
+          ],
+          "6": [
+            "DJAM"
+          ]
+        },
+        "FRIDAY": {
+          "2": [
+            "DJAM"
+          ]
+        }
+      },
+      "CSC3MN210-P": {
+        "WEDNESDAY": {
+          "1": [
+            "RRK"
+          ],
+          "2": [
+            "RRK"
+          ]
+        }
+      },
+      "CSC3MN209-P": {
+        "MONDAY": {
+          "5": [
+            "SSC"
+          ],
+          "6": [
+            "SSC"
+          ]
+        }
+      },
+      "CSC3MN208-P": {
+        "TUESDAY": {
+          "5": [
+            "AGK"
+          ],
+          "6": [
+            "AGK"
+          ]
+        }
+      },
+      "CSC3CJ202-P": {
+        "FRIDAY": {
+          "4": [
+            "RV"
+          ],
+          "5": [
+            "RV"
+          ]
+        }
+      },
+      "CSC1MN110-P": {
+        "TUESDAY": {
+          "1": [
+            "JPC"
+          ],
+          "2": [
+            "JPC"
+          ]
+        }
+      },
+      "CSC1MN109-P": {
+        "THURSDAY": {
+          "5": [
+            "SJ"
+          ],
+          "6": [
+            "SJ"
+          ]
+        }
+      },
+      "CSC1MN108-P": {
+        "WEDNESDAY": {
+          "5": [
+            "MMK"
+          ],
+          "6": [
+            "MMK"
           ]
         }
       },
       "CSC1CJ101-P": {
         "FRIDAY": {
           "1": [
-            "SJ"
+            "AGK"
           ],
           "2": [
-            "SJ"
+            "AGK"
+          ]
+        }
+      }
+    },
+    "CHEMISTRY": {
+      "CHE1FM105": {
+        "TUESDAY": {
+          "3": [
+            "PM"
+          ]
+        },
+        "THURSDAY": {
+          "3": [
+            "PM"
+          ]
+        },
+        "FRIDAY": {
+          "3": [
+            "PM"
           ]
         }
       },
-      "CSC3CJ202-T": {
+      "CHE1MN101-T": {
+        "TUESDAY": {
+          "1": [
+            "SJT"
+          ],
+          "2": [
+            "SJT"
+          ]
+        },
+        "WEDNESDAY": {
+          "1": [],
+          "4": [
+            "SJT"
+          ]
+        }
+      },
+      "CHE1MN101-P": {
+        "THURSDAY": {
+          "5": [
+            "PM"
+          ],
+          "6": [
+            "PM"
+          ]
+        }
+      },
+      "CHE1MN102-T": {
+        "MONDAY": {
+          "1": [
+            "JT"
+          ],
+          "2": [
+            "JT"
+          ]
+        },
+        "FRIDAY": {
+          "4": [
+            "JT"
+          ]
+        }
+      },
+      "CHE1MN103-T": {
+        "MONDAY": {
+          "1": [
+            "JAM"
+          ],
+          "2": [
+            "JAM"
+          ]
+        },
+        "FRIDAY": {
+          "4": [
+            "JAM"
+          ]
+        }
+      },
+      "CHE3CJ201-T": {
         "MONDAY": {
           "4": [
-            "JC."
+            "RJ"
+          ]
+        },
+        "TUESDAY": {
+          "1": [
+            "RJ"
+          ]
+        },
+        "THURSDAY": {
+          "3": [
+            "RJ"
+          ]
+        },
+        "FRIDAY": {
+          "3": [
+            "RJ"
+          ]
+        }
+      },
+      "CHE3CJ202-T": {
+        "TUESDAY": {
+          "4": [
+            "JJVL"
+          ]
+        },
+        "WEDNESDAY": {
+          "3": [
+            "JJVL"
+          ]
+        },
+        "THURSDAY": {
+          "4": [
+            "JJVL"
+          ]
+        }
+      },
+      "CHE3MN201-T": {
+        "WEDNESDAY": {
+          "1": [
+            "ACV"
+          ],
+          "2": [
+            "ACV"
+          ]
+        },
+        "FRIDAY": {
+          "2": [
+            "ACV"
+          ]
+        }
+      },
+      "CHE3MN202-T": {
+        "TUESDAY": {
+          "5": [
+            "JJ"
+          ],
+          "6": [
+            "JJ"
+          ]
+        },
+        "MONDAY": {
+          "3": [
+            "JJ"
+          ]
+        }
+      },
+      "CHE3MN203-T": {
+        "MONDAY": {
+          "3": [
+            "BMP"
+          ]
+        },
+        "THURSDAY": {
+          "1": [
+            "BMP"
+          ],
+          "2": [
+            "BMP"
+          ]
+        }
+      },
+      "CHEICJ101-T": {
+        "MONDAY": {
+          "3": [
+            "RDK"
+          ]
+        },
+        "WEDNESDAY": {
+          "1": [
+            "RDK"
+          ]
+        },
+        "THURSDAY": {
+          "4": [
+            "RDK"
+          ]
+        }
+      },
+      "CHEICJ101-P": {
+        "FRIDAY": {
+          "1": [
+            "RJ"
+          ],
+          "2": [
+            "RJ"
+          ]
+        }
+      },
+      "CHE3MN202-P": {
+        "THURSDAY": {
+          "1": [
+            "ACV"
+          ],
+          "2": [
+            "ACV"
+          ]
+        }
+      },
+      "CHE3MN203-P": {
+        "TUESDAY": {
+          "5": [
+            "RJ"
+          ],
+          "6": [
+            "RJ"
+          ]
+        }
+      },
+      "CHE3MN201-P": {
+        "MONDAY": {
+          "5": [
+            "JAM"
+          ],
+          "6": [
+            "JAM"
+          ]
+        }
+      },
+      "CHE3CJ202-P": {
+        "FRIDAY": {
+          "4": [
+            "SJT"
+          ],
+          "5": [
+            "SJT"
+          ]
+        }
+      },
+      "CHE1MN103-P": {
+        "WEDNESDAY": {
+          "5": [
+            "JAM"
+          ],
+          "6": [
+            "JAM"
+          ]
+        }
+      },
+      "CHE1MN102-P": {
+        "WEDNESDAY": {
+          "5": [
+            "PM"
+          ],
+          "6": [
+            "PM"
           ]
         }
       }
@@ -6876,8 +7206,12 @@
   },
   "submissions": {
     "COMPUTER SCIENCE": {
-      "status": "Draft",
-      "comments": ""
+      "status": "Submitted",
+      "comments": "Timetable submitted by department coordinator."
+    },
+    "CHEMISTRY": {
+      "status": "Returned for Changes",
+      "comments": "do better"
     }
   },
   "periods": [

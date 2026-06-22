@@ -5,3 +5,18 @@
 - tool tip shows faculty name
 - auto save after some time
 - after assigning the faculty to slot, when we change the alias, it doesn't update
+- if there is alias conflict, after the error message, the name should go back to normal
+- some courses are not showing the T/P status in the row
+- the print timetable doesn't seem to work
+
+- i can't see any slots not filled but it says:
+Missing Recommended Slots
+Some recommended slots are missing allocations: CSC1MN110 alias '1MN110' requires allocation on WEDNESDAY Period 4 CSC3MN210 alias '3MN210' requires allocation on FRIDAY Period 2 Do you want to proceed with submission?
+- and also why is there double entry for these slots, i have attached the print view
+- make an edit lock for each department and after their draft is approved, the edit lock is automatically enabled and they can't edit it, if admin doesn't approve it. and even if they have changed and drafted it after submitting to admin, once it approves it, the approved changes kick in and they can't change it.
+- department can revert the submitted timeline before approval. they should be able to see the instructions the admin sent if admin returns it.
+- also show the instructions dialogue of admin in a good UI no the localhost says thing
+- for the department access passwords in admin, show the passcode of each department if its set up, but not expose it, there should be an eye, and when you click on it the first time, it won't show the passcode, instead it asks for admin password(for verification)
+
+TODO;
+- change display name to course name and make it uneditable
