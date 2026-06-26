@@ -52,6 +52,32 @@ function generateFacultyCode(name, existingFaculty) {
   return finalCode;
 }
 
+// Helper to extract semester from course code
+function extractSemesterFromCode(code) {
+  const match = code.match(/\d/);
+  if (match) {
+    const digit = parseInt(match[0]);
+    if (digit >= 1 && digit <= 8) {
+      return `${digit}`;
+    }
+  }
+  return "1";
+}
+
+// Helper to generate course alias
+function generateCourseAlias(name) {
+  if (!name) return "";
+  if (name.startsWith("Course ")) {
+    const parts = name.split(" ");
+    if (parts.length >= 2) return parts[1];
+  }
+  const clean = name.replace(/[^a-zA-Z0-9\s]/g, "");
+  const parts = clean.split(/\s+/).filter(Boolean);
+  const alias = parts.map(p => p[0].toUpperCase()).join("");
+  return alias || name.substring(0, 3).toUpperCase();
+}
+
+
 // Global Clash Check Helper
 // Returns list of clashes: { weekday, period, facultyCode, courses: [courseCodes] }
 function findAllocationClashes(allocations) {
@@ -243,10 +269,17 @@ function isDepartmentLocked(db, departmentName) {
 app.get('/api/courses', (req, res) => {
   const { department } = req.query;
   const db = readDb();
-  let result = db.courses;
+  let result = db.courses || [];
   if (department) {
     result = result.filter(c => c.department.toUpperCase() === department.toUpperCase());
   }
+  const groupMappings = db.groupMappings || {};
+  result = result.map(c => {
+    return {
+      ...c,
+      mappedBatches: groupMappings[c.code] || []
+    };
+  });
   res.json(result);
 });
 
@@ -454,153 +487,224 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    // Read sheet to a 2D array
     const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
 
     if (data.length < 2) {
-      return res.status(400).json({ error: 'Invalid course sheet structure: Too few rows.' });
+      return res.status(400).json({ error: 'Invalid course sheet: Too few rows.' });
     }
 
-    const row0 = data[1]; // Day names row
-    const row1 = data[2]; // Period headers row
+    // -------------------------------------------------------
+    // Step 1: Read the single header row (row 0) and find all columns by name.
+    // New format: headers like MON-1, TUE-3, LB, Course Code, Group, Type, etc.
+    // -------------------------------------------------------
+    const headerRow = data[0];
+    const DAY_MAP = { MON: 'MONDAY', TUE: 'TUESDAY', WED: 'WEDNESDAY', THU: 'THURSDAY', FRI: 'FRIDAY' };
+    const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
 
-    // Find column ranges for MON, TUE, WED, THU, FRI
-    const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
-    const dayRanges = {};
+    // Named metadata column indices (detected by header name)
+    let codeColIdx  = -1;
+    let groupColIdx = -1;
+    let typeColIdx  = -1;
+    let nameColIdx  = -1;
+    let deptColIdx  = -1;
 
-    let currentDay = null;
-    let dayStartIndex = -1;
+    // Slot columns: { idx, day (full), period (label string) }
+    const slotCols = [];
+    const periodSet = new Set(); // unique period labels in order
 
-    for (let c = 0; c < row0.length; c++) {
-      const cellVal = String(row0[c] || '').trim().toUpperCase();
-      if (weekdays.includes(cellVal)) {
-        if (currentDay) {
-          dayRanges[currentDay] = { start: dayStartIndex, end: c - 1 };
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = String(headerRow[c] || '').trim();
+      const hdrLow = hdr.toLowerCase();
+
+      // Check for slot columns: pattern DAY-N (e.g. MON-1, TUE-LB, etc.)
+      const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI)-(.+)$/i);
+      if (slotMatch) {
+        const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
+        const period  = slotMatch[2].trim(); // e.g. "1", "2", "LB"
+        if (dayFull && period.toUpperCase() !== 'LB') {
+          // Only real period columns (skip lunch break)
+          slotCols.push({ idx: c, day: dayFull, period });
+          periodSet.add(period);
         }
-        currentDay = cellVal;
-        dayStartIndex = c;
+        continue;
       }
-    }
-    if (currentDay) {
-      // Find end index for the last day
-      let endCol = row1.length - 1;
-      // Subtract columns that represent non-day metadata
-      for (let c = row1.length - 1; c >= dayStartIndex; c--) {
-        const hVal = String(row1[c] || '').trim();
-        if (hVal === 'Department') {
-          endCol = c - 1;
-          break;
-        }
-      }
-      dayRanges[currentDay] = { start: dayStartIndex, end: endCol };
+
+      // Named metadata columns (case-insensitive)
+      if (hdrLow === 'course code' || hdrLow === 'coursecode') { codeColIdx  = c; continue; }
+      if (hdrLow === 'group')                                   { groupColIdx = c; continue; }
+      if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
+      if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
+      if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
     }
 
-    // Capture dynamic periods list from Monday range (ignoring headers like Pathway, Course, etc.)
-    const monRange = dayRanges["MONDAY"];
-    if (!monRange) {
-      return res.status(400).json({ error: 'Could not find MONDAY columns in Row 0' });
-    }
-    const periods = [];
-    for (let c = monRange.start; c <= monRange.end; c++) {
-      periods.push(String(row1[c] || '').trim());
+    const is_new_format = codeColIdx !== -1;
+
+    if (!is_new_format) {
+      return res.status(400).json({
+        error: 'Could not find a "Course Code" column in the header row. ' +
+               'Please make sure the first row contains column headers like "Course Code", "Group", "Type", "Course Name".'
+      });
     }
 
+    if (slotCols.length === 0) {
+      return res.status(400).json({
+        error: 'Could not find any slot columns (e.g. MON-1, TUE-2) in the header row.'
+      });
+    }
+
+    // Derive the ordered period labels (from Monday's slots, in column order)
+    const monSlots = slotCols.filter(s => s.day === 'MONDAY');
+    if (monSlots.length === 0) {
+      return res.status(400).json({ error: 'No MONDAY slot columns found (expected MON-1, MON-2, ...).' });
+    }
+    // periods = unique labels in the order they appear for MON (e.g. ["1","2","3","4","5","6"])
+    const periods = monSlots.map(s => s.period);
+
+    // Group slot columns by weekday for fast lookup: slotsByDay[day] = [{idx, period}]
+    const slotsByDay = {};
+    weekdays.forEach(d => { slotsByDay[d] = []; });
+    slotCols.forEach(s => { slotsByDay[s.day].push({ idx: s.idx, period: s.period }); });
+
+    const db = readDb();
+    const existingCourses = db.courses || [];
     const importedCourses = [];
     const warnings = [];
 
-    // Parse course rows starting at index 2
-    for (let r = 3; r < data.length; r++) {
+    // -------------------------------------------------------
+    // Step 2: Parse each data row (starting at row index 1)
+    // -------------------------------------------------------
+    for (let r = 1; r < data.length; r++) {
       const row = data[r];
       if (!row || row.length === 0) continue;
 
-      const courseCode = String(row[3] || '').trim();
-      const department = String(row[42] || row[row.length - 1] || '').trim().toUpperCase();
+      // Read metadata fields from named columns
+      const group_raw = groupColIdx >= 0 ? row[groupColIdx] : undefined;
+      const type_raw  = typeColIdx  >= 0 ? row[typeColIdx]  : undefined;
+      const code_raw  = codeColIdx  >= 0 ? row[codeColIdx]  : undefined;
 
-      if (!courseCode || courseCode === 'undefined' || courseCode === 'Course') continue;
-      if (!department || department === 'undefined') {
-        warnings.push(`Row ${r + 1}: Missing Department for course ${courseCode}. Course skipped.`);
-        continue;
+      // Parse group number (0 = no group)
+      let group_num = 0;
+      if (group_raw !== undefined && group_raw !== null) {
+        let g_str = String(group_raw).trim();
+        if (g_str.endsWith('.0')) g_str = g_str.slice(0, -2);
+        const parsedG = parseInt(g_str);
+        if (!isNaN(parsedG)) group_num = parsedG;
       }
 
-      const pathway = String(row[0] || '').trim();
-      const semester = String(row[1] || '').trim();
-      const category = String(row[2] || '').trim();
-      const roomNo = String(row[4] || '').trim();
-      const batch = String(row[5] || '').trim();
-      const hours = Number(row[6]) || 0;
+      // Parse type (T = Theory, P = Practical)
+      let type_val = 'T';
+      if (type_raw !== undefined && type_raw !== null) {
+        const t_str = String(type_raw).trim().toUpperCase();
+        if (t_str === 'P' || t_str === 'PRACTICAL') type_val = 'P';
+      }
 
-      // Extract recommended slots
+      // Parse course code — this is the base code (e.g. MAT1CJ101)
+      const baseCode = String(code_raw || '').trim();
+      if (!baseCode || baseCode === 'undefined' || baseCode.toLowerCase() === 'course code') continue;
+
+      // Build the course code: if grouped, suffix with _G<n>
+      const courseCode = group_num === 0 ? baseCode : `${baseCode}_G${group_num}`;
+
+      // Resolve department from batch-dept mappings (using code prefix)
+      let department = '';
+      if (deptColIdx >= 0) {
+        department = String(row[deptColIdx] || '').trim().toUpperCase();
+      }
+      if (!department) {
+        const deptMatch = baseCode.match(/^([a-zA-Z]+)/);
+        const deptPrefix = deptMatch ? deptMatch[1].toUpperCase() : 'GEN';
+        const mapping = db.batchDeptMappings.find(m => m.code.toUpperCase() === deptPrefix);
+        department = mapping ? mapping.deptName.toUpperCase() : deptPrefix;
+      }
+
+      const semester = extractSemesterFromCode(baseCode);
+
+      // -------------------------------------------------------
+      // Step 3: Extract recommended slots from slot columns
+      // A cell is marked if it contains the same value as type_val (T or P)
+      // -------------------------------------------------------
       const recommendations = {};
       weekdays.forEach(day => {
-        const range = dayRanges[day];
-        if (range) {
-          recommendations[day] = {};
-          for (let c = range.start; c <= range.end; c++) {
-            const periodVal = String(row1[c] || '').trim();
-            const slotVal = String(row[c] || '').trim().toUpperCase();
-            if (slotVal === 'T' || slotVal === 'P') {
-              recommendations[day][periodVal] = slotVal;
-            }
-          }
-        }
-      });
-
-      // Consolidation check for duplicate Excel entries
-      const existing = importedCourses.find(c => c.code === courseCode);
-      if (existing) {
-        weekdays.forEach(day => {
-          if (recommendations[day]) {
-            if (!existing.recommendations[day]) {
-              existing.recommendations[day] = {};
-            }
-            Object.keys(recommendations[day]).forEach(p => {
-              existing.recommendations[day][p] = recommendations[day][p];
-            });
+        recommendations[day] = {};
+        slotsByDay[day].forEach(({ idx, period }) => {
+          const slotVal = String(row[idx] || '').trim().toUpperCase();
+          if (slotVal === type_val) {
+            recommendations[day][period] = slotVal;
           }
         });
-        existing.hours += hours;
-        if (roomNo && !existing.roomNo.includes(roomNo)) {
-          existing.roomNo += `, ${roomNo}`;
-        }
-        if (batch && !existing.batch.includes(batch)) {
-          existing.batch += `, ${batch}`;
-        }
+      });
+
+      // -------------------------------------------------------
+      // Step 4: Merge if same courseCode already seen (T and P rows of same course)
+      // -------------------------------------------------------
+      const existingImported = importedCourses.find(c => c.code === courseCode);
+      if (existingImported) {
+        weekdays.forEach(day => {
+          Object.keys(recommendations[day]).forEach(p => {
+            if (!existingImported.recommendations[day]) existingImported.recommendations[day] = {};
+            existingImported.recommendations[day][p] = recommendations[day][p];
+          });
+        });
+        // Recalculate hours
+        let recHours = 0;
+        weekdays.forEach(d => {
+          Object.values(existingImported.recommendations[d] || {}).forEach(v => {
+            if (v === 'T' || v === 'P') recHours++;
+          });
+        });
+        existingImported.hours = recHours;
         continue;
       }
 
-      // Default course alias based on course code extraction (e.g. CSC1CJ101-T -> CJ101)
-      let alias = courseCode;
-      const cleanCode = courseCode.replace(/-\w+$/, ''); // Remove suffix like -T or -P
-      const parts = cleanCode.match(/[A-Z]+(\d+[A-Z]*\d*)/i);
-      if (parts && parts[1]) {
-        alias = parts[1] + (courseCode.endsWith('-P') ? ' PR' : '');
+      // -------------------------------------------------------
+      // Step 5: Determine course name and alias
+      // Course Name column → display name; alias auto-generated or preserved from DB
+      // -------------------------------------------------------
+      const nameFromExcel = nameColIdx >= 0 ? String(row[nameColIdx] || '').trim() : '';
+      let name  = nameFromExcel || `Course ${baseCode}`;
+      let alias = '';
+
+      const dbMatch = existingCourses.find(c => c.code === courseCode);
+      if (dbMatch) {
+        name  = nameFromExcel || dbMatch.name;
+        alias = dbMatch.alias; // preserve custom alias
       }
+      if (!alias) alias = generateCourseAlias(name);
+
+      // Count hours from recommendations
+      let hours = 0;
+      weekdays.forEach(d => {
+        Object.values(recommendations[d] || {}).forEach(v => {
+          if (v === 'T' || v === 'P') hours++;
+        });
+      });
 
       importedCourses.push({
-        code: courseCode,
-        name: courseCode.replace(/-/g, ' '), // Initial placeholder name
+        code:   courseCode,
+        name,
         department,
-        pathway,
+        pathway:     String(row[0] || 'SINGLE MAJOR').trim(),
         semester,
-        category,
-        roomNo,
-        batch,
+        category:    'MAJOR',
+        roomNo:      '',
+        batch:       '',
         hours,
         alias,
-        recommendations
+        recommendations,
+        group:       group_num,
+        programType: dbMatch ? (dbMatch.programType || 'UG') : 'UG'
       });
     }
 
-    // Commit to database
-    const db = readDb();
-    
-    // Merge or overwrite courses
+    // -------------------------------------------------------
+    // Step 6: Commit to database
+    // -------------------------------------------------------
     db.courses = importedCourses;
     db.periods = periods;
-    
-    // Seed default mappings for semesters
+
+    // Seed default semester label mappings
     const semestersSet = new Set(importedCourses.map(c => c.semester));
-    const roman = { "1": "I BSC", "2": "II BSC", "3": "III BSC", "4": "IV BSC", "5": "V BSC", "6": "VI BSC" };
+    const roman = { '1': 'I BSC', '2': 'II BSC', '3': 'III BSC', '4': 'IV BSC', '5': 'V BSC', '6': 'VI BSC' };
     semestersSet.forEach(sem => {
       if (!db.config.semesterLabels[sem]) {
         db.config.semesterLabels[sem] = roman[sem] || `${sem} Sem`;
@@ -611,14 +715,25 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
 
     res.json({
       success: true,
-      message: `Successfully imported ${importedCourses.length} courses with dynamic periods: [${periods.join(', ')}].`,
-      warnings
+      message: `Imported ${importedCourses.length} courses. Periods: [${periods.join(', ')}].`,
+      warnings,
+      debug: {
+        slotColumnsFound: slotCols.length,
+        periods,
+        codeColIdx,
+        groupColIdx,
+        typeColIdx,
+        nameColIdx,
+        deptColIdx
+      }
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to process courses Excel: ' + err.message });
   }
 });
+
+
 
 app.post('/api/import/staff', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -677,6 +792,214 @@ app.post('/api/import/staff', upload.single('file'), (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Failed to process staff Excel: ' + err.message });
   }
+});
+
+// -------------------------------------------------------------
+// Batch-Department Mapping & Dynamic Batches Endpoints
+// -------------------------------------------------------------
+app.post('/api/import/batch-dept-mappings', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet);
+
+    if (data.length === 0) {
+      return res.status(400).json({ error: 'No records found in Excel.' });
+    }
+
+    const firstRow = data[0];
+    let codeCol = null;
+    let deptCol = null;
+
+    Object.keys(firstRow).forEach(key => {
+      const kLow = key.toLowerCase();
+      if (kLow.includes('batch') || kLow.includes('code')) {
+        codeCol = key;
+      }
+      if (kLow.includes('dept') || kLow.includes('department') || kLow.includes('name')) {
+        deptCol = key;
+      }
+    });
+
+    if (!codeCol || !deptCol) {
+      const keys = Object.keys(firstRow);
+      if (keys.length >= 2) {
+        codeCol = keys[0];
+        deptCol = keys[1];
+      } else {
+        return res.status(400).json({ error: 'Excel must have at least 2 columns: Batch Code and Department Name.' });
+      }
+    }
+
+    const db = readDb();
+    const imported = [];
+    data.forEach(row => {
+      const code = String(row[codeCol] || '').trim().toUpperCase();
+      const deptName = String(row[deptCol] || '').trim().toUpperCase();
+      if (code && deptName) {
+        if (!imported.some(m => m.code === code)) {
+          imported.push({ code, deptName });
+        }
+      }
+    });
+
+    db.batchDeptMappings = imported;
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${imported.length} batch-department mappings.`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process batch-department mappings Excel: ' + err.message });
+  }
+});
+
+app.post('/api/admin/batch-dept-mappings', (req, res) => {
+  const { code, deptName } = req.body;
+  if (!code || !deptName) return res.status(400).json({ success: false, message: 'Both code and department name are required' });
+
+  const db = readDb();
+  const cleanCode = code.trim().toUpperCase();
+  const cleanDeptName = deptName.trim().toUpperCase();
+
+  const conflict = db.batchDeptMappings.find(m => m.code === cleanCode);
+  if (conflict) return res.status(400).json({ success: false, message: `Batch Code '${cleanCode}' already exists.` });
+
+  db.batchDeptMappings.push({ code: cleanCode, deptName: cleanDeptName });
+  writeDb(db);
+  res.json({ success: true, message: 'Mapping added successfully.' });
+});
+
+app.get('/api/admin/batch-dept-mappings', (req, res) => {
+  const db = readDb();
+  res.json(db.batchDeptMappings || []);
+});
+
+app.put('/api/admin/batch-dept-mappings/:code', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const { deptName } = req.body;
+  if (!deptName) return res.status(400).json({ success: false, message: 'Department name is required' });
+
+  const db = readDb();
+  const mapping = db.batchDeptMappings.find(m => m.code === code);
+  if (!mapping) return res.status(404).json({ success: false, message: 'Mapping not found' });
+
+  mapping.deptName = deptName.trim().toUpperCase();
+  writeDb(db);
+  res.json({ success: true, message: 'Mapping updated successfully.' });
+});
+
+app.delete('/api/admin/batch-dept-mappings/:code', (req, res) => {
+  const code = req.params.code.trim().toUpperCase();
+  const db = readDb();
+  const index = db.batchDeptMappings.findIndex(m => m.code === code);
+  if (index === -1) return res.status(404).json({ success: false, message: 'Mapping not found' });
+
+  db.batchDeptMappings.splice(index, 1);
+  writeDb(db);
+  res.json({ success: true, message: 'Mapping deleted successfully.' });
+});
+
+// -------------------------------------------------------------
+// Batch Config Endpoints
+// -------------------------------------------------------------
+app.get('/api/admin/batch-config', (req, res) => {
+  const db = readDb();
+  res.json(db.batchConfig || { programTypes: {}, fundingTypes: {}, yearSemMap: {} });
+});
+
+app.put('/api/admin/batch-config', (req, res) => {
+  const { programTypes, fundingTypes, yearSemMap } = req.body;
+  if (!programTypes || !fundingTypes || !yearSemMap) {
+    return res.status(400).json({ success: false, message: 'programTypes, fundingTypes, and yearSemMap are required.' });
+  }
+  const db = readDb();
+  db.batchConfig = { programTypes, fundingTypes, yearSemMap };
+  writeDb(db);
+  res.json({ success: true, message: 'Batch config saved.' });
+});
+
+app.get('/api/batches', (req, res) => {
+  const db = readDb();
+  const cfg = db.batchConfig || {};
+  const programTypes = cfg.programTypes || {};
+  const fundingTypes  = cfg.fundingTypes  || {};
+  const yearSemMap    = cfg.yearSemMap    || {};
+  const mappings = db.batchDeptMappings || [];
+
+  // Generate all combinations: {progCode}{fundingCode}{deptCode}{year}
+  const batches = [];
+  Object.keys(programTypes).forEach(prog => {
+    Object.keys(fundingTypes).forEach(fund => {
+      mappings.forEach(m => {
+        Object.keys(yearSemMap).forEach(yr => {
+          const semesters = yearSemMap[yr] || [];
+          const batchId   = `${prog}${fund}${m.code}${yr}`;
+          const batchLabel = `${programTypes[prog]} ${fundingTypes[fund]} — ${m.deptName || m.code} (${yr})`;
+          batches.push({
+            batchId,
+            batchLabel,
+            // metadata for filtering
+            prog,      // "U", "P"
+            fund,      // "1", "2"
+            deptCode: m.code,
+            deptName: m.deptName,
+            year: parseInt(yr),
+            semesters  // e.g. [5, 6]
+          });
+        });
+      });
+    });
+  });
+
+  res.json(batches);
+});
+
+
+
+// -------------------------------------------------------------
+// Group Mappings & Courses PUT Endpoints
+// -------------------------------------------------------------
+app.get('/api/admin/group-mappings', (req, res) => {
+  const db = readDb();
+  res.json(db.groupMappings || {});
+});
+
+app.post('/api/admin/group-mappings', (req, res) => {
+  const { courseCode, batches } = req.body;
+  if (!courseCode || !Array.isArray(batches)) {
+    return res.status(400).json({ success: false, message: 'Course code and batches array are required' });
+  }
+
+  const db = readDb();
+  db.groupMappings[courseCode] = batches.map(b => b.trim().toUpperCase());
+  writeDb(db);
+  res.json({ success: true, message: 'Group mapping updated successfully.' });
+});
+
+app.put('/api/admin/courses/:code', (req, res) => {
+  const code = req.params.code.trim();
+  const { name, alias, programType } = req.body;
+
+  const db = readDb();
+  const course = db.courses.find(c => c.code === code);
+  if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+
+  if (name        !== undefined) course.name        = name.trim();
+  if (alias       !== undefined) course.alias       = alias.trim();
+  if (programType !== undefined) {
+    const valid = ['UG', 'PG', 'INT'];
+    const pt = programType.trim().toUpperCase();
+    course.programType = valid.includes(pt) ? pt : 'UG';
+  }
+
+  writeDb(db);
+  res.json({ success: true, message: 'Course details updated successfully.' });
 });
 
 // -------------------------------------------------------------
@@ -872,6 +1195,8 @@ app.post('/api/admin/clear-database', (req, res) => {
   db.allocations = {};
   db.submissions = {};
   db.departments = {};
+  db.batchDeptMappings = [];
+  db.groupMappings = {};
   db.config.semesterLabels = {
     "1": "I BSC",
     "3": "III BSC",

@@ -11,6 +11,10 @@ let state = {
   departments: [],
   courses: [],
   faculty: [],
+  batchDeptMappings: [],
+  batchConfig: { programTypes: {}, fundingTypes: {}, yearSemMap: {} },
+  groupMappings: {},
+  allBatches: [],
   currentTab: 'tab-admin-dashboard',
   selectedDataSubtab: 'subtab-courses'
 };
@@ -132,6 +136,165 @@ function bindCustomModals() {
       }
     });
   }
+
+  // Course Edit Modal close
+  document.getElementById('btn-close-course-modal').addEventListener('click', () => {
+    document.getElementById('modal-edit-course').classList.add('hidden');
+  });
+
+  // Course Edit Modal save
+  document.getElementById('btn-save-course-details').addEventListener('click', async () => {
+    const code = document.getElementById('edit-course-code').value;
+    const name = document.getElementById('edit-course-name').value.trim();
+    const alias = document.getElementById('edit-course-alias').value.trim();
+
+    if (!name) {
+      showModalAlert('Error', 'Course Name is required.', 'danger');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(code)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, alias })
+      });
+      const result = await res.json();
+      if (res.ok) {
+        document.getElementById('modal-edit-course').classList.add('hidden');
+        showModalAlert('Success', 'Course details updated successfully.', 'success');
+        await fetchGlobalData();
+        renderInspectRecords();
+      } else {
+        showModalAlert('Error', result.message || 'Failed to update course.', 'danger');
+      }
+    } catch (e) {
+      showModalAlert('Error', 'Connection error.', 'danger');
+    }
+  });
+
+  // Batch-Dept Mapping Modal close
+  document.getElementById('btn-close-batch-dept-modal').addEventListener('click', () => {
+    document.getElementById('modal-batch-dept').classList.add('hidden');
+  });
+
+  // Batch-Dept Mapping Modal save
+  document.getElementById('btn-save-batch-dept').addEventListener('click', async () => {
+    const codeInput = document.getElementById('batch-dept-code-input');
+    const nameInput = document.getElementById('batch-dept-name-input');
+    const code = codeInput.value.trim().toUpperCase();
+    const deptName = nameInput.value.trim().toUpperCase();
+
+    if (!code || !deptName) {
+      showModalAlert('Error', 'Both Batch Code and Department Name are required.', 'danger');
+      return;
+    }
+
+    const isEdit = codeInput.disabled;
+
+    try {
+      let res;
+      if (isEdit) {
+        res = await fetch(`${API_BASE}/admin/batch-dept-mappings/${encodeURIComponent(code)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deptName })
+        });
+      } else {
+        res = await fetch(`${API_BASE}/admin/batch-dept-mappings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, deptName })
+        });
+      }
+
+      const result = await res.json();
+      if (res.ok) {
+        document.getElementById('modal-batch-dept').classList.add('hidden');
+        showModalAlert('Success', isEdit ? 'Mapping updated successfully.' : 'Mapping added successfully.', 'success');
+        await fetchGlobalData();
+        renderBatchDeptMappings();
+      } else {
+        showModalAlert('Error', result.message || 'Failed to save mapping.', 'danger');
+      }
+    } catch (e) {
+      showModalAlert('Error', 'Connection error.', 'danger');
+    }
+  });
+
+  // Add Batch-Dept button
+  const btnAddBatchDept = document.getElementById('btn-add-batch-dept');
+  if (btnAddBatchDept) {
+    btnAddBatchDept.addEventListener('click', () => {
+      document.getElementById('batch-dept-modal-title').textContent = 'Add New Mapping';
+      const codeInput = document.getElementById('batch-dept-code-input');
+      codeInput.value = '';
+      codeInput.disabled = false;
+      document.getElementById('batch-dept-name-input').value = '';
+      document.getElementById('modal-batch-dept').classList.remove('hidden');
+    });
+  }
+
+  // Group Mapping Modal close
+  document.getElementById('btn-close-group-mapping-modal').addEventListener('click', () => {
+    document.getElementById('modal-group-mapping').classList.add('hidden');
+  });
+
+  // Group Mapping Modal save
+  document.getElementById('btn-save-group-mapping').addEventListener('click', async () => {
+    const courseCode = document.getElementById('mapping-course-code').value;
+    // Read from the modal's live data attribute (set by openGroupMappingModal)
+    const modal = document.getElementById('modal-group-mapping');
+    let batches = [];
+    try { batches = JSON.parse(modal.dataset.currentMapped || '[]'); } catch(e) { batches = []; }
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/group-mappings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseCode, batches })
+      });
+      const result = await res.json();
+      if (res.ok) {
+        document.getElementById('modal-group-mapping').classList.add('hidden');
+        showModalAlert('Success', 'Group mappings saved successfully.', 'success');
+        await fetchGlobalData();
+        renderGroupMappings();
+      } else {
+        showModalAlert('Error', result.message || 'Failed to save mappings.', 'danger');
+      }
+    } catch (e) {
+      showModalAlert('Error', 'Connection error.', 'danger');
+    }
+  });
+
+  // Save Batch Config button
+  const btnSaveBatchConfig = document.getElementById('btn-save-batch-config');
+  if (btnSaveBatchConfig) {
+    btnSaveBatchConfig.addEventListener('click', async () => {
+      const cfg = readBatchConfigFromEditors();
+      try {
+        const res = await fetch(`${API_BASE}/admin/batch-config`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfg)
+        });
+        const result = await res.json();
+        if (res.ok) {
+          state.batchConfig = cfg;
+          // Refresh batches from server
+          const bRes = await fetch(`${API_BASE}/batches`);
+          state.allBatches = await bRes.json();
+          renderBatchPreview();
+          showModalAlert('Success', 'Batch configuration saved.', 'success');
+        } else {
+          showModalAlert('Error', result.message || 'Failed to save config.', 'danger');
+        }
+      } catch (e) {
+        showModalAlert('Error', 'Connection error.', 'danger');
+      }
+    });
+  }
 }
 
 async function initAdmin() {
@@ -248,20 +411,26 @@ function switchView(viewName) {
 async function fetchGlobalData() {
   try {
     const token = sessionStorage.getItem('adminToken') || 'admin-token';
-    const [configRes, deptsRes, coursesRes, facultyRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
-      fetch(`${API_BASE}/admin/departments`, {
-        headers: { 'Authorization': token }
-      }),
+      fetch(`${API_BASE}/admin/departments`, { headers: { 'Authorization': token } }),
       fetch(`${API_BASE}/courses`),
-      fetch(`${API_BASE}/faculty`)
+      fetch(`${API_BASE}/faculty`),
+      fetch(`${API_BASE}/admin/batch-dept-mappings`),
+      fetch(`${API_BASE}/admin/batch-config`),
+      fetch(`${API_BASE}/admin/group-mappings`),
+      fetch(`${API_BASE}/batches`)
     ]);
-    
-    state.config = await configRes.json();
-    state.departments = await deptsRes.json();
-    state.courses = await coursesRes.json();
-    state.faculty = await facultyRes.json();
-    
+
+    state.config          = await configRes.json();
+    state.departments     = await deptsRes.json();
+    state.courses         = await coursesRes.json();
+    state.faculty         = await facultyRes.json();
+    state.batchDeptMappings = await batchDeptsRes.json();
+    state.batchConfig     = await batchCfgRes.json();
+    state.groupMappings   = await groupRes.json();
+    state.allBatches      = await allBatchesRes.json();
+
     updateAdminSummary();
   } catch (err) {
     console.error('Failed to load global data:', err);
@@ -364,6 +533,12 @@ function showTab(tabId) {
     renderPasswordTable();
   } else if (tabId === 'tab-admin-data') {
     renderInspectRecords();
+  } else if (tabId === 'tab-admin-batch-dept') {
+    renderBatchDeptMappings();
+    renderBatchConfig();
+    renderBatchPreview();
+  } else if (tabId === 'tab-admin-group-mappings') {
+    renderGroupMappings();
   } else if (tabId === 'tab-admin-workload') {
     renderWorkloadSummary();
   }
@@ -709,6 +884,36 @@ function bindImportEvents() {
       status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> Upload failed</span>`;
     }
   });
+
+  // Batch-Dept Mapping import
+  document.getElementById('import-batch-dept-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const status = document.getElementById('batch-dept-upload-status');
+    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing mappings sheet...';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`${API_BASE}/import/batch-dept-mappings`, {
+        method: 'POST',
+        body: formData
+      });
+      const result = await res.json();
+      if (res.ok) {
+        status.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check"></i> ${result.message}</span>`;
+        showModalAlert('Import Success', result.message, 'success');
+        await fetchGlobalData();
+      } else {
+        status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> ${result.error}</span>`;
+        showModalAlert('Import Error', result.error, 'danger');
+      }
+    } catch (err) {
+      status.innerHTML = `<span class="text-danger"><i class="fa-solid fa-circle-xmark"></i> Upload failed</span>`;
+    }
+  });
 }
 
 function renderImportReport(warnings) {
@@ -792,13 +997,22 @@ function renderInspectRecords() {
   filteredCourses.forEach(c => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><strong>${c.code.replace(/-(T|P)$/, '')}</strong></td>
+      <td><strong>${c.code.replace(/_G\d+$/, '')}</strong></td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
-      <td>${c.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '')}</td>
-      <td><span class="badge badge-info">${(c.alias || '').replace(/-(T|P)$/, '') || '-'}</span></td>
+      <td>${c.name}</td>
+      <td><span class="badge badge-info">${c.alias || '-'}</span></td>
       <td><span class="text-sm text-muted">${c.department}</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm btn-edit-course" style="padding: 2px 8px;"><i class="fa-solid fa-edit"></i> Edit</button>
+      </td>
     `;
+    tr.querySelector('.btn-edit-course').addEventListener('click', () => {
+      document.getElementById('edit-course-code').value = c.code;
+      document.getElementById('edit-course-name').value = c.name;
+      document.getElementById('edit-course-alias').value = c.alias || '';
+      document.getElementById('modal-edit-course').classList.remove('hidden');
+    });
     coursesTbody.appendChild(tr);
   });
 
@@ -1108,7 +1322,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '');
+  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+  const groupSuffix = course.group > 0 ? ` (G${course.group})` : '';
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -1117,16 +1332,16 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   }
 
   if (mode === 'short') {
-    return `${assignedCodes.join('/')} ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} ${alias}${groupSuffix}${suffix}`;
   } else if (mode === 'medium') {
-    return `${assignedCodes.join('/')} - ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} - ${alias}${groupSuffix}${suffix}`;
   } else {
     const facNames = assignedCodes.map(code => {
       const facObj = state.faculty.find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
     const cleanName = course.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
-    return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${suffix}</div>`;
+    return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${groupSuffix}${suffix}</div>`;
   }
 }
 
@@ -1158,4 +1373,351 @@ function exportPrintTimetableToCSV() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+function renderBatchDeptMappings() {
+  const tbody = document.querySelector('#table-batch-dept-mappings tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const mappings = state.batchDeptMappings || [];
+  if (mappings.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No mappings defined yet. Upload an Excel sheet or add one manually.</td></tr>';
+    return;
+  }
+
+  mappings.forEach(m => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${m.code}</strong></td>
+      <td>${m.deptName}</td>
+      <td>
+        <button class="btn btn-outline btn-sm btn-edit-mapping" style="padding:2px 8px;"><i class="fa-solid fa-edit"></i> Edit</button>
+        <button class="btn btn-danger btn-sm btn-delete-mapping" style="padding:2px 8px;background-color:var(--danger);color:white;"><i class="fa-solid fa-trash"></i> Delete</button>
+      </td>
+    `;
+    tr.querySelector('.btn-edit-mapping').addEventListener('click', () => {
+      document.getElementById('batch-dept-modal-title').textContent = 'Edit Mapping';
+      const codeInput = document.getElementById('batch-dept-code-input');
+      codeInput.value = m.code;
+      codeInput.disabled = true;
+      document.getElementById('batch-dept-name-input').value = m.deptName;
+      document.getElementById('modal-batch-dept').classList.remove('hidden');
+    });
+    tr.querySelector('.btn-delete-mapping').addEventListener('click', async () => {
+      showModalConfirm('Delete Mapping', `Delete mapping for code ${m.code}?`, async () => {
+        try {
+          const res = await fetch(`${API_BASE}/admin/batch-dept-mappings/${encodeURIComponent(m.code)}`, { method: 'DELETE' });
+          const result = await res.json();
+          if (res.ok) {
+            showModalAlert('Success', 'Mapping deleted.', 'success');
+            await fetchGlobalData();
+            renderBatchDeptMappings();
+            renderBatchPreview();
+          } else {
+            showModalAlert('Error', result.message || 'Failed.', 'danger');
+          }
+        } catch (e) { showModalAlert('Error', 'Connection error.', 'danger'); }
+      });
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+// -------------------------------------------------------
+// Batch Config Editors
+// -------------------------------------------------------
+function makeKvRow(editorId, key, value, onDelete) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:5px;align-items:center;';
+  row.dataset.key = key;
+  row.innerHTML = `
+    <input class="form-control kv-key" value="${key}" placeholder="Code" style="width:64px;padding:4px 6px;font-size:13px;">
+    <span style="color:var(--text-muted);flex-shrink:0;">→</span>
+    <input class="form-control kv-val" value="${value}" placeholder="Label" style="flex:1;padding:4px 6px;font-size:13px;">
+    <button class="btn btn-sm" style="padding:2px 7px;background:var(--danger);color:white;border:none;border-radius:4px;flex-shrink:0;" title="Remove">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+  `;
+  row.querySelector('button').addEventListener('click', () => row.remove());
+  return row;
+}
+
+function renderBatchConfig() {
+  const cfg = state.batchConfig || {};
+  const progTypes  = cfg.programTypes || {};
+  const fundTypes  = cfg.fundingTypes  || {};
+  const yearSemMap = cfg.yearSemMap    || {};
+
+  function populateEditor(editorId, obj) {
+    const el = document.getElementById(editorId);
+    if (!el) return;
+    el.innerHTML = '';
+    Object.entries(obj).forEach(([k, v]) => {
+      el.appendChild(makeKvRow(editorId, k, v));
+    });
+  }
+
+  populateEditor('prog-type-editor', progTypes);
+  populateEditor('fund-type-editor', fundTypes);
+
+  // Year-sem map: values are arrays, display as comma-separated
+  const yearEl = document.getElementById('year-sem-editor');
+  if (yearEl) {
+    yearEl.innerHTML = '';
+    Object.entries(yearSemMap).forEach(([yr, sems]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:5px;align-items:center;';
+      row.innerHTML = `
+        <input class="form-control kv-key" value="${yr}" placeholder="Year" style="width:64px;padding:4px 6px;font-size:13px;">
+        <span style="color:var(--text-muted);flex-shrink:0;">→ Sem</span>
+        <input class="form-control kv-val" value="${Array.isArray(sems) ? sems.join(',') : sems}" placeholder="e.g. 5,6" style="flex:1;padding:4px 6px;font-size:13px;">
+        <button class="btn btn-sm" style="padding:2px 7px;background:var(--danger);color:white;border:none;border-radius:4px;flex-shrink:0;" title="Remove">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      `;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      yearEl.appendChild(row);
+    });
+  }
+
+  // Wire up Add-row buttons (re-bind to avoid duplicate listeners)
+  const btnProg = document.getElementById('btn-add-prog-type');
+  const btnFund = document.getElementById('btn-add-fund-type');
+  const btnYear = document.getElementById('btn-add-year-sem');
+  if (btnProg) { btnProg.onclick = () => document.getElementById('prog-type-editor').appendChild(makeKvRow('prog-type-editor', '', '')); }
+  if (btnFund) { btnFund.onclick = () => document.getElementById('fund-type-editor').appendChild(makeKvRow('fund-type-editor', '', '')); }
+  if (btnYear) {
+    btnYear.onclick = () => {
+      const yrEl = document.getElementById('year-sem-editor');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:5px;align-items:center;';
+      row.innerHTML = `
+        <input class="form-control kv-key" value="" placeholder="Year" style="width:64px;padding:4px 6px;font-size:13px;">
+        <span style="color:var(--text-muted);flex-shrink:0;">→ Sem</span>
+        <input class="form-control kv-val" value="" placeholder="e.g. 5,6" style="flex:1;padding:4px 6px;font-size:13px;">
+        <button class="btn btn-sm" style="padding:2px 7px;background:var(--danger);color:white;border:none;border-radius:4px;flex-shrink:0;">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      `;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      yrEl.appendChild(row);
+    };
+  }
+}
+
+function readBatchConfigFromEditors() {
+  function readKvEditor(editorId) {
+    const obj = {};
+    document.querySelectorAll(`#${editorId} .kv-key`).forEach(kEl => {
+      const vEl = kEl.parentElement.querySelector('.kv-val');
+      const k = kEl.value.trim();
+      const v = vEl ? vEl.value.trim() : '';
+      if (k) obj[k] = v;
+    });
+    return obj;
+  }
+  // Year-sem: values parsed as array of ints
+  const yearSemMap = {};
+  document.querySelectorAll('#year-sem-editor .kv-key').forEach(kEl => {
+    const vEl = kEl.parentElement.querySelector('.kv-val');
+    const yr = kEl.value.trim();
+    const semStr = vEl ? vEl.value.trim() : '';
+    if (yr) {
+      yearSemMap[yr] = semStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    }
+  });
+  return {
+    programTypes: readKvEditor('prog-type-editor'),
+    fundingTypes:  readKvEditor('fund-type-editor'),
+    yearSemMap
+  };
+}
+
+function renderBatchPreview() {
+  const chips = document.getElementById('batch-preview-chips');
+  const count = document.getElementById('batch-preview-count');
+  if (!chips) return;
+
+  const batches = state.allBatches || [];
+  if (batches.length === 0) {
+    chips.innerHTML = '<span class="text-muted text-sm">No batches generated yet. Add dept codes and configure the batch settings above.</span>';
+    if (count) count.textContent = '0 batches';
+    return;
+  }
+
+  if (count) count.textContent = `${batches.length} batches`;
+  chips.innerHTML = '';
+  batches.forEach(b => {
+    const chip = document.createElement('span');
+    chip.title = b.batchLabel || b.batchId;
+    chip.style.cssText = 'display:inline-block;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;cursor:default;';
+    chip.textContent = b.batchId;
+    chips.appendChild(chip);
+  });
+}
+
+function renderGroupMappings() {
+  const tbody = document.querySelector('#table-group-mappings tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+  if (groupCourses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No group courses found. Import a course Excel with group column values greater than 0.</td></tr>';
+    return;
+  }
+
+  const uniqGroupCourses = [];
+  groupCourses.forEach(c => {
+    if (!uniqGroupCourses.some(uc => uc.code === c.code)) uniqGroupCourses.push(c);
+  });
+
+  uniqGroupCourses.forEach(c => {
+    const tr = document.createElement('tr');
+    const mapped = c.mappedBatches || [];
+    const baseCode = c.code.replace(/_G\d+$/, '');
+
+    tr.innerHTML = `
+      <td><strong>${baseCode}</strong></td>
+      <td>${c.name}</td>
+      <td><span class="badge" style="background:var(--accent);color:var(--accent-dark);font-weight:bold;border:1.5px solid var(--accent-dark);">G${c.group}</span></td>
+      <td>${mapped.length > 0
+        ? mapped.map(b => `<span class="badge badge-info" style="margin:2px;">${b}</span>`).join('')
+        : '<span class="text-muted text-sm">No batches mapped</span>'}</td>
+      <td>
+        <button class="btn btn-primary btn-sm btn-map-batches" style="padding:2px 8px;">
+          <i class="fa-solid fa-link"></i> Map Batches
+        </button>
+      </td>
+    `;
+
+    tr.querySelector('.btn-map-batches').addEventListener('click', () => {
+      openGroupMappingModal(c, mapped);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function openGroupMappingModal(course, initialMapped) {
+  // Work on a mutable copy; sync to modal dataset so save button can read it
+  const currentMapped = [...initialMapped];
+  const modal = document.getElementById('modal-group-mapping');
+  const syncDataset = () => { modal.dataset.currentMapped = JSON.stringify(currentMapped); };
+  syncDataset();
+
+  const baseCode = course.code.replace(/_G\d+$/, '');
+  document.getElementById('mapping-course-code').value = course.code;
+  document.getElementById('mapping-course-title').textContent = `${baseCode}  (Group ${course.group}) — ${course.name}`;
+
+  const cfg = state.batchConfig || {};
+  const progTypes = cfg.programTypes || {};
+  const fundTypes  = cfg.fundingTypes  || {};
+
+  // Populate filter dropdowns
+  const selProg = document.getElementById('batch-filter-prog');
+  const selFund = document.getElementById('batch-filter-fund');
+  const selDept = document.getElementById('batch-filter-dept');
+  const searchInput = document.getElementById('batch-search-input');
+
+  // Reset
+  selProg.innerHTML = '<option value="">All Programs</option>';
+  selFund.innerHTML = '<option value="">All Funding</option>';
+  selDept.innerHTML = '<option value="">All Depts</option>';
+  if (searchInput) searchInput.value = '';
+
+  Object.entries(progTypes).forEach(([code, label]) => {
+    selProg.innerHTML += `<option value="${code}">${label} (${code})</option>`;
+  });
+  Object.entries(fundTypes).forEach(([code, label]) => {
+    selFund.innerHTML += `<option value="${code}">${label} (${code})</option>`;
+  });
+  const deptCodes = [...new Set((state.allBatches || []).map(b => b.deptCode))].sort();
+  deptCodes.forEach(dc => {
+    selDept.innerHTML += `<option value="${dc}">${dc}</option>`;
+  });
+
+  function renderBatchCheckboxes() {
+    const container = document.getElementById('group-mapping-checkboxes');
+    const noResults = document.getElementById('batch-no-results');
+    container.innerHTML = '';
+
+    const search = (searchInput ? searchInput.value.trim().toLowerCase() : '');
+    const filterProg = selProg.value;
+    const filterFund = selFund.value;
+    const filterDept = selDept.value;
+
+    const batches = state.allBatches || [];
+    if (batches.length === 0) {
+      container.innerHTML = '<p class="text-muted text-center py-3 text-sm">No batches generated. Configure Batch Config first.</p>';
+      return;
+    }
+
+    const filtered = batches.filter(b => {
+      if (search && !b.batchId.toLowerCase().includes(search)) return false;
+      if (filterProg && b.prog !== filterProg) return false;
+      if (filterFund && b.fund !== filterFund) return false;
+      if (filterDept && b.deptCode !== filterDept) return false;
+      return true;
+    });
+
+    if (noResults) noResults.classList.toggle('hidden', filtered.length > 0);
+
+    filtered.forEach(batch => {
+      const isChecked = currentMapped.includes(batch.batchId);
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:3px 0;';
+      div.innerHTML = `
+        <input type="checkbox" id="cb-batch-${batch.batchId}" value="${batch.batchId}" ${isChecked ? 'checked' : ''}>
+        <label for="cb-batch-${batch.batchId}" style="cursor:pointer;font-size:13px;">
+          <strong>${batch.batchId}</strong>
+          <span class="text-muted" style="font-size:11px;"> — ${batch.batchLabel || ''}</span>
+        </label>
+      `;
+      // Update currentMapped on check/uncheck so chips stay in sync
+      div.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) {
+          if (!currentMapped.includes(batch.batchId)) currentMapped.push(batch.batchId);
+        } else {
+          const idx = currentMapped.indexOf(batch.batchId);
+          if (idx > -1) currentMapped.splice(idx, 1);
+        }
+        syncDataset();
+        updateSelectedChips();
+      });
+      container.appendChild(div);
+    });
+  }
+
+  function updateSelectedChips() {
+    const chipsEl = document.getElementById('group-mapping-selected-chips');
+    if (!chipsEl) return;
+    chipsEl.innerHTML = '';
+    currentMapped.forEach(bId => {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:var(--primary-muted);color:var(--primary);border-radius:20px;padding:2px 8px;font-size:12px;font-weight:600;';
+      chip.innerHTML = `${bId} <i class="fa-solid fa-xmark" style="cursor:pointer;font-size:10px;" data-id="${bId}"></i>`;
+      chip.querySelector('i').addEventListener('click', () => {
+        const idx = currentMapped.indexOf(bId);
+        if (idx > -1) currentMapped.splice(idx, 1);
+        const cb = document.getElementById(`cb-batch-${bId}`);
+        if (cb) cb.checked = false;
+        syncDataset();
+        updateSelectedChips();
+      });
+      chipsEl.appendChild(chip);
+    });
+  }
+
+  // Bind filter events
+  if (searchInput) searchInput.oninput = renderBatchCheckboxes;
+  selProg.onchange = renderBatchCheckboxes;
+  selFund.onchange = renderBatchCheckboxes;
+  selDept.onchange = renderBatchCheckboxes;
+
+  renderBatchCheckboxes();
+  updateSelectedChips();
+
+  document.getElementById('modal-group-mapping').classList.remove('hidden');
 }

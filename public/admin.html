@@ -64,6 +64,8 @@
             <button class="nav-item" data-tab="tab-admin-passwords"><i class="fa-solid fa-key"></i> Coordinator Passwords</button>
             <button class="nav-item" data-tab="tab-admin-import"><i class="fa-solid fa-file-excel"></i> Import Excel Data</button>
             <button class="nav-item" data-tab="tab-admin-data"><i class="fa-solid fa-magnifying-glass"></i> Inspect Records</button>
+            <button class="nav-item" data-tab="tab-admin-batch-dept"><i class="fa-solid fa-route"></i> Batch-Dept Mappings</button>
+            <button class="nav-item" data-tab="tab-admin-group-mappings"><i class="fa-solid fa-users-rectangle"></i> Group Mappings</button>
             <button class="nav-item" data-tab="tab-admin-workload"><i class="fa-solid fa-users-viewfinder"></i> Workload Summary</button>
           </nav>
         </aside>
@@ -211,7 +213,7 @@
             </div>
             
             <div class="row">
-              <div class="col-md-6">
+              <div class="col-md-4">
                 <div class="card card-dropzone">
                   <div class="card-body text-center">
                     <i class="fa-solid fa-file-excel drop-icon text-success"></i>
@@ -224,7 +226,7 @@
                 </div>
               </div>
 
-              <div class="col-md-6">
+              <div class="col-md-4">
                 <div class="card card-dropzone">
                   <div class="card-body text-center">
                     <i class="fa-solid fa-id-card drop-icon text-primary"></i>
@@ -233,6 +235,19 @@
                     <input type="file" id="import-staff-file" class="hidden-file-input" accept=".xlsx, .xls">
                     <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-staff-file">Select File</button>
                     <div id="staff-upload-status" class="upload-status-info mt-2"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-md-4">
+                <div class="card card-dropzone">
+                  <div class="card-body text-center">
+                    <i class="fa-solid fa-route drop-icon text-warning"></i>
+                    <h3>3. Batch-Dept Mapping Excel</h3>
+                    <p class="text-muted text-sm">Upload Excel sheet mapping Batch codes to Department Names (headers: Batch, Department).</p>
+                    <input type="file" id="import-batch-dept-file" class="hidden-file-input" accept=".xlsx, .xls">
+                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-batch-dept-file">Select File</button>
+                    <div id="batch-dept-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
               </div>
@@ -279,6 +294,7 @@
                         <th>Course Name</th>
                         <th>Visual Alias</th>
                         <th>Department</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -304,6 +320,113 @@
                     </thead>
                     <tbody>
                       <!-- Rendered Dynamically (Read Only) -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB: Batch-Dept Mappings -->
+          <div id="tab-admin-batch-dept" class="tab-pane hidden">
+            <div class="content-header">
+              <h1>Batch Configuration</h1>
+              <div class="actions">
+                <button id="btn-add-batch-dept" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Add Dept Code</button>
+              </div>
+            </div>
+
+            <!-- Section A: Department Code → Name mapping -->
+            <div class="card mt-2">
+              <div class="card-body">
+                <h3 style="margin-bottom:6px;font-size:15px;">A. Department Code → Name</h3>
+                <p class="text-muted text-sm mb-3">Map short codes (e.g. <strong>CS</strong>, <strong>CH</strong>) to department names. These are used to build batch IDs like <strong>U1CS2024</strong>.</p>
+                <div class="table-responsive">
+                  <table class="table" id="table-batch-dept-mappings">
+                    <thead><tr><th>Code</th><th>Department Name</th><th>Actions</th></tr></thead>
+                    <tbody><!-- Rendered Dynamically --></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section B: Batch Generation Config -->
+            <div class="card mt-3">
+              <div class="card-body">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <h3 style="font-size:15px;margin:0;">B. Batch Generation Config</h3>
+                  <button id="btn-save-batch-config" class="btn btn-primary btn-sm"><i class="fa-solid fa-floppy-disk"></i> Save Config</button>
+                </div>
+                <p class="text-muted text-sm mb-3">Define the building blocks. Batch IDs are generated as: <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;">{Program}{Funding}{DeptCode}{Year}</code> e.g. <strong>U1CS2024</strong></p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                  <!-- Program Types -->
+                  <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                      <label style="font-weight:600;font-size:13px;">Program Types</label>
+                      <button class="btn btn-sm btn-outline" id="btn-add-prog-type" title="Add row"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div id="prog-type-editor" style="display:flex;flex-direction:column;gap:6px;"></div>
+                    <p class="text-muted text-sm mt-1" style="font-size:11px;">Code → Label (e.g. U → UG)</p>
+                  </div>
+                  <!-- Funding Types -->
+                  <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                      <label style="font-weight:600;font-size:13px;">Funding Types</label>
+                      <button class="btn btn-sm btn-outline" id="btn-add-fund-type" title="Add row"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div id="fund-type-editor" style="display:flex;flex-direction:column;gap:6px;"></div>
+                    <p class="text-muted text-sm mt-1" style="font-size:11px;">Code → Label (e.g. 1 → Aided)</p>
+                  </div>
+                  <!-- Year → Semester Map -->
+                  <div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                      <label style="font-weight:600;font-size:13px;">Year → Semesters</label>
+                      <button class="btn btn-sm btn-outline" id="btn-add-year-sem" title="Add row"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                    <div id="year-sem-editor" style="display:flex;flex-direction:column;gap:6px;"></div>
+                    <p class="text-muted text-sm mt-1" style="font-size:11px;">Year → Sem numbers (e.g. 2024 → 5,6)</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section C: Generated Batch Preview -->
+            <div class="card mt-3">
+              <div class="card-body">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                  <h3 style="font-size:15px;margin:0;">C. Generated Batch IDs Preview</h3>
+                  <span id="batch-preview-count" class="badge" style="background:var(--primary-muted);color:var(--primary);padding:3px 10px;border-radius:20px;font-size:12px;">0 batches</span>
+                </div>
+                <div id="batch-preview-chips" style="display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow-y:auto;">
+                  <span class="text-muted text-sm">Configure the sections above to see generated batch IDs.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <!-- TAB: Group Mappings -->
+          <div id="tab-admin-group-mappings" class="tab-pane hidden">
+            <div class="content-header">
+              <h1>Group Mappings Management</h1>
+            </div>
+            <div class="card mt-2">
+              <div class="card-body">
+                <p class="text-muted mb-3">Map generated batches to course groups (courses with `Group > 0`). Batches will auto-select on department allocation selection.</p>
+                <div class="table-responsive">
+                  <table class="table" id="table-group-mappings">
+                    <thead>
+                      <tr>
+                        <th>Course Code</th>
+                        <th>Course Name</th>
+                        <th>Group</th>
+                        <th>Mapped Batches</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <!-- Rendered Dynamically -->
                     </tbody>
                   </table>
                 </div>
@@ -459,6 +582,95 @@
         </div>
       </div>
     </div>
+
+    <!-- MODAL: EDIT COURSE -->
+    <div id="modal-edit-course" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 450px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <h2>Edit Course Details</h2>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0;">
+          <input type="hidden" id="edit-course-code">
+          <div class="form-group">
+            <label for="edit-course-name">Course Name</label>
+            <input type="text" id="edit-course-name" class="form-control" placeholder="Enter course name" required>
+          </div>
+          <div class="form-group mt-3">
+            <label for="edit-course-alias">Visual Alias</label>
+            <input type="text" id="edit-course-alias" class="form-control" placeholder="Enter custom alias">
+          </div>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button id="btn-save-course-details" class="btn btn-primary">Save Changes</button>
+          <button id="btn-close-course-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: ADD/EDIT BATCH-DEPT MAPPING -->
+    <div id="modal-batch-dept" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 450px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <h2 id="batch-dept-modal-title">Add New Mapping</h2>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0;">
+          <div class="form-group">
+            <label for="batch-dept-code-input">Batch Code (e.g. CS)</label>
+            <input type="text" id="batch-dept-code-input" class="form-control" placeholder="e.g. CS" required>
+          </div>
+          <div class="form-group mt-3">
+            <label for="batch-dept-name-input">Department Name (e.g. COMPUTER SCIENCE)</label>
+            <input type="text" id="batch-dept-name-input" class="form-control" placeholder="e.g. COMPUTER SCIENCE" required>
+          </div>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button id="btn-save-batch-dept" class="btn btn-primary">Save Mapping</button>
+          <button id="btn-close-batch-dept-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: MAP BATCHES TO GROUP COURSE -->
+    <div id="modal-group-mapping" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width:560px;width:100%;padding:24px;">
+        <div class="modal-header" style="padding:0 0 12px 0;border-bottom:1.5px solid var(--border);">
+          <h2>Map Batches to Group</h2>
+        </div>
+        <div class="modal-body" style="padding:16px 0 0 0;">
+          <input type="hidden" id="mapping-course-code">
+          <h3 id="mapping-course-title" style="margin-bottom:4px;font-size:15px;font-weight:600;">-</h3>
+          <p class="text-muted text-sm mb-3">Select batches for this course group:</p>
+
+          <!-- Selected chips summary -->
+          <div id="group-mapping-selected-chips" style="display:flex;flex-wrap:wrap;gap:5px;min-height:28px;margin-bottom:10px;"></div>
+
+          <!-- Search + filter -->
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <input type="text" id="batch-search-input" class="form-control" placeholder="Search batch ID..." style="flex:1;min-width:140px;">
+            <select id="batch-filter-prog" class="form-control" style="flex:0 0 100px;">
+              <option value="">All Programs</option>
+            </select>
+            <select id="batch-filter-fund" class="form-control" style="flex:0 0 110px;">
+              <option value="">All Funding</option>
+            </select>
+            <select id="batch-filter-dept" class="form-control" style="flex:0 0 100px;">
+              <option value="">All Depts</option>
+            </select>
+          </div>
+
+          <!-- Batch checkbox list -->
+          <div id="group-mapping-checkboxes" style="max-height:220px;overflow-y:auto;border:1.5px solid var(--border);padding:10px;border-radius:var(--radius);display:flex;flex-direction:column;gap:4px;">
+            <!-- Rendered dynamically -->
+          </div>
+          <p id="batch-no-results" class="text-muted text-sm mt-2 hidden">No batches match your filters.</p>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button id="btn-save-group-mapping" class="btn btn-primary">Save Mappings</button>
+          <button id="btn-close-group-mapping-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
 
     <!-- CUSTOM APP ALERT MODAL (Replaces window.alert & confirm) -->
     <div id="app-modal" class="modal flex-center hidden no-print">

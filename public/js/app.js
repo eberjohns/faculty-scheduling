@@ -22,6 +22,25 @@ let state = {
 
 let autosaveTimer = null;
 
+// Helper to format course code with clickable group badge
+function formatCourseCodeWithGroup(code, group, mappedBatches = []) {
+  const base = code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+  if (group && group > 0) {
+    const batchesStr = JSON.stringify(mappedBatches);
+    // Clickable group badge
+    return `${base} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; cursor: pointer; border-radius: 4px;" onclick="event.stopPropagation(); viewGroupMappedBatches('${base}', 'G${group}', ${batchesStr.replace(/"/g, '&quot;')})">G${group}</span>`;
+  }
+  return base;
+}
+
+window.viewGroupMappedBatches = function(baseCode, groupName, mappedBatches) {
+  const batchesText = mappedBatches && mappedBatches.length > 0
+    ? `The following batches are mapped to this course group:\n\n${mappedBatches.join('\n')}`
+    : 'No batches are currently mapped to this group.';
+  showModalAlert(`Mapped Batches - ${baseCode} (${groupName})`, batchesText, 'info');
+};
+
+
 function isTimetableLocked() {
   if (!state.currentUser || !state.currentUser.departmentName) return false;
   const deptName = state.currentUser.departmentName;
@@ -512,9 +531,8 @@ function bindDeptEvents() {
     const deptName = state.currentUser.departmentName;
     const deptCourses = state.courses.filter(c => c.department === deptName);
     const coursesToSave = deptCourses.map(c => {
-      const name = document.getElementById(`cname-${c.code}`).value.trim();
       const alias = document.getElementById(`calias-${c.code}`).value.trim();
-      return { code: c.code, name, alias };
+      return { code: c.code, name: c.name, alias };
     });
 
     try {
@@ -631,13 +649,13 @@ function renderAllocationMatrix() {
     }
 
     baseCourseCodes.forEach(baseCode => {
-      const { courseT, courseP, dispName, dispAlias, sem, cat } = getMergedCourseInfo(baseCode, deptCourses);
+      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches } = getMergedCourseInfo(baseCode, deptCourses);
       const tr = document.createElement('tr');
+      const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
       tr.innerHTML = `
-        <td style="text-align:left;"><strong>${baseCode}</strong></td>
-        <td style="text-align:left;">
+        <td style="text-align:left;">${formattedCode}</td>
+        <td style="text-align:left;" title="${dispName}">
           <span class="badge badge-info">${dispAlias}</span>
-          <div class="text-sm bold text-muted">${dispName}</div>
         </td>
       `;
 
@@ -687,10 +705,11 @@ function renderAllocationMatrix() {
     }
 
     baseCourseCodes.forEach(baseCode => {
-      const { courseT, courseP, dispName, dispAlias, sem, cat } = getMergedCourseInfo(baseCode, deptCourses);
+      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches } = getMergedCourseInfo(baseCode, deptCourses);
       const tr = document.createElement('tr');
+      const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
       tr.innerHTML = `
-        <td style="text-align:left;"><strong>${baseCode}</strong></td>
+        <td style="text-align:left;">${formattedCode}</td>
         <td style="text-align:left;">
           <span class="badge badge-info">${dispAlias}</span>
           <div class="text-sm bold text-muted">${dispName}</div>
@@ -731,7 +750,7 @@ function getMergedCourseInfo(baseCode, deptCourses) {
     }
   }
   
-  const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-' };
+  const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-', group: 0, mappedBatches: [] };
   
   return {
     courseT,
@@ -739,7 +758,9 @@ function getMergedCourseInfo(baseCode, deptCourses) {
     dispName: activeCourse.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, ''),
     dispAlias: (activeCourse.alias || baseCode).replace(/-(T|P)$/, ''),
     sem: activeCourse.semester,
-    cat: activeCourse.category
+    cat: activeCourse.category,
+    group: activeCourse.group || 0,
+    mappedBatches: activeCourse.mappedBatches || []
   };
 }
 
@@ -849,10 +870,15 @@ let activeSlotContext = null;
 window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
   
+  const course = state.courses.find(c => c.code === courseCode);
+  const group = course ? course.group : 0;
+  const mappedBatches = course ? course.mappedBatches : [];
+  const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+  
   // Set details text
   const typeText = courseCode.endsWith('-P') ? 'Practical' : 'Theory';
-  document.getElementById('fac-select-details').textContent = 
-    `Course: ${baseCode} (${typeText}) | Day: ${day} | Period: ${period}`;
+  document.getElementById('fac-select-details').innerHTML = 
+    `Course: ${formattedCode} (${typeText}) | Day: ${day} | Period: ${period}`;
   
   // Reset search input
   const searchInput = document.getElementById('fac-search-input');
@@ -930,9 +956,11 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     
     if (!validation.valid) {
       const conf = validation.conflicts[0];
+      const clashingCourse = state.courses.find(c => c.code === conf.clashingCourseCode);
+      const clashingGroupSuffix = (clashingCourse && clashingCourse.group > 0) ? ` (Group ${clashingCourse.group})` : '';
       showModalAlert(
         'Hard Booking Clash!', 
-        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '')}) on ${day} Period ${period} in department ${conf.department}.`,
+        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '')}${clashingGroupSuffix}) on ${day} Period ${period} in department ${conf.department}.`,
         'danger'
       );
       return;
@@ -1088,7 +1116,10 @@ async function saveDepartmentAllocations(isSubmission = false) {
         Object.keys(recs).forEach(p => {
           const alloc = (state.allocations[course.code] && state.allocations[course.code][day] && state.allocations[course.code][day][p]) || [];
           if (alloc.length === 0) {
-            missing.push(`${course.code.replace(/-(T|P)$/, '')} alias '${(course.alias || course.code).replace(/-(T|P)$/, '')}' requires allocation on ${day} Period ${p}`);
+            const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+            const groupText = course.group > 0 ? ` (Group ${course.group})` : '';
+            const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+            missing.push(`${cleanCode}${groupText} alias '${alias}' requires allocation on ${day} Period ${p}`);
           }
         });
       });
@@ -1164,12 +1195,13 @@ function renderDeptDataEditors() {
   coursesTbody.innerHTML = '';
   deptCourses.forEach(c => {
     const tr = document.createElement('tr');
+    const formattedCode = formatCourseCodeWithGroup(c.code, c.group, c.mappedBatches);
     tr.innerHTML = `
-      <td><strong>${c.code.replace(/-(T|P)$/, '')}</strong></td>
+      <td><strong>${formattedCode}</strong></td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>
-        <input type="text" class="form-control text-sm" id="cname-${c.code}" value="${c.name}" ${locked ? 'disabled' : ''}>
+        <span class="text-sm font-medium">${c.name}</span>
       </td>
       <td>
         <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}" ${locked ? 'disabled' : ''}>
@@ -1201,8 +1233,9 @@ function renderDeptDataEditors() {
 }
 
 window.saveDeptCourseRecord = async function(code) {
-  const name = document.getElementById(`cname-${code}`).value.trim();
   const alias = document.getElementById(`calias-${code}`).value.trim();
+  const course = state.courses.find(c => c.code === code);
+  const name = course ? course.name : '';
   const deptName = state.currentUser.departmentName;
   
   try {
@@ -1482,7 +1515,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '');
+  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+  const groupSuffix = course.group > 0 ? ` (G${course.group})` : '';
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -1491,16 +1525,16 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   }
 
   if (mode === 'short') {
-    return `${assignedCodes.join('/')} ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} ${alias}${groupSuffix}${suffix}`;
   } else if (mode === 'medium') {
-    return `${assignedCodes.join('/')} - ${alias}${suffix}`;
+    return `${assignedCodes.join('/')} - ${alias}${groupSuffix}${suffix}`;
   } else {
     const facNames = assignedCodes.map(code => {
       const facObj = state.faculty.find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
     const cleanName = course.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
-    return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${suffix}</div>`;
+    return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${groupSuffix}${suffix}</div>`;
   }
 }
 

@@ -1,3 +1,4 @@
+Finished:
 - add a way to clear database
 - show if its theory/practical in final out
 - save draft store in backend
@@ -18,5 +19,28 @@ Some recommended slots are missing allocations: CSC1MN110 alias '1MN110' require
 - also show the instructions dialogue of admin in a good UI no the localhost says thing
 - for the department access passwords in admin, show the passcode of each department if its set up, but not expose it, there should be an eye, and when you click on it the first time, it won't show the passcode, instead it asks for admin password(for verification)
 
-TODO;
-- change display name to course name and make it uneditable
+
+- no need to make use of the Course column of uploaded timetable excel, use the course code, group and type columns(same course code with type T and P will be marked in that course row only T will be theory and P practical. Group can be shown as a special colored number alongside the course code if the group number is something other than 0. 0 means no groups for that course. these courses with groups should be shown in a seperate page in the admin page where we can set the batches for each group like group 1 will have U1CS2024, U1PY2024 and such where the batch U1CS2024 means U - UG, 1 - aided, CS - code for Computer science, 2024 - batch year) department can see the group number with the course code and click on it to view the assigned batches and assign teachers for the science group, humanities group and such, that's what this is about.
+- the display name of course in department view should be the course name, the alias should be formed from this course name too and in week view, only show the alias, tooltip will show the display name. also only the alias should be editable in department view
+
+- instead what we can do is batch code to department mapping excel:
+Batch,Department
+CS,Computer Science
+CH,Chemistry
+
+and such. with this as i said, we can generate batches like U1CS2024
+and another mapping section, but that doesn't need to be an excel, instead key value type box, in batch dept mapping section, the batch to dept mapping import can also be here itself such that
+U = UG, P = PG, 1 = Aided, 2 = Self finance
+2024 = Sem 5,6 2025 = Sem 3,4
+and such to make the batches:
+U1CS2024, U1CH2024 and such
+
+then we set filtering and searching for batches in the group mapping to add batches to each group
+
+this will later be useful for assigning batches automatically to each course based on the course semester, whether its UG/PG and such for major courses there will be no grouping of batches, just a single batch like U1CS2024 assigned automaticaly to sem 5 and sem 6 courses of computer science department.
+
+so add a new column UG/PG/INT(for integrated) to the courses. and if not mentioned, set UG as default.
+_____________________________________________________________________________________________
+
+TODO:
+- 
