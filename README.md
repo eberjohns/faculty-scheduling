@@ -8,24 +8,27 @@ A secure, high-contrast, interactive web application built with Express and Vani
 
 ### 1. Database & Security Controls
 * **Eyeball Passcode Toggles**: Coordinator passwords in the Admin panel are masked. Administrator verification is requested on first click to unlock password visibility for the session.
-* **Edit Locks**: Once a department coordinator submits their timetable draft, editing is locked. Any backend save or detail update requests are rejected with `403 Forbidden` to prevent unintended updates.
-* **Revert Submission**: Co-ordinators can revert a pending submission back to `Draft` to unlock allocations.
+* **Edit Locks**: Once a department coordinator submits their timetable draft, editing is locked. Any save or detail update requests are rejected with `403 Forbidden` to prevent unintended updates.
+* **Revert Submission**: Coordinators can revert a pending submission back to `Draft` to unlock allocations.
 * **Admin Verification Reset**: A "Danger Zone" in the Admin panel allows clearing all timetables, courses, faculty, and submissions after typing `CLEAR` to verify intent.
 
-### 2. Timetable Generation & Course Consolidation
-* **Consolidated Imports**: Course Excel row inputs mapping the same code across multiple rows (e.g. theory and practical splits) are aggregated automatically during Excel uploads and merged on startup.
-* **Validation and Warnings**: Prevents double-booking clashes in real-time. Highlights missing recommended slots prior to submission to avoid scheduling gaps.
-* **Format Print Formats**: Supports Short, Medium, and Full printable formats. Features high-contrast color key indicators for theory/practical slots, tooltips revealing full names on hover, and custom legends.
+### 2. Configurable Batch Generation
+* **Academic Config Blocks**: Admin defines program types (e.g. `U -> UG`), funding types (e.g. `1 -> Aided`), and cohort year-to-semester mappings.
+* **Automatic Generation**: All batch codes are generated dynamically as `{ProgramCode}{FundingCode}{DeptCode}{Year}` (e.g. `U1CS2024`) by cross-referencing department codes.
 
-### 3. Dynamic Interactive Matrix
-* **Day & Week Views**: Switch between day-by-day views and a week-by-week grid matrix.
-* **Unrecommended Slot Unlock**: Unrecommended slots are visually muted. Coordinators must confirm intent to unlock and assign them.
-* **Autosave**: Debounced background autosave updates the database 5 seconds after any layout changes.
-* **Course and Faculty Editors**: Allow modifying course visual aliases and unique visual initials codes for faculty, ensuring names are displayed cleanly.
+### 3. Group Mapping, Hover Tooltips & Custom Columns
+* **Group Mappings**: Connect batches to course groups (courses with `Group > 0`). 
+* **Smart Filter Defaults**: Opening the batch selection modal automatically pre-fills the program level, admission year (derived from the course's semester), and sets funding to Aided (`1`).
+* **Enhanced Searches**: Searching inside the batch modal matches on batch ID, department code (`CS`), or full name (`Computer Science`).
+* **Visual Representation**: Mapped batches are shown as hover `title` tooltips on `G` badges in Week View, and in a dedicated **Batches** column in Single Day View.
+* **Import/Export Mappings**: Export courses needing batches to CSV, and bulk upload mappings. The parser supports merged cells/rows (Course Code and Group left blank for subsequent rows representing batches).
 
-### 4. Workload Tracker & Reporting
-* **Live trackers**: Live dashboard pills in the coordinator portal show accumulated hours.
-* **Global Reports**: Administrators can inspect course allocations and export global faculty workload reports to CSV.
+### 4. Advanced Course Timetable Excel Import
+* **Semester & Program Columns**: Extracts semesters and program types (`UG`, `PG`, `INT`) directly from the Excel columns by header name, falling back to course code parsing for semesters if columns are missing.
+* **Course Type 'M' (Common Slot)**: Supports Mentor/Meeting courses. These are styled in a soft purple legend color and automatically bypass the "non-recommended slot" unlock confirmation warning dialog when clicked in the allocation matrix.
+
+### 5. Print Preview & Formatting
+* **Print Preview Formatting**: Supports Short, Medium, and Full printable formats. Features high-contrast color key indicators for theory/practical/common slots, tooltips revealing full names on hover, and custom legends.
 
 ---
 
@@ -46,8 +49,11 @@ A secure, high-contrast, interactive web application built with Express and Vani
 │   ├── seed.js                 # Seed generator scripts
 │   ├── server.js               # Express application controller & API router
 │   └── test.js                 # Automated API integration tests
-├── staff.xlsx                  # Sample staff directories
-├── course_layout.xlsx    # Sample course layout structures
+├── templates/                  # Excel Template Models for client use
+│   ├── course_timetable_template.xlsx
+│   ├── staff_template.xlsx
+│   ├── batch_dept_mappings_template.xlsx
+│   └── group_batches_mappings_template.xlsx
 ├── package.json                # Project dependencies and script runner configurations
 └── README.md                   # Project documentation
 ```
@@ -90,14 +96,16 @@ The server will bind and be accessible at:
 ### Admin Workflow
 1. Access the Admin portal at [http://localhost:5000/admin.html](http://localhost:5000/admin.html).
 2. Sign in using the admin password (default password: `admin`).
-3. Upload the **Course Structure Excel** and **Staff Directory Excel** under the **Import Excel Data** tab.
-4. Establish passcode credentials for each department coordinator under the **Coordinator Passwords** tab.
-5. Review Submitted schedules under the **Status Dashboard**. You can approve them, revert them, or return them for changes with custom review feedback instructions.
+3. Set up Department Codes under the **Batch-Dept Mappings** tab, and Program, Funding, and Year parameters.
+4. Upload the **Course Structure Excel** and **Staff Directory Excel** under the **Import Excel Data** tab.
+5. Establish passcode credentials for each department coordinator under the **Coordinator Passwords** tab.
+6. Manage group assignments under the **Group Mappings** tab, or export/import mappings in bulk.
+7. Review Submitted schedules under the **Status Dashboard**. You can approve them, revert them, or return them for changes with custom review feedback instructions.
 
 ### Department Coordinator Workflow
 1. Access the Department portal at [http://localhost:5000](http://localhost:5000).
 2. Select your department name and type the passcode managed by the administrator to sign in.
-3. Allocate faculty members to the recommended theory (`T`) and practical (`P`) slots by clicking on grid cells.
+3. Allocate faculty members to recommended theory (`T`), practical (`P`), and common (`M`) slots by clicking on grid cells.
 4. Make adjustment edits to visual aliases or visual initials codes in the editors below the grid.
 5. Click **View & Print Table** to inspect, print, or export CSV grids.
 6. Click **Submit Timetable** to send your draft timetable to the admin.
