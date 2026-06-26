@@ -40,12 +40,12 @@ then we set filtering and searching for batches in the group mapping to add batc
 this will later be useful for assigning batches automatically to each course based on the course semester, whether its UG/PG and such for major courses there will be no grouping of batches, just a single batch like U1CS2024 assigned automaticaly to sem 5 and sem 6 courses of computer science department.
 
 so add a new column UG/PG/INT(for integrated) to the courses. and if not mentioned, set UG as default.
-_____________________________________________________________________________________________
-
-TODO:
 - how are we getting the semester now? i have added a semester column to the excel so take it from that
 - if the course type is 'M', then don't show recomended slots, just show another color, those are for courses which don't have recomended slots, so if we touch that slot, they shouldn't see its not a recomended slot dialog, that's why i suggested a new color
 - i have also added a 'Program' column to excel so that we can know which course that is and for mapping the groups to batches in admin, don't show all the batches even though they can filter it out, we can already select program, the year(from the semester of course), funding(default to aided) and they would only have to search for CS or computer science(both should be supported) as grouping can be done with any department.
 this will make it much easier for them to get a batch
 - give an export button which exports all the course codes and groups which needs batches assigned as csv or excel, so that it can be added in excel via some souce and we should be able to upload the new excel with batches either the batches being comma sepertaed in the batches column or the batces will be in each row with the course code merged like in the attached
  
+_____________________________________________________________________________________________
+
+TODO:

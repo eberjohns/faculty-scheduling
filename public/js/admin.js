@@ -1739,7 +1739,18 @@ function openGroupMappingModal(course, initialMapped) {
   }
 
   // Pre-fill smart defaults
-  selProg.value = course.programType || 'UG';
+  let defaultProg = '';
+  if (course.programType) {
+    const pt = course.programType.toUpperCase();
+    const foundKey = Object.keys(progTypes).find(k => k.toUpperCase() === pt || progTypes[k].toUpperCase() === pt);
+    if (foundKey) {
+      defaultProg = foundKey;
+    } else {
+      if (pt === 'UG') defaultProg = 'U';
+      else if (pt === 'PG') defaultProg = 'P';
+    }
+  }
+  selProg.value = defaultProg;
   selFund.value = '1'; // Default to Aided
   selYear.value = courseYear || '';
   selDept.value = '';
