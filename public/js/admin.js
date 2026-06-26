@@ -268,6 +268,81 @@ function bindCustomModals() {
     }
   });
 
+  // Group Mapping Export CSV
+  const btnExportGroupMappings = document.getElementById('btn-export-group-mappings');
+  if (btnExportGroupMappings) {
+    btnExportGroupMappings.addEventListener('click', () => {
+      const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+      const uniq = [];
+      groupCourses.forEach(c => {
+        if (!uniq.some(uc => uc.code === c.code)) uniq.push(c);
+      });
+
+      if (uniq.length === 0) {
+        showModalAlert('No Groups', 'There are no group courses configured in the database to export.', 'info');
+        return;
+      }
+
+      let csv = "Course Code,Course Name,Group,Batches\n";
+      uniq.forEach(c => {
+        const baseCode = c.code.replace(/_G\d+$/, '');
+        const mapped = (c.mappedBatches || []).join(',');
+        const nameEscaped = `"${c.name.replace(/"/g, '""')}"`;
+        const batchesEscaped = `"${mapped.replace(/"/g, '""')}"`;
+        csv += `${baseCode},${nameEscaped},${c.group},${batchesEscaped}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `group_batches_export.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  }
+
+  // Group Mapping Import file triggers
+  const btnTriggerImportGroupMappings = document.getElementById('btn-trigger-import-group-mappings');
+  const fileInputGroupMappings = document.getElementById('import-group-mappings-file');
+
+  if (btnTriggerImportGroupMappings && fileInputGroupMappings) {
+    btnTriggerImportGroupMappings.addEventListener('click', () => {
+      fileInputGroupMappings.click();
+    });
+
+    fileInputGroupMappings.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch(`${API_BASE}/import/group-mappings`, {
+          method: 'POST',
+          body: formData
+        });
+        const result = await res.json();
+        // Clear value so the same file can be selected again
+        fileInputGroupMappings.value = '';
+
+        if (res.ok) {
+          showModalAlert('Success', result.message || 'Group mappings imported successfully.', 'success');
+          await fetchGlobalData();
+          renderGroupMappings();
+        } else {
+          showModalAlert('Error', result.error || 'Failed to import mappings.', 'danger');
+        }
+      } catch (err) {
+        fileInputGroupMappings.value = '';
+        showModalAlert('Error', 'Connection error during upload.', 'danger');
+      }
+    });
+  }
+
   // Save Batch Config button
   const btnSaveBatchConfig = document.getElementById('btn-save-batch-config');
   if (btnSaveBatchConfig) {
@@ -1228,6 +1303,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           if (!hasClash) {
             coursePeriods.forEach(p => {
               const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+              const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
               const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
               const tooltip = assigned.map(code => {
                 const facObj = state.faculty.find(f => f.code === code);
@@ -1236,7 +1312,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
               
               subRows[r][p] = {
                 html: formatAllocationCell(course, day, p, allocations, displayMode),
-                classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+                classes: printClass,
                 tooltip: tooltip
               };
             });
@@ -1249,6 +1325,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const newRow = {};
           coursePeriods.forEach(p => {
             const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+            const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
             const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
             const tooltip = assigned.map(code => {
               const facObj = state.faculty.find(f => f.code === code);
@@ -1257,7 +1334,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
             newRow[p] = {
               html: formatAllocationCell(course, day, p, allocations, displayMode),
-              classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+              classes: printClass,
               tooltip: tooltip
             };
           });
@@ -1328,7 +1405,11 @@ function formatAllocationCell(course, day, period, allocations, mode) {
 
   let suffix = '';
   if (mode === 'full') {
-    suffix = isPractical ? ' (PR)' : ' (TH)';
+    if (course.courseType === 'M') {
+      suffix = ' (M)';
+    } else {
+      suffix = isPractical ? ' (PR)' : ' (TH)';
+    }
   }
 
   if (mode === 'short') {
@@ -1618,12 +1699,14 @@ function openGroupMappingModal(course, initialMapped) {
   // Populate filter dropdowns
   const selProg = document.getElementById('batch-filter-prog');
   const selFund = document.getElementById('batch-filter-fund');
+  const selYear = document.getElementById('batch-filter-year');
   const selDept = document.getElementById('batch-filter-dept');
   const searchInput = document.getElementById('batch-search-input');
 
   // Reset
   selProg.innerHTML = '<option value="">All Programs</option>';
   selFund.innerHTML = '<option value="">All Funding</option>';
+  selYear.innerHTML = '<option value="">All Years</option>';
   selDept.innerHTML = '<option value="">All Depts</option>';
   if (searchInput) searchInput.value = '';
 
@@ -1633,10 +1716,33 @@ function openGroupMappingModal(course, initialMapped) {
   Object.entries(fundTypes).forEach(([code, label]) => {
     selFund.innerHTML += `<option value="${code}">${label} (${code})</option>`;
   });
+  
+  const years = [...new Set((state.allBatches || []).map(b => b.year))].sort();
+  years.forEach(yr => {
+    selYear.innerHTML += `<option value="${yr}">${yr}</option>`;
+  });
+
   const deptCodes = [...new Set((state.allBatches || []).map(b => b.deptCode))].sort();
   deptCodes.forEach(dc => {
     selDept.innerHTML += `<option value="${dc}">${dc}</option>`;
   });
+
+  // Calculate default year mapping from semester
+  let courseYear = '';
+  const semNum = parseInt(course.semester);
+  if (!isNaN(semNum) && cfg.yearSemMap) {
+    Object.entries(cfg.yearSemMap).forEach(([yr, sems]) => {
+      if (Array.isArray(sems) && sems.some(s => parseInt(s) === semNum)) {
+        courseYear = yr;
+      }
+    });
+  }
+
+  // Pre-fill smart defaults
+  selProg.value = course.programType || 'UG';
+  selFund.value = '1'; // Default to Aided
+  selYear.value = courseYear || '';
+  selDept.value = '';
 
   function renderBatchCheckboxes() {
     const container = document.getElementById('group-mapping-checkboxes');
@@ -1646,6 +1752,7 @@ function openGroupMappingModal(course, initialMapped) {
     const search = (searchInput ? searchInput.value.trim().toLowerCase() : '');
     const filterProg = selProg.value;
     const filterFund = selFund.value;
+    const filterYear = selYear.value;
     const filterDept = selDept.value;
 
     const batches = state.allBatches || [];
@@ -1655,9 +1762,15 @@ function openGroupMappingModal(course, initialMapped) {
     }
 
     const filtered = batches.filter(b => {
-      if (search && !b.batchId.toLowerCase().includes(search)) return false;
+      if (search) {
+        const idMatch = b.batchId.toLowerCase().includes(search);
+        const deptCodeMatch = b.deptCode && b.deptCode.toLowerCase().includes(search);
+        const deptNameMatch = b.deptName && b.deptName.toLowerCase().includes(search);
+        if (!idMatch && !deptCodeMatch && !deptNameMatch) return false;
+      }
       if (filterProg && b.prog !== filterProg) return false;
       if (filterFund && b.fund !== filterFund) return false;
+      if (filterYear && String(b.year) !== filterYear) return false;
       if (filterDept && b.deptCode !== filterDept) return false;
       return true;
     });
@@ -1714,6 +1827,7 @@ function openGroupMappingModal(course, initialMapped) {
   if (searchInput) searchInput.oninput = renderBatchCheckboxes;
   selProg.onchange = renderBatchCheckboxes;
   selFund.onchange = renderBatchCheckboxes;
+  selYear.onchange = renderBatchCheckboxes;
   selDept.onchange = renderBatchCheckboxes;
 
   renderBatchCheckboxes();

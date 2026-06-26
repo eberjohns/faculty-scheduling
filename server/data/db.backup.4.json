@@ -9,14 +9,7 @@
     },
     "adminPassword": "admin"
   },
-  "departments": {
-    "ENGLISH": {
-      "password": "1234"
-    },
-    "COMPUTER SCIENCE": {
-      "password": "123"
-    }
-  },
+  "departments": {},
   "courses": [
     {
       "code": "MAT1CJ101_G1",
@@ -44,7 +37,9 @@
           "2": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1CJ101_G2",
@@ -72,7 +67,9 @@
           "2": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1MN101",
@@ -99,7 +96,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1MN103",
@@ -126,7 +125,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1MN104",
@@ -153,7 +154,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1MN105",
@@ -180,7 +183,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1FM105(1)",
@@ -206,7 +211,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT1FM105(2)",
@@ -232,7 +239,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE1FM105",
@@ -258,7 +267,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3MN201",
@@ -285,7 +296,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3MN203",
@@ -312,7 +325,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PHY1FM105",
@@ -338,7 +353,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3MN204",
@@ -365,7 +382,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3MN205",
@@ -392,7 +411,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA1FM102",
@@ -418,7 +439,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3CJ201_G1",
@@ -447,7 +470,9 @@
           "5": "P"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "MAT3CJ201_G2",
@@ -476,7 +501,9 @@
           "5": "P"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "MAT3CJ202_G1",
@@ -504,7 +531,9 @@
           "3": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAT3CJ202_G2",
@@ -532,7 +561,9 @@
           "3": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE1CJ101",
@@ -561,7 +592,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC1CJ101",
@@ -590,7 +623,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY1CJ101",
@@ -619,7 +654,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA1CJ101",
@@ -648,7 +685,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE1MN102",
@@ -676,7 +715,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CHE1MN103",
@@ -704,7 +745,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PHY1MN101",
@@ -732,7 +775,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY1MN102",
@@ -760,7 +805,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY1VN102",
@@ -788,7 +835,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA1MN109",
@@ -816,7 +865,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA1MN110",
@@ -844,7 +895,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE1MN101",
@@ -872,7 +925,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY3MN201",
@@ -900,7 +955,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY3MN202",
@@ -928,7 +985,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PHY3CJ201",
@@ -956,7 +1015,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PHY3CJ202",
@@ -985,7 +1046,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA1MN101",
@@ -1013,7 +1076,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA1MN105",
@@ -1041,7 +1106,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PHY3VN202",
@@ -1069,7 +1136,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CHE3CJ201",
@@ -1097,7 +1166,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE3MN201",
@@ -1125,7 +1196,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA3CJ201",
@@ -1153,7 +1226,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE3MN203",
@@ -1181,7 +1256,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CHE3MN202",
@@ -1209,7 +1286,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CHE3CJ202",
@@ -1238,7 +1317,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA3CJ202",
@@ -1267,7 +1348,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA3MN209",
@@ -1295,7 +1378,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA3MN210",
@@ -1323,7 +1408,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "STA3MN201",
@@ -1351,7 +1438,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CSC1MN108",
@@ -1363,7 +1452,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "DBMS",
+      "alias": "DBMSSANS",
       "recommendations": {
         "MONDAY": {
           "1": "T",
@@ -1379,7 +1468,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC1MN109",
@@ -1407,7 +1498,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC1FM105",
@@ -1433,7 +1526,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CSC3MN209",
@@ -1461,7 +1556,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC3MN208",
@@ -1473,7 +1570,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "PYTHON",
+      "alias": "PWDUD",
       "recommendations": {
         "MONDAY": {
           "3": "T"
@@ -1489,7 +1586,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC3CJ201",
@@ -1517,7 +1616,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "CSC3CJ202",
@@ -1529,7 +1630,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "DSA",
+      "alias": "DSAA",
       "recommendations": {
         "MONDAY": {},
         "TUESDAY": {
@@ -1546,7 +1647,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC1MN110",
@@ -1574,7 +1677,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "CSC3MN210",
@@ -1602,7 +1707,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "BOT1CJ101",
@@ -1631,7 +1738,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "BOT1MN101",
@@ -1659,7 +1768,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "BOT3MN201",
@@ -1687,7 +1798,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "BOT3CJ201",
@@ -1715,7 +1828,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "BOT3CJ202",
@@ -1744,7 +1859,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO1MN102",
@@ -1772,7 +1889,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO1MN101",
@@ -1800,7 +1919,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO1FM105(1)",
@@ -1826,7 +1947,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ZOO3MN201",
@@ -1854,7 +1977,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO3CJ201",
@@ -1882,7 +2007,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ZOO3CJ202",
@@ -1911,7 +2038,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO3MN203",
@@ -1939,7 +2068,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ENG1CJ101",
@@ -1969,7 +2100,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1CJ102",
@@ -1997,7 +2130,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FM107(2)_G1",
@@ -2023,7 +2158,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FM107(2)_G2",
@@ -2049,7 +2186,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FM107(3)",
@@ -2075,7 +2214,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FM107(1B)",
@@ -2101,7 +2242,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3CJ201",
@@ -2129,7 +2272,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3CJ202",
@@ -2158,7 +2303,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(1A)",
@@ -2184,7 +2331,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(1B)_G1",
@@ -2210,7 +2359,9 @@
           "3": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(2)_G1",
@@ -2236,7 +2387,9 @@
           "1": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(2)_G2",
@@ -2262,7 +2415,9 @@
           "1": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(2)_G3",
@@ -2288,7 +2443,9 @@
           "1": "T"
         }
       },
-      "group": 3
+      "group": 3,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(2)_G4",
@@ -2314,7 +2471,9 @@
           "1": "T"
         }
       },
-      "group": 4
+      "group": 4,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(2)_G5",
@@ -2340,7 +2499,9 @@
           "1": "T"
         }
       },
-      "group": 5
+      "group": 5,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(3)_G1",
@@ -2366,7 +2527,9 @@
           "3": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG3FV108(3)_G2",
@@ -2392,7 +2555,9 @@
           "3": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG5CJ302",
@@ -2420,7 +2585,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
     },
     {
       "code": "ENG5CJ303",
@@ -2450,7 +2617,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
     },
     {
       "code": "HIS5CJ301",
@@ -2478,7 +2647,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
     },
     {
       "code": "ECO1CJ101",
@@ -2507,7 +2678,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "EDM1MN103",
@@ -2534,7 +2707,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "EDM1MN104",
@@ -2560,7 +2735,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ECO1FM105",
@@ -2586,7 +2763,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "EDM3MN203",
@@ -2613,7 +2792,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "EDM3MN204",
@@ -2639,7 +2820,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ECO3CJ201",
@@ -2667,7 +2850,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ECO3CJ202",
@@ -2694,7 +2879,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1CJ101_G1",
@@ -2723,7 +2910,9 @@
           "5": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1CJ101_G2",
@@ -2752,7 +2941,9 @@
           "5": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1MN101",
@@ -2780,7 +2971,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1MN102",
@@ -2808,7 +3001,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1FM105",
@@ -2834,7 +3029,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3MN201",
@@ -2862,7 +3059,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3MN202",
@@ -2890,7 +3089,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3CJ201_G1",
@@ -2918,7 +3119,9 @@
           "1": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3CJ201_G2",
@@ -2946,7 +3149,9 @@
           "1": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3CJ202_G2",
@@ -2975,7 +3180,9 @@
           "5": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3CJ202_G1",
@@ -3004,7 +3211,9 @@
           "5": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1MN105",
@@ -3032,7 +3241,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM1MN106",
@@ -3060,7 +3271,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3MN205",
@@ -3088,7 +3301,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "COM3MN206",
@@ -3116,7 +3331,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FM105",
@@ -3142,7 +3359,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(1B)_G1",
@@ -3170,7 +3389,9 @@
           "1": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(1B)_G2",
@@ -3198,7 +3419,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(2)_G1",
@@ -3226,7 +3449,9 @@
           "5": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(2)_G2",
@@ -3254,7 +3479,9 @@
           "5": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(2)_G3",
@@ -3282,7 +3509,9 @@
           "5": "T"
         }
       },
-      "group": 3
+      "group": 3,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(2)_G4",
@@ -3310,7 +3539,9 @@
           "5": "T"
         }
       },
-      "group": 4
+      "group": 4,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(2)_G5",
@@ -3338,7 +3569,9 @@
           "5": "T"
         }
       },
-      "group": 5
+      "group": 5,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(3)_G1",
@@ -3366,7 +3599,9 @@
           "2": "T"
         }
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ENG1FA101(3)_G2",
@@ -3394,7 +3629,9 @@
           "2": "T"
         }
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS1CJ101",
@@ -3422,7 +3659,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS3FM106(1)",
@@ -3448,7 +3687,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS3CJ201",
@@ -3476,7 +3717,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS3CJ202",
@@ -3504,7 +3747,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "POL1MN105",
@@ -3530,7 +3775,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "POL1MN102",
@@ -3557,7 +3804,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "POL3MN202",
@@ -3584,7 +3833,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "POL3MN205",
@@ -3610,7 +3861,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1MN101",
@@ -3636,7 +3889,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1MN105",
@@ -3662,7 +3917,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1FM105-1",
@@ -3688,7 +3945,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1FA102(1)",
@@ -3714,7 +3973,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1FA102(2)_G1",
@@ -3740,7 +4001,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1FA102(2)_G2",
@@ -3766,7 +4029,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN1FA102(3)",
@@ -3792,7 +4057,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3FM107(1)",
@@ -3818,7 +4085,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3FM107(2)_G1",
@@ -3844,7 +4113,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3FM107(2)_G2",
@@ -3870,7 +4141,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3FM107(3)",
@@ -3896,7 +4169,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3MN201",
@@ -3922,7 +4197,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIN3MN205",
@@ -3948,7 +4225,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1MN100",
@@ -3976,7 +4255,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1MN102",
@@ -4002,7 +4283,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FA102(1)",
@@ -4028,7 +4311,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FA102(2)_G1",
@@ -4054,7 +4339,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FA102(2)_G2",
@@ -4080,7 +4367,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FA102(2)_G3",
@@ -4106,7 +4395,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 3
+      "group": 3,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FA102(3)",
@@ -4132,7 +4423,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3FM107(1)",
@@ -4158,7 +4451,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3FM107(2)_G1",
@@ -4184,7 +4479,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 1
+      "group": 1,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3FM107(2)_G2",
@@ -4210,7 +4507,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 2
+      "group": 2,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3FM107(3)",
@@ -4236,7 +4535,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3MN200",
@@ -4264,7 +4565,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL3MN202",
@@ -4290,7 +4593,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN1FA102(1)",
@@ -4316,7 +4621,9 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN1FA102(2)",
@@ -4342,7 +4649,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN1FA102(3)",
@@ -4368,7 +4677,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN3FM107(1)",
@@ -4394,7 +4705,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN3FM107(2)",
@@ -4420,7 +4733,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "SAN3FM107(3)",
@@ -4446,7 +4761,9 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "MAL1FM105",
@@ -4472,7 +4789,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PSY1IC01",
@@ -4501,7 +4820,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PSY3IC01",
@@ -4529,7 +4850,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PSY3IC02",
@@ -4558,7 +4881,9 @@
           "5": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "PSY1FM105(1)",
@@ -4584,7 +4909,9 @@
           "3": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PSY1MN106",
@@ -4610,7 +4937,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "PSY3MN206",
@@ -4636,7 +4965,9 @@
         "THURSDAY": {},
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ZOO1MN103",
@@ -4664,14 +4995,16 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ELECTIVE1(E)",
       "name": "Elective 1 in English",
       "department": "ENGLISH",
       "pathway": "DOUBLE MAJOR",
-      "semester": "1",
+      "semester": "3",
       "category": "MAJOR",
       "roomNo": "",
       "batch": "",
@@ -4692,14 +5025,16 @@
           "4": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "ELECTIVE1(H)",
       "name": "HIS5EJ305-History of Human Rights",
       "department": "HISTORY",
       "pathway": "DOUBLE MAJOR",
-      "semester": "1",
+      "semester": "3",
       "category": "MAJOR",
       "roomNo": "",
       "batch": "",
@@ -4719,7 +5054,9 @@
           "5": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS1CJ102",
@@ -4747,7 +5084,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS1FM105",
@@ -4773,7 +5112,9 @@
           "6": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS3FV108",
@@ -4799,7 +5140,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
     },
     {
       "code": "HIS5FS112",
@@ -4825,7 +5168,9 @@
           "1": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
     },
     {
       "code": "ZOO1MN100",
@@ -4854,7 +5199,9 @@
           "2": "P"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "ZOO3MN202",
@@ -4882,7 +5229,9 @@
         },
         "FRIDAY": {}
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     },
     {
       "code": "STA3MN205",
@@ -4910,10 +5259,2109 @@
           "2": "T"
         }
       },
-      "group": 0
+      "group": 0,
+      "programType": "UG",
+      "courseType": "T"
+    },
+    {
+      "code": "MAT5CJ301",
+      "name": "Real Analysis II",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "RAI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5CJ302",
+      "name": "Abstract Algebra I",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "AAI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5CJ303",
+      "name": "Complex Analysis I",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "CAI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5EJ305",
+      "name": "Higher Algebra",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "HA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5EJ306",
+      "name": "Linear programming",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "LP",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5FS112",
+      "name": "Mathematical Type Setting System-LaTeX",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MTSS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5EJ301(1)",
+      "name": "Mathematical Foundations of Computing",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MFOC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5EJ302(1)",
+      "name": "Data Structures and Algorithms",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "DSAA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "MAT5EJ",
+      "name": "Quantitative skills in Mathematics: Modeling,Optimization and Visualization",
+      "department": "MATHEMATICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "QSIMMAV",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5CJ301",
+      "name": "Electrodynamics-II",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "E",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5CJ302",
+      "name": "Optics",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "O",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5CJ303",
+      "name": "Quantum Mechanics-I",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "QM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5EJ302(1)",
+      "name": "Material Science",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5EJ306(3)",
+      "name": "Introductory Medical Physics",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "IMP",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "PHY5FS 112",
+      "name": "Python for Data Analysis",
+      "department": "PHYSICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "PFDA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5CJ301",
+      "name": "Theoretical Chemistry II - Group Theory & Molecular Spectroscopy",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "TCIGTMS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5CJ302",
+      "name": "Inorganic Chemistry III",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ICI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5CJ303",
+      "name": "Organic Chemistry III",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "OCI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5EJ303",
+      "name": "Bio Co-ordination Chemistry",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "BCC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5EJ304",
+      "name": "Food Chemistry",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "FC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CHE5FS112",
+      "name": "Chemistry in Everyday Life",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "CIEL",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5CJ301",
+      "name": "Estimation",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "E",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5CJ302",
+      "name": "Sampling Methods",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "SM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5CJ303",
+      "name": "Testing of Hypothesis",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "TOH",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5EJ301",
+      "name": "Statistical Quality Control",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "SQC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5EJ302",
+      "name": "Optimization Techniques",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "OT",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "STA5FS101",
+      "name": "Statistical analysis using Python",
+      "department": "STATISTICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "SAUP",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5CJ301",
+      "name": "Data Mining",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "DM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5CJ302",
+      "name": "Object Oriented Programming (Java)",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "OOPJ",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5CJ303",
+      "name": "Full Stack Web Development",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "FSWD",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5EJ305a",
+      "name": "Mathematical and Statistical Foundation forData Science",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MASFFS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5EJ306a",
+      "name": "Exploratory Data Analysis",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "EDA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "CSC5FS112",
+      "name": "Introduction to Digital Marketing",
+      "department": "COMPUTER SCIENCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ITDM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5CJ301",
+      "name": "Plant diversity II",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "PDI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5CJ302",
+      "name": "Angiosperm Morphology, Systematics & Plant Resources",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "AMSPR",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5CJ303",
+      "name": "Genetics, Plant breeding & Palaeobotany",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "GPBP",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5EJ301(1)",
+      "name": "Conservation Biology",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "CB",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5EJ302(1)",
+      "name": "Environmental monitoring & Disaster management",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "EMDM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "BOT5FS112(1)",
+      "name": "Herbal Technology",
+      "department": "BOTANY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "HT",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5CJ 301",
+      "name": "ANIMAL DIVERSITY - II - CHORDATA",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ADIC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5CJ 302",
+      "name": "BIOSTATISTICS & BIO-TECHNIQUES",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "BB",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5CJ 303",
+      "name": "FOUNDATIONS OF MOLECULAR BIOLOGY & BIOINFORMATICS",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "FOMBB",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5EJ 301(1)",
+      "name": "ENTOMOLOGY – I",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "EI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5EJ 302(1)",
+      "name": "ENTOMOLOGY - II",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "EI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ZOO5FS 112",
+      "name": "LABORATORY EQUIPMENT MAINTENANCE &MUSEUM SPECIMEN CURATION",
+      "department": "ZOOLOGY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "LEMMSC",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ENG5EJ305(3)",
+      "name": "New Humanities and Literature",
+      "department": "ENGLISH",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "NHAL",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "HIS5EJ301",
+      "name": "Gender in History",
+      "department": "ENGLISH",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "GIH",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "HIS5FS112-1",
+      "name": "Heritage walk and field survey",
+      "department": "ENGLISH",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "HWAFS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5CJ301",
+      "name": "Advanced Microeconomics",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "AM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5CJ302",
+      "name": "International Trade Theories",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ITT",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5CJ303",
+      "name": "Growth Theories in Economics",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "GTIE",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5EJ302",
+      "name": "ENVIRONMENT AND SUSTAINABLE DEVELOPMENT",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "EASD",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5EJ306",
+      "name": "HUMAN CAPITAL AND ECONOMIC DEVELOPMENT",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "HCAED",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "ECO5FS112",
+      "name": "Big Data Analysis in Economics",
+      "department": "ECONOMICS",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "BDAIE",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5CJ301",
+      "name": "Income Tax Law and Accounts",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ITLAA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5CJ302",
+      "name": "Management Accounting",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5CJ303",
+      "name": "Principles of Marketing",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "POM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ301(1)",
+      "name": "Management of Financial Services",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "MOFS",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ302(1)",
+      "name": "Security Analysis and Portfolio Management",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "SAAPM",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ303(2)",
+      "name": "Fundamentals of Banking and Insurance",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "FOBAI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ304(2)",
+      "name": "Services Marketing in Banking and Insurance",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "SMIBAI",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5FS112(1)",
+      "name": "ADVANCE SPREADSHEET APPLICATIONS IN BUSINESS",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ASAIB",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ313(7)",
+      "name": "PRINCIPLES OF TAXATION",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "POT",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5EJ314(7)",
+      "name": "INDIRECT TAX LAWS AND PRACTICE",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ITLAP",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
+    },
+    {
+      "code": "COM5FS112(2)",
+      "name": "ACCOUNTING SOFTWARE APPLICATIONS",
+      "department": "COMMERCE",
+      "pathway": "SINGLE MAJOR",
+      "semester": "5",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 0,
+      "alias": "ASA",
+      "recommendations": {
+        "MONDAY": {},
+        "TUESDAY": {},
+        "WEDNESDAY": {},
+        "THURSDAY": {},
+        "FRIDAY": {}
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "M"
     }
   ],
-  "faculty": [],
+  "faculty": [
+    {
+      "staffId": "BTY004",
+      "name": "Dr. Vimala Jose",
+      "code": "VJ",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY005",
+      "name": "Dr. Geethu Elizabath Thomas",
+      "code": "GET",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY006",
+      "name": "Dr. Anto P V",
+      "code": "APV",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY007",
+      "name": "Dr. Thomas M T",
+      "code": "TMT",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY008",
+      "name": "Dr. Joby Paul",
+      "code": "JP",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY014",
+      "name": "Dr. Sandhya Vincent Neelamkavil",
+      "code": "SVN",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "BTY016",
+      "name": "Ms. Akshitha M R",
+      "code": "AMR",
+      "department": "BOTANY"
+    },
+    {
+      "staffId": "CHE005",
+      "name": "Dr. Paulson Mathew",
+      "code": "PM",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE006",
+      "name": "Dr. Sunil Jose T",
+      "code": "SJT",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE007",
+      "name": "Dr. Jency Thomas",
+      "code": "JT",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE008",
+      "name": "Dr. Jinish Antony M",
+      "code": "JAM",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE009",
+      "name": "Dr. REEJA JOHNSON",
+      "code": "RJ",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE010",
+      "name": "Dr. Joseph Joly V L",
+      "code": "JJVL",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE011",
+      "name": "Mr. Aji C V",
+      "code": "ACV",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE012",
+      "name": "Dr. Jisha Joseph",
+      "code": "JJ",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE013",
+      "name": "Dr. Binsi M Paulson",
+      "code": "BMP",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CHE019",
+      "name": "Dr. ROHINI DAS K",
+      "code": "RDK",
+      "department": "CHEMISTRY"
+    },
+    {
+      "staffId": "CMS003",
+      "name": "Dr. Biju John M",
+      "code": "BJM",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS004",
+      "name": "Dr. Daisland Thattil",
+      "code": "DT",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS005",
+      "name": "Ms. SOWMIA RAJAN K",
+      "code": "SRK",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS006",
+      "name": "Mrs. Divya George",
+      "code": "DG",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS007",
+      "name": "Mr. Sijo Jacob V",
+      "code": "SJV",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS008",
+      "name": "Mrs. Sindhu George",
+      "code": "SG",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS009",
+      "name": "Mrs. Jilna John",
+      "code": "JJ1",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS015",
+      "name": "Dr. Vipin Benny",
+      "code": "VB",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS016",
+      "name": "Mr. Ajesh Antony",
+      "code": "AA",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CMS017",
+      "name": "Mr. Mestin P C",
+      "code": "MPC",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "CSC001",
+      "name": "Dr. Jiju A Mathew",
+      "code": "JAM1",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC002",
+      "name": "Ms. Rameela Ravindran K",
+      "code": "RRK",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC003",
+      "name": "Dr. Sunil Sunny Chalakkal",
+      "code": "SSC",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC004",
+      "name": "Dr. Anil George K",
+      "code": "AGK",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC023",
+      "name": "Ms. Roshni Varghese",
+      "code": "RV",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC027",
+      "name": "Mr. SIJO JOSE",
+      "code": "SJ",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC028",
+      "name": "Dr. JOHNPAUL C .I",
+      "code": "JC.",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC029",
+      "name": "Mrs. MAIDHILI MOHAN K",
+      "code": "MMK",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSC031",
+      "name": "Mrs. DHANYA ANTO",
+      "code": "DA",
+      "department": "COMPUTER SCIENCE"
+    },
+    {
+      "staffId": "CSF016",
+      "name": "Dr. Finosh Keetticka",
+      "code": "FK",
+      "department": "COMMERCE"
+    },
+    {
+      "staffId": "ECN004",
+      "name": "Mr. Emmanuel Thomas",
+      "code": "ET",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ECN005",
+      "name": "Dr. Sabu P J",
+      "code": "SPJ",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ECN006",
+      "name": "Mrs. Mary K Francis",
+      "code": "MKF",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ECN010",
+      "name": "Mrs. Geetha Gokul",
+      "code": "GG",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ECN011",
+      "name": "Dr. Gini Paul",
+      "code": "GP",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ECN012",
+      "name": "Mr. Eljo Joseph T",
+      "code": "EJT",
+      "department": "ECONOMICS"
+    },
+    {
+      "staffId": "ENG007",
+      "name": "Dr. Martin K A",
+      "code": "MKA",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG009",
+      "name": "Dr. Anu Paul",
+      "code": "AP",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG010",
+      "name": "Mr. Biju M A",
+      "code": "BMA",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG011",
+      "name": "Dr. Viju M J",
+      "code": "VMJ",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG012",
+      "name": "Mr. Bibin Joseph",
+      "code": "BJ",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG013",
+      "name": "Mrs. Christeena T Jose",
+      "code": "CTJ",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG014",
+      "name": "Dr. Syam Sudhakar",
+      "code": "SS",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG025",
+      "name": "Dr. Stishin K Paul",
+      "code": "SKP",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG030",
+      "name": "Dr. Flergin Antony",
+      "code": "FA",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG037",
+      "name": "Dr. RESMY DOMINIC",
+      "code": "RD",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENG038",
+      "name": "Mr. ANTONY IGNATIUS K",
+      "code": "AIK",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "ENGF018",
+      "name": "Ms. SANDHYA GEORGE",
+      "code": "SG1",
+      "department": "ENGLISH"
+    },
+    {
+      "staffId": "HIN002",
+      "name": "Dr. Rani Jasmine Thomas N",
+      "code": "RJTN",
+      "department": "HINDI"
+    },
+    {
+      "staffId": "HIN006",
+      "name": "Dr. Shemi John",
+      "code": "SJ1",
+      "department": "HINDI"
+    },
+    {
+      "staffId": "HYD002",
+      "name": "Ms. Dalia Varghese",
+      "code": "DV",
+      "department": "HISTORY"
+    },
+    {
+      "staffId": "HYD004",
+      "name": "Fr. C J GINSEN",
+      "code": "CJG",
+      "department": "HISTORY"
+    },
+    {
+      "staffId": "MAL001",
+      "name": "Dr. Mejoy Jose",
+      "code": "MJ",
+      "department": "MALAYALAM"
+    },
+    {
+      "staffId": "MAL002",
+      "name": "Dr. Sheeba C V",
+      "code": "SCV",
+      "department": "MALAYALAM"
+    },
+    {
+      "staffId": "MAL004",
+      "name": "Mrs. REMYA C",
+      "code": "RC",
+      "department": "MALAYALAM"
+    },
+    {
+      "staffId": "MAT004",
+      "name": "Dr. Saju M I",
+      "code": "SMI",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT005",
+      "name": "Dr. Viji M",
+      "code": "VM",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT006",
+      "name": "Dr. Alphonsa Mathew",
+      "code": "AM",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT007",
+      "name": "Mr. Antony John E F",
+      "code": "AJEF",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT008",
+      "name": "Dr. Sabu A S",
+      "code": "SAS",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT009",
+      "name": "Dr. Julie Andrews",
+      "code": "JA",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT010",
+      "name": "Mr. Renjith Varghese",
+      "code": "RV1",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT011",
+      "name": "Mr. Pratheesh George",
+      "code": "PG",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT013",
+      "name": "Mr. Ashbin Mathew",
+      "code": "AM1",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT017",
+      "name": "Mr. Mathew Thomas",
+      "code": "MT",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "MAT021",
+      "name": "Mr. JOSEPH NELSON P",
+      "code": "JNP",
+      "department": "MATHEMATICS"
+    },
+    {
+      "staffId": "PHY005",
+      "name": "Dr. Joe Kizhakooden",
+      "code": "JK",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY006",
+      "name": "Dr. Nees Paul",
+      "code": "NP",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY007",
+      "name": "Dr. Daison P J",
+      "code": "DPJ",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY008",
+      "name": "Dr. Vimalkumar T V",
+      "code": "VTV",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY009",
+      "name": "Mr. Joby Sebastian",
+      "code": "JS",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY011",
+      "name": "Dr. Ann Mary K A",
+      "code": "AMKA",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY014",
+      "name": "Dr. Johns Naduvath",
+      "code": "JN",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY022",
+      "name": "Ms. Sikha Simon K",
+      "code": "SSK",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY023",
+      "name": "Dr. Jilmy P Joy",
+      "code": "JPJ",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PHY027",
+      "name": "Dr. JINCY C S",
+      "code": "JCS",
+      "department": "PHYSICS"
+    },
+    {
+      "staffId": "PLT001",
+      "name": "Dr. Blessy Paul C",
+      "code": "BPC",
+      "department": "POLITICAL SCIENCE"
+    },
+    {
+      "staffId": "PSY004",
+      "name": "Dr. Deepa Francis M",
+      "code": "DFM",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY005",
+      "name": "Dr. REETU SARA VARGHESE",
+      "code": "RSV",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY008",
+      "name": "Ms. RIZWANA P A",
+      "code": "RPA",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY011",
+      "name": "Dr. BISHMI P D",
+      "code": "BPD",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY014",
+      "name": "Dr. JISHA P K",
+      "code": "JPK",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY015",
+      "name": "Ms. SREELAKSHMI",
+      "code": "SR",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY016",
+      "name": "Ms. AMRUTHA K V",
+      "code": "AKV",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY017",
+      "name": "Ms. FIDHA",
+      "code": "FI",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "PSY018",
+      "name": "Ms. FATHIMA RINSA P R",
+      "code": "FRPR",
+      "department": "PSYCHOLOGY"
+    },
+    {
+      "staffId": "SKT001",
+      "name": "Mrs. Jnanabhai K P",
+      "code": "JKP",
+      "department": "SANSKRIT"
+    },
+    {
+      "staffId": "STS005",
+      "name": "Dr. Chacko V M",
+      "code": "CVM",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS006",
+      "name": "Dr. Sajesh T A",
+      "code": "STA",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS007",
+      "name": "Dr. Rani Sebastian",
+      "code": "RS",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS008",
+      "name": "Dr. Jeena Joseph",
+      "code": "JJ2",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS009",
+      "name": "Dr. Nicy Sebastian",
+      "code": "NS",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS012",
+      "name": "Mr. Rasin R S",
+      "code": "RRS",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS026",
+      "name": "Dr. Anusree M R",
+      "code": "AMR1",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS027",
+      "name": "Ms. Ashlin Mathew P M",
+      "code": "AMPM",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "STS036",
+      "name": "Ms. SINU MARIA JEESON",
+      "code": "SMJ",
+      "department": "STATISTICS"
+    },
+    {
+      "staffId": "ZGY004",
+      "name": "Dr. Binoy C F",
+      "code": "BCF",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY005",
+      "name": "Dr. Vimala K John",
+      "code": "VKJ",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY006",
+      "name": "Dr. Joyce Jose",
+      "code": "JJ3",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY007",
+      "name": "Mr. Shaun Paul Adambukulam",
+      "code": "SPA",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY015",
+      "name": "Ms. Sheeba Raphel",
+      "code": "SR1",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY019",
+      "name": "Dr. PRIYATHA C.V",
+      "code": "PC",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY025",
+      "name": "Dr. NITHA BOSE C",
+      "code": "NBC",
+      "department": "ZOOLOGY"
+    },
+    {
+      "staffId": "ZGY027",
+      "name": "Dr. JISHA KRISHNAN E K",
+      "code": "JKEK",
+      "department": "ZOOLOGY"
+    }
+  ],
   "allocations": {},
   "submissions": {},
   "periods": [
@@ -4924,7 +7372,104 @@
     "5",
     "6"
   ],
-  "batchDeptMappings": [],
+  "batchDeptMappings": [
+    {
+      "code": "CB",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CF",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CT",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CH",
+      "deptName": "CHEMISTRY"
+    },
+    {
+      "code": "CS",
+      "deptName": "COMPUTER SCIENCE"
+    },
+    {
+      "code": "EC",
+      "deptName": "ECONOMICS"
+    },
+    {
+      "code": "MC",
+      "deptName": "MATHEMATICS"
+    },
+    {
+      "code": "MP",
+      "deptName": "MATHEMATICS"
+    },
+    {
+      "code": "PH",
+      "deptName": "PHYSICS"
+    },
+    {
+      "code": "ST",
+      "deptName": "STATISTICS"
+    },
+    {
+      "code": "ZG",
+      "deptName": "ZOOLOGY"
+    },
+    {
+      "code": "BB",
+      "deptName": "MANAGEMENT STUDIES"
+    },
+    {
+      "code": "BC",
+      "deptName": "COMPUTER APPLICATION"
+    },
+    {
+      "code": "BM",
+      "deptName": "MEDIA STUDIES"
+    },
+    {
+      "code": "BV",
+      "deptName": "MEDIA STUDIES"
+    },
+    {
+      "code": "CP",
+      "deptName": "CRIMINOLOGY AND POLICE SCIENCE"
+    },
+    {
+      "code": "EL",
+      "deptName": "ELECTRONICS"
+    },
+    {
+      "code": "EN",
+      "deptName": "ENGLISH"
+    },
+    {
+      "code": "FS",
+      "deptName": "FORENSIC SCIENCE"
+    },
+    {
+      "code": "DS",
+      "deptName": "DATA SCIENCE"
+    },
+    {
+      "code": "EH",
+      "deptName": "ENGLISH"
+    },
+    {
+      "code": "SW",
+      "deptName": "SOCIAL WORK"
+    },
+    {
+      "code": "PY",
+      "deptName": "PSYCHOLOGY"
+    },
+    {
+      "code": "BT",
+      "deptName": "BOTANY"
+    }
+  ],
   "groupMappings": {},
   "batchConfig": {
     "programTypes": {

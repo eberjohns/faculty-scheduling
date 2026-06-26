@@ -507,6 +507,8 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
     let typeColIdx  = -1;
     let nameColIdx  = -1;
     let deptColIdx  = -1;
+    let semColIdx   = -1;
+    let programColIdx = -1;
 
     // Slot columns: { idx, day (full), period (label string) }
     const slotCols = [];
@@ -535,6 +537,8 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
       if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
       if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
       if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
+      if (hdrLow === 'semester'    || hdrLow === 'sem')         { semColIdx   = c; continue; }
+      if (hdrLow === 'program'     || hdrLow === 'prog' || hdrLow === 'program type' || hdrLow === 'programtype') { programColIdx = c; continue; }
     }
 
     const is_new_format = codeColIdx !== -1;
@@ -591,11 +595,15 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
         if (!isNaN(parsedG)) group_num = parsedG;
       }
 
-      // Parse type (T = Theory, P = Practical)
+      // Parse type (T = Theory, P = Practical, M = Mentor/Meeting)
       let type_val = 'T';
       if (type_raw !== undefined && type_raw !== null) {
         const t_str = String(type_raw).trim().toUpperCase();
-        if (t_str === 'P' || t_str === 'PRACTICAL') type_val = 'P';
+        if (t_str === 'P' || t_str === 'PRACTICAL') {
+          type_val = 'P';
+        } else if (t_str === 'M' || t_str === 'MENTOR' || t_str === 'MEETING') {
+          type_val = 'M';
+        }
       }
 
       // Parse course code — this is the base code (e.g. MAT1CJ101)
@@ -617,18 +625,39 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
         department = mapping ? mapping.deptName.toUpperCase() : deptPrefix;
       }
 
-      const semester = extractSemesterFromCode(baseCode);
+      // Parse Semester
+      let semester = '';
+      if (semColIdx >= 0 && row[semColIdx] !== undefined && row[semColIdx] !== null) {
+        semester = String(row[semColIdx]).trim();
+      }
+      if (!semester) {
+        semester = extractSemesterFromCode(baseCode);
+      }
+
+      const dbMatch = existingCourses.find(c => c.code === courseCode);
+
+      // Parse Program Type
+      let program_val = 'UG';
+      if (programColIdx >= 0 && row[programColIdx] !== undefined && row[programColIdx] !== null) {
+        const p_str = String(row[programColIdx]).trim().toUpperCase();
+        if (p_str === 'UG' || p_str === 'PG' || p_str === 'INT') {
+          program_val = p_str;
+        }
+      } else if (dbMatch && dbMatch.programType) {
+        program_val = dbMatch.programType;
+      }
 
       // -------------------------------------------------------
       // Step 3: Extract recommended slots from slot columns
       // A cell is marked if it contains the same value as type_val (T or P)
+      // For type 'M' courses, there are no recommended slots.
       // -------------------------------------------------------
       const recommendations = {};
       weekdays.forEach(day => {
         recommendations[day] = {};
         slotsByDay[day].forEach(({ idx, period }) => {
           const slotVal = String(row[idx] || '').trim().toUpperCase();
-          if (slotVal === type_val) {
+          if (type_val !== 'M' && slotVal === type_val) {
             recommendations[day][period] = slotVal;
           }
         });
@@ -653,6 +682,10 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
           });
         });
         existingImported.hours = recHours;
+        
+        if (existingImported.courseType !== 'M' && type_val === 'M') {
+          existingImported.courseType = 'M';
+        }
         continue;
       }
 
@@ -664,7 +697,6 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
       let name  = nameFromExcel || `Course ${baseCode}`;
       let alias = '';
 
-      const dbMatch = existingCourses.find(c => c.code === courseCode);
       if (dbMatch) {
         name  = nameFromExcel || dbMatch.name;
         alias = dbMatch.alias; // preserve custom alias
@@ -692,7 +724,8 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
         alias,
         recommendations,
         group:       group_num,
-        programType: dbMatch ? (dbMatch.programType || 'UG') : 'UG'
+        programType: program_val,
+        courseType:  dbMatch ? (dbMatch.courseType || type_val) : type_val
       });
     }
 
@@ -1206,6 +1239,139 @@ app.post('/api/admin/clear-database', (req, res) => {
   
   writeDb(db);
   res.json({ success: true, message: 'Database cleared successfully.' });
+});
+
+// Import group-to-batch mappings Excel/CSV
+app.post('/api/import/group-mappings', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length < 2) {
+      return res.status(400).json({ error: 'No records found in group mappings Excel.' });
+    }
+
+    const headerRow = data[0];
+    let codeColIdx  = -1;
+    let groupColIdx = -1;
+    let batchesColIdx = -1;
+
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = String(headerRow[c] || '').trim().toLowerCase();
+      if (hdr === 'course code' || hdr === 'coursecode' || hdr === 'code') {
+        codeColIdx = c;
+      } else if (hdr === 'group') {
+        groupColIdx = c;
+      } else if (hdr === 'batches' || hdr === 'batch name' || hdr === 'batchname' || hdr === 'batch' || hdr === 'batch_name') {
+        batchesColIdx = c;
+      }
+    }
+
+    if (codeColIdx === -1 || batchesColIdx === -1) {
+      return res.status(400).json({
+        error: 'Could not find required columns in sheet. Needs "Course Code" and "Batches" or "Batch Name".'
+      });
+    }
+
+    const db = readDb();
+    const existingCourses = db.courses || [];
+    const groupMappings = db.groupMappings || {};
+
+    let lastCourseCode = '';
+    let lastGroup = 0;
+    let importCount = 0;
+    const initializedCodes = new Set();
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0) continue;
+
+      const codeVal_raw = row[codeColIdx];
+      const groupVal_raw = groupColIdx >= 0 ? row[groupColIdx] : undefined;
+      const batchVal_raw = row[batchesColIdx];
+
+      // Update state for merged/grouped cells
+      if (codeVal_raw !== undefined && codeVal_raw !== null && String(codeVal_raw).trim() !== '') {
+        lastCourseCode = String(codeVal_raw).trim();
+      }
+      if (groupVal_raw !== undefined && groupVal_raw !== null && String(groupVal_raw).trim() !== '') {
+        const parsedG = parseInt(String(groupVal_raw).trim());
+        lastGroup = !isNaN(parsedG) ? parsedG : 0;
+      }
+
+      if (!lastCourseCode) continue;
+
+      // Extract batches
+      const batches = [];
+      if (batchVal_raw !== undefined && batchVal_raw !== null) {
+        const bStr = String(batchVal_raw).trim();
+        // Split by comma or semicolon
+        bStr.split(/[,;]+/).forEach(b => {
+          const cleanB = b.trim().toUpperCase();
+          if (cleanB) batches.push(cleanB);
+        });
+      }
+
+      if (batches.length === 0) continue;
+
+      // Resolve actual course code key in database (e.g. BMM5FS112_G1)
+      let resolvedCode = lastCourseCode;
+      let dbCourse = existingCourses.find(c => c.code === resolvedCode);
+
+      if (!dbCourse && lastGroup > 0) {
+        resolvedCode = `${lastCourseCode}_G${lastGroup}`;
+        dbCourse = existingCourses.find(c => c.code === resolvedCode);
+      }
+
+      if (!dbCourse) {
+        // Fallback: try case-insensitive code search
+        dbCourse = existingCourses.find(c => c.code.toUpperCase() === resolvedCode.toUpperCase());
+        if (dbCourse) {
+          resolvedCode = dbCourse.code;
+        }
+      }
+
+      if (!dbCourse) {
+        // Fallback: search for first course that starts with lastCourseCode
+        dbCourse = existingCourses.find(c => c.code.startsWith(lastCourseCode));
+        if (dbCourse) {
+          resolvedCode = dbCourse.code;
+        }
+      }
+
+      if (!dbCourse) {
+        continue;
+      }
+
+      // Initialize mapping if first time seeing this course in this file
+      if (!initializedCodes.has(resolvedCode)) {
+        groupMappings[resolvedCode] = [];
+        initializedCodes.add(resolvedCode);
+      }
+
+      batches.forEach(b => {
+        if (!groupMappings[resolvedCode].includes(b)) {
+          groupMappings[resolvedCode].push(b);
+        }
+      });
+      importCount++;
+    }
+
+    db.groupMappings = groupMappings;
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: `Imported group mappings for ${importCount} rows successfully.`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process group mappings Excel: ' + err.message });
+  }
 });
 
 // Fallback to serve index.html for undefined requests

@@ -26,19 +26,13 @@ let autosaveTimer = null;
 function formatCourseCodeWithGroup(code, group, mappedBatches = []) {
   const base = code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
   if (group && group > 0) {
-    const batchesStr = JSON.stringify(mappedBatches);
-    // Clickable group badge
-    return `${base} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; cursor: pointer; border-radius: 4px;" onclick="event.stopPropagation(); viewGroupMappedBatches('${base}', 'G${group}', ${batchesStr.replace(/"/g, '&quot;')})">G${group}</span>`;
+    const titleText = mappedBatches && mappedBatches.length > 0
+      ? `Mapped Batches:\n${mappedBatches.join('\n')}`
+      : 'No batches mapped';
+    return `${base} <span class="badge" title="${titleText}" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; cursor: help; border-radius: 4px;">G${group}</span>`;
   }
   return base;
 }
-
-window.viewGroupMappedBatches = function(baseCode, groupName, mappedBatches) {
-  const batchesText = mappedBatches && mappedBatches.length > 0
-    ? `The following batches are mapped to this course group:\n\n${mappedBatches.join('\n')}`
-    : 'No batches are currently mapped to this group.';
-  showModalAlert(`Mapped Batches - ${baseCode} (${groupName})`, batchesText, 'info');
-};
 
 
 function isTimetableLocked() {
@@ -691,6 +685,7 @@ function renderAllocationMatrix() {
         <th style="min-width:180px; text-align:left;">Course Name / Alias</th>
         <th style="width:70px;">Sem.</th>
         <th style="width:80px;">Category</th>
+        <th style="min-width:120px; text-align:left;">Batches</th>
     `;
     periods.forEach(p => {
       headerHtml += `<th style="width:120px;">${p}</th>`;
@@ -700,7 +695,7 @@ function renderAllocationMatrix() {
 
     tbody.innerHTML = '';
     if (baseCourseCodes.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="${periods.length + 4}" class="text-center text-muted">No courses found matching active filters.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${periods.length + 5}" class="text-center text-muted">No courses found matching active filters.</td></tr>`;
       return;
     }
 
@@ -716,6 +711,11 @@ function renderAllocationMatrix() {
         </td>
         <td>${sem}</td>
         <td>${cat}</td>
+        <td style="text-align:left;">
+          ${mappedBatches.length > 0
+            ? mappedBatches.map(b => `<span class="badge badge-info" style="margin:2px; font-size:11px;">${b}</span>`).join('')
+            : '<span class="text-muted text-sm">-</span>'}
+        </td>
       `;
 
       periods.forEach(p => {
@@ -771,11 +771,16 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
   const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
   const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
   
+  const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M');
+  
   let highlightClass = 'slot-recommend-none';
   let slotLabel = '';
   let activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
 
-  if (recT === 'T') {
+  if (isM) {
+    highlightClass = 'slot-recommend-m';
+    slotLabel = '';
+  } else if (recT === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
     activeCourseCode = courseT.code;
@@ -1421,6 +1426,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           if (!hasClash) {
             coursePeriods.forEach(p => {
               const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+              const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
               const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
               const tooltip = assigned.map(code => {
                 const facObj = state.faculty.find(f => f.code === code);
@@ -1429,7 +1435,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
               
               subRows[r][p] = {
                 html: formatAllocationCell(course, day, p, allocations, displayMode),
-                classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+                classes: printClass,
                 tooltip: tooltip
               };
             });
@@ -1442,6 +1448,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const newRow = {};
           coursePeriods.forEach(p => {
             const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
+            const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
             const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
             const tooltip = assigned.map(code => {
               const facObj = state.faculty.find(f => f.code === code);
@@ -1450,7 +1457,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
             newRow[p] = {
               html: formatAllocationCell(course, day, p, allocations, displayMode),
-              classes: isPractical ? 'print-recommend-p' : 'print-recommend-t',
+              classes: printClass,
               tooltip: tooltip
             };
           });
@@ -1521,7 +1528,11 @@ function formatAllocationCell(course, day, period, allocations, mode) {
 
   let suffix = '';
   if (mode === 'full') {
-    suffix = isPractical ? ' (PR)' : ' (TH)';
+    if (course.courseType === 'M') {
+      suffix = ' (M)';
+    } else {
+      suffix = isPractical ? ' (PR)' : ' (TH)';
+    }
   }
 
   if (mode === 'short') {

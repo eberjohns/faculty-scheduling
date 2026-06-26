@@ -410,6 +410,11 @@
           <div id="tab-admin-group-mappings" class="tab-pane hidden">
             <div class="content-header">
               <h1>Group Mappings Management</h1>
+              <div class="actions flex-row gap-2">
+                <button id="btn-export-group-mappings" class="btn btn-outline"><i class="fa-solid fa-file-export"></i> Export Mappings</button>
+                <button id="btn-trigger-import-group-mappings" class="btn btn-primary"><i class="fa-solid fa-file-import"></i> Import Mappings</button>
+                <input type="file" id="import-group-mappings-file" class="hidden" accept=".xlsx,.xls,.csv">
+              </div>
             </div>
             <div class="card mt-2">
               <div class="card-body">
@@ -515,6 +520,10 @@
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--success); background-color: var(--success-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
               <strong>Practical Slot (PR)</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid #a855f7; background-color: #f3e8ff; -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <strong>Mentor / Meeting (M)</strong>
             </div>
           </div>
 
@@ -652,6 +661,9 @@
             </select>
             <select id="batch-filter-fund" class="form-control" style="flex:0 0 110px;">
               <option value="">All Funding</option>
+            </select>
+            <select id="batch-filter-year" class="form-control" style="flex:0 0 90px;">
+              <option value="">All Years</option>
             </select>
             <select id="batch-filter-dept" class="form-control" style="flex:0 0 100px;">
               <option value="">All Depts</option>
