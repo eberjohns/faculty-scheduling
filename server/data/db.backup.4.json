@@ -7,9 +7,22 @@
       "3": "III BSC",
       "5": "V BSC"
     },
-    "adminPassword": "admin"
+    "adminPassword": "admin",
+    "periodTimes": {
+      "1": "09:00 AM - 10:00 AM",
+      "2": "10:00 AM - 11:00 AM",
+      "3": "11:00 AM - 12:00 PM",
+      "4": "01:00 PM - 02:00 PM",
+      "5": "02:00 PM - 03:00 PM",
+      "6": "03:00 PM - 04:00 PM",
+      "7": "04:00 PM - 05:00 PM"
+    }
   },
-  "departments": {},
+  "departments": {
+    "ENGLISH": {
+      "password": "123"
+    }
+  },
   "courses": [
     {
       "code": "MAT1CJ101_G1",
@@ -2082,7 +2095,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "ITTWOL",
+      "alias": "liter",
       "recommendations": {
         "MONDAY": {
           "2": "T"
@@ -7362,8 +7375,69 @@
       "department": "ZOOLOGY"
     }
   ],
-  "allocations": {},
-  "submissions": {},
+  "allocations": {
+    "ENGLISH": {
+      "ENG1FA101(2)_G1": {
+        "TUESDAY": {
+          "4": [
+            "AP"
+          ]
+        },
+        "WEDNESDAY": {
+          "3": [
+            "AP"
+          ]
+        },
+        "THURSDAY": {
+          "1": [
+            "AP",
+            "AP",
+            "MKA"
+          ]
+        },
+        "FRIDAY": {
+          "5": [
+            "AP"
+          ]
+        }
+      },
+      "ENG5CJ302": {
+        "THURSDAY": {
+          "1": [
+            "BMA"
+          ]
+        }
+      },
+      "ELECTIVE1(E)": {
+        "MONDAY": {
+          "1": [
+            "VMJ"
+          ]
+        },
+        "WEDNESDAY": {
+          "2": [
+            "VMJ"
+          ]
+        },
+        "THURSDAY": {
+          "5": [
+            "VMJ"
+          ]
+        },
+        "FRIDAY": {
+          "4": [
+            "VMJ"
+          ]
+        }
+      }
+    }
+  },
+  "submissions": {
+    "ENGLISH": {
+      "status": "Approved",
+      "comments": ""
+    }
+  },
   "periods": [
     "1",
     "2",
@@ -7470,7 +7544,13 @@
       "deptName": "BOTANY"
     }
   ],
-  "groupMappings": {},
+  "groupMappings": {
+    "ENG1FA101(2)_G1": [
+      "U1CS2026",
+      "U1PH2026",
+      "U1BT2026"
+    ]
+  },
   "batchConfig": {
     "programTypes": {
       "U": "UG",

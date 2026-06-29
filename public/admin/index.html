@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Portal - College Timetable System</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="/favicon.png">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,7 +13,7 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Core Stylesheet (Shared) -->
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   
@@ -65,7 +67,8 @@
             <button class="nav-item" data-tab="tab-admin-import"><i class="fa-solid fa-file-excel"></i> Import Excel Data</button>
             <button class="nav-item" data-tab="tab-admin-data"><i class="fa-solid fa-magnifying-glass"></i> Inspect Records</button>
             <button class="nav-item" data-tab="tab-admin-batch-dept"><i class="fa-solid fa-route"></i> Batch-Dept Mappings</button>
-            <button class="nav-item" data-tab="tab-admin-group-mappings"><i class="fa-solid fa-users-rectangle"></i> Group Mappings</button>
+            <button class="nav-item" data-tab="tab-admin-group-mappings"><i class="fa-solid fa-graduation-cap"></i> Batch Allocation</button>
+            <button class="nav-item" data-tab="tab-admin-export"><i class="fa-solid fa-file-excel"></i> Export Timetable</button>
             <button class="nav-item" data-tab="tab-admin-workload"><i class="fa-solid fa-users-viewfinder"></i> Workload Summary</button>
           </nav>
         </aside>
@@ -316,6 +319,7 @@
                         <th>Name</th>
                         <th>Visual Initials Code</th>
                         <th>Department</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -406,34 +410,183 @@
           </div>
 
 
-          <!-- TAB: Group Mappings -->
+          <!-- TAB: Batch Allocation -->
           <div id="tab-admin-group-mappings" class="tab-pane hidden">
             <div class="content-header">
-              <h1>Group Mappings Management</h1>
-              <div class="actions flex-row gap-2">
-                <button id="btn-export-group-mappings" class="btn btn-outline"><i class="fa-solid fa-file-export"></i> Export Mappings</button>
-                <button id="btn-trigger-import-group-mappings" class="btn btn-primary"><i class="fa-solid fa-file-import"></i> Import Mappings</button>
-                <input type="file" id="import-group-mappings-file" class="hidden" accept=".xlsx,.xls,.csv">
+              <h1>Batch Allocation & Mapping</h1>
+            </div>
+
+            <div class="tab-sub-nav">
+              <button class="tab-sub-item active" data-subtab="subtab-alloc-electives">Electives / Grouped Courses</button>
+              <button class="tab-sub-item" data-subtab="subtab-alloc-majors">Major / Single Batch Courses</button>
+              <button class="tab-sub-item" data-subtab="subtab-alloc-status">Batch Allocation Status</button>
+            </div>
+
+            <!-- Subtab 1: Electives / Grouped Courses -->
+            <div id="subtab-alloc-electives" class="subtab-pane active">
+              <div class="card mt-2">
+                <div class="card-body">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+                    <p class="text-muted" style="margin:0;">Map generated batches to course groups (courses with `Group > 0`). These courses can belong to multiple batches.</p>
+                    <div class="actions flex-row gap-2">
+                      <button id="btn-export-group-mappings" class="btn btn-outline btn-sm"><i class="fa-solid fa-file-export"></i> Export</button>
+                      <button id="btn-trigger-import-group-mappings" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import"></i> Import</button>
+                      <input type="file" id="import-group-mappings-file" class="hidden" accept=".xlsx,.xls,.csv">
+                    </div>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table" id="table-group-mappings">
+                      <thead>
+                        <tr>
+                          <th>Course Code</th>
+                          <th>Course Name</th>
+                          <th>Group</th>
+                          <th>Mapped Batches</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Rendered Dynamically -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="card mt-2">
-              <div class="card-body">
-                <p class="text-muted mb-3">Map generated batches to course groups (courses with `Group > 0`). Batches will auto-select on department allocation selection.</p>
-                <div class="table-responsive">
-                  <table class="table" id="table-group-mappings">
-                    <thead>
-                      <tr>
-                        <th>Course Code</th>
-                        <th>Course Name</th>
-                        <th>Group</th>
-                        <th>Mapped Batches</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
+
+            <!-- Subtab 2: Major Courses (Single Batch) -->
+            <div id="subtab-alloc-majors" class="subtab-pane hidden">
+              <div class="card mt-2">
+                <div class="card-body">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+                    <p class="text-muted" style="margin:0;">Assign exactly one batch to major courses. The system automatically recommends a batch based on department, program, and semester.</p>
+                    <div class="actions flex-row gap-2">
+                      <button id="btn-export-major-mappings" class="btn btn-outline btn-sm"><i class="fa-solid fa-file-export"></i> Export</button>
+                      <button id="btn-trigger-import-major-mappings" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import"></i> Import</button>
+                      <input type="file" id="import-major-mappings-file" class="hidden" accept=".xlsx,.xls,.csv">
+                    </div>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table" id="table-major-allocations">
+                      <thead>
+                        <tr>
+                          <th>Course Code</th>
+                          <th>Course Name</th>
+                          <th>Semester</th>
+                          <th>Department</th>
+                          <th>Program</th>
+                          <th>Recommended Batch</th>
+                          <th>Assigned Batch</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Rendered Dynamically -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Subtab 3: Batch Allocation Status -->
+            <div id="subtab-alloc-status" class="subtab-pane hidden">
+              <div class="card mt-2">
+                <div class="card-body">
+                  <p class="text-muted mb-3">Overview of all generated batches, showing allocated courses and identifying unassigned batches.</p>
+                  <div class="table-responsive">
+                    <table class="table" id="table-batch-allocation-status">
+                      <thead>
+                        <tr>
+                          <th>Batch ID</th>
+                          <th>Batch Details</th>
+                          <th>Assigned Courses</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Rendered Dynamically -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB: Export Timetable & Period Times Config -->
+          <div id="tab-admin-export" class="tab-pane hidden">
+            <div class="content-header">
+              <h1>Export Timetable (Strict College Format)</h1>
+            </div>
+            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px; align-items:start; margin-top: 15px;">
+              <!-- Left Column: Export & Preview -->
+              <div style="display:flex; flex-direction:column; gap:20px;">
+                <!-- Export Card -->
+                <div class="card">
+                  <div class="card-body">
+                    <h3 style="font-size:16px; margin-bottom:8px;"><i class="fa-solid fa-file-excel text-success"></i> Download College Timetable</h3>
+                    <p class="text-muted text-sm">Export all allocated class slots compiled by batch in the strict 4-row college format. Perfect for direct ingestion into the master college portal.</p>
+                    <button id="btn-export-strict-excel" class="btn btn-primary mt-3"><i class="fa-solid fa-download"></i> Export Excel (.xlsx)</button>
+                  </div>
+                </div>
+                
+                <!-- Timetable Preview Card -->
+                <div class="card">
+                  <div class="card-body">
+                    <h3 style="font-size:16px; margin-bottom:8px;"><i class="fa-solid fa-magnifying-glass text-info"></i> Batch Timetable Preview</h3>
+                    <p class="text-muted text-sm mb-3">Select a batch to inspect its compiled schedule before downloading the Excel file.</p>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:15px;">
+                      <select id="export-preview-batch-select" class="form-control" style="max-width:250px; font-weight:600;">
+                        <option value="">-- Select Batch to Preview --</option>
+                      </select>
+                    </div>
+                    
+                    <div id="export-preview-grid-container" class="table-responsive">
+                      <p class="text-muted text-sm text-center py-4">Please select a batch to preview its timetable.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Right: Period Time Config -->
+              <div class="card">
+                <div class="card-body">
+                  <h3 style="font-size:16px; margin-bottom:8px;"><i class="fa-solid fa-clock text-warning"></i> Period Time Slots</h3>
+                  <p class="text-muted text-sm">Set up start and end times for each period. These times will be written directly into the generated spreadsheet rows.</p>
+                  
+                  <form id="form-period-times" style="display:flex; flex-direction:column; gap:10px; margin-top:15px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 1:</label>
+                      <input type="text" id="pt-1" class="form-control" placeholder="e.g. 09:00 AM - 10:00 AM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 2:</label>
+                      <input type="text" id="pt-2" class="form-control" placeholder="e.g. 10:00 AM - 11:00 AM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 3:</label>
+                      <input type="text" id="pt-3" class="form-control" placeholder="e.g. 11:00 AM - 12:00 PM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 4:</label>
+                      <input type="text" id="pt-4" class="form-control" placeholder="e.g. 12:00 PM - 01:00 PM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 5:</label>
+                      <input type="text" id="pt-5" class="form-control" placeholder="e.g. 02:00 PM - 03:00 PM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 6:</label>
+                      <input type="text" id="pt-6" class="form-control" placeholder="e.g. 03:00 PM - 04:00 PM" style="padding:4px 8px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <label style="width:70px; font-weight:600; font-size:12px;">Period 7:</label>
+                      <input type="text" id="pt-7" class="form-control" placeholder="e.g. 04:00 PM - 05:00 PM" style="padding:4px 8px;">
+                    </div>
+                  </form>
+                  <button id="btn-save-period-times" class="btn btn-outline mt-3" style="width:100%;"><i class="fa-solid fa-floppy-disk"></i> Save Configuration</button>
                 </div>
               </div>
             </div>
@@ -702,6 +855,6 @@
   <!-- SheetJS Library via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Dedicated Admin Javascript -->
-  <script src="js/admin.js"></script>
+  <script src="/js/admin.js"></script>
 </body>
 </html>

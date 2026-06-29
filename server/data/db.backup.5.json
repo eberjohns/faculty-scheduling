@@ -9,7 +9,11 @@
     },
     "adminPassword": "admin"
   },
-  "departments": {},
+  "departments": {
+    "ENGLISH": {
+      "password": "123"
+    }
+  },
   "courses": [
     {
       "code": "MAT1CJ101_G1",
@@ -2082,7 +2086,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "ITTWOL",
+      "alias": "liter",
       "recommendations": {
         "MONDAY": {
           "2": "T"
@@ -7362,8 +7366,69 @@
       "department": "ZOOLOGY"
     }
   ],
-  "allocations": {},
-  "submissions": {},
+  "allocations": {
+    "ENGLISH": {
+      "ENG1FA101(2)_G1": {
+        "TUESDAY": {
+          "4": [
+            "AP"
+          ]
+        },
+        "WEDNESDAY": {
+          "3": [
+            "AP"
+          ]
+        },
+        "THURSDAY": {
+          "1": [
+            "AP",
+            "AP",
+            "MKA"
+          ]
+        },
+        "FRIDAY": {
+          "5": [
+            "AP"
+          ]
+        }
+      },
+      "ENG5CJ302": {
+        "THURSDAY": {
+          "1": [
+            "BMA"
+          ]
+        }
+      },
+      "ELECTIVE1(E)": {
+        "MONDAY": {
+          "1": [
+            "VMJ"
+          ]
+        },
+        "WEDNESDAY": {
+          "2": [
+            "VMJ"
+          ]
+        },
+        "THURSDAY": {
+          "5": [
+            "VMJ"
+          ]
+        },
+        "FRIDAY": {
+          "4": [
+            "VMJ"
+          ]
+        }
+      }
+    }
+  },
+  "submissions": {
+    "ENGLISH": {
+      "status": "Approved",
+      "comments": ""
+    }
+  },
   "periods": [
     "1",
     "2",
@@ -7372,8 +7437,111 @@
     "5",
     "6"
   ],
-  "batchDeptMappings": [],
-  "groupMappings": {},
+  "batchDeptMappings": [
+    {
+      "code": "CB",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CF",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CT",
+      "deptName": "COMMERCE"
+    },
+    {
+      "code": "CH",
+      "deptName": "CHEMISTRY"
+    },
+    {
+      "code": "CS",
+      "deptName": "COMPUTER SCIENCE"
+    },
+    {
+      "code": "EC",
+      "deptName": "ECONOMICS"
+    },
+    {
+      "code": "MC",
+      "deptName": "MATHEMATICS"
+    },
+    {
+      "code": "MP",
+      "deptName": "MATHEMATICS"
+    },
+    {
+      "code": "PH",
+      "deptName": "PHYSICS"
+    },
+    {
+      "code": "ST",
+      "deptName": "STATISTICS"
+    },
+    {
+      "code": "ZG",
+      "deptName": "ZOOLOGY"
+    },
+    {
+      "code": "BB",
+      "deptName": "MANAGEMENT STUDIES"
+    },
+    {
+      "code": "BC",
+      "deptName": "COMPUTER APPLICATION"
+    },
+    {
+      "code": "BM",
+      "deptName": "MEDIA STUDIES"
+    },
+    {
+      "code": "BV",
+      "deptName": "MEDIA STUDIES"
+    },
+    {
+      "code": "CP",
+      "deptName": "CRIMINOLOGY AND POLICE SCIENCE"
+    },
+    {
+      "code": "EL",
+      "deptName": "ELECTRONICS"
+    },
+    {
+      "code": "EN",
+      "deptName": "ENGLISH"
+    },
+    {
+      "code": "FS",
+      "deptName": "FORENSIC SCIENCE"
+    },
+    {
+      "code": "DS",
+      "deptName": "DATA SCIENCE"
+    },
+    {
+      "code": "EH",
+      "deptName": "ENGLISH"
+    },
+    {
+      "code": "SW",
+      "deptName": "SOCIAL WORK"
+    },
+    {
+      "code": "PY",
+      "deptName": "PSYCHOLOGY"
+    },
+    {
+      "code": "BT",
+      "deptName": "BOTANY"
+    }
+  ],
+  "groupMappings": {
+    "ENG1FA101(2)_G1": [
+      "U1CS2026",
+      "U1PH2026",
+      "U1BT2026"
+    ]
+  },
   "batchConfig": {
     "programTypes": {
       "U": "UG",

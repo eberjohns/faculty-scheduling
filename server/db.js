@@ -45,6 +45,10 @@ export function readDb() {
     const data = fs.readFileSync(DB_PATH, 'utf8');
     const db = JSON.parse(data);
     let modified = false;
+    if (db.config && !db.config.excludedBatches) {
+      db.config.excludedBatches = [];
+      modified = true;
+    }
     if (!db.batchDeptMappings) {
       db.batchDeptMappings = [];
       modified = true;

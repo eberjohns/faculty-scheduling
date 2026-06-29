@@ -343,6 +343,53 @@ function bindCustomModals() {
     });
   }
 
+  // Major Mapping Export
+  const btnExportMajorMappings = document.getElementById('btn-export-major-mappings');
+  if (btnExportMajorMappings) {
+    btnExportMajorMappings.addEventListener('click', () => {
+      window.location.href = `${API_BASE}/admin/export/major-mappings`;
+    });
+  }
+
+  // Major Mapping Import file triggers
+  const btnTriggerImportMajorMappings = document.getElementById('btn-trigger-import-major-mappings');
+  const fileInputMajorMappings = document.getElementById('import-major-mappings-file');
+
+  if (btnTriggerImportMajorMappings && fileInputMajorMappings) {
+    btnTriggerImportMajorMappings.addEventListener('click', () => {
+      fileInputMajorMappings.click();
+    });
+
+    fileInputMajorMappings.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch(`${API_BASE}/import/major-mappings`, {
+          method: 'POST',
+          body: formData
+        });
+        const result = await res.json();
+        fileInputMajorMappings.value = '';
+
+        if (res.ok) {
+          showModalAlert('Success', result.message || 'Major mappings imported successfully.', 'success');
+          await fetchGlobalData();
+          renderMajorAllocations();
+          renderBatchAllocationStatus();
+        } else {
+          showModalAlert('Error', result.error || 'Failed to import mappings.', 'danger');
+        }
+      } catch (err) {
+        fileInputMajorMappings.value = '';
+        showModalAlert('Error', 'Connection error during upload.', 'danger');
+      }
+    });
+  }
+
   // Save Batch Config button
   const btnSaveBatchConfig = document.getElementById('btn-save-batch-config');
   if (btnSaveBatchConfig) {
@@ -379,7 +426,74 @@ async function initAdmin() {
   bindImportEvents();
   bindSearchEvents();
   bindCustomModals();
-  
+  // Handle Batch Allocation sub-tabs switching
+  document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const targetSubtab = btn.getAttribute('data-subtab');
+      document.querySelectorAll('#tab-admin-group-mappings .subtab-pane').forEach(p => {
+        if (p.id === targetSubtab) {
+          p.classList.remove('hidden');
+        } else {
+          p.classList.add('hidden');
+        }
+      });
+      // Refresh subtab content
+      if (targetSubtab === 'subtab-alloc-electives') {
+        renderGroupMappings();
+      } else if (targetSubtab === 'subtab-alloc-majors') {
+        renderMajorAllocations();
+      } else if (targetSubtab === 'subtab-alloc-status') {
+        renderBatchAllocationStatus();
+      }
+    });
+  });
+
+  // Bind period times save button
+  const btnSavePeriodTimes = document.getElementById('btn-save-period-times');
+  if (btnSavePeriodTimes) {
+    btnSavePeriodTimes.addEventListener('click', async () => {
+      const times = {
+        "1": document.getElementById('pt-1').value.trim(),
+        "2": document.getElementById('pt-2').value.trim(),
+        "3": document.getElementById('pt-3').value.trim(),
+        "4": document.getElementById('pt-4').value.trim(),
+        "5": document.getElementById('pt-5').value.trim(),
+        "6": document.getElementById('pt-6').value.trim(),
+        "7": document.getElementById('pt-7').value.trim()
+      };
+      try {
+        const res = await fetch(`${API_BASE}/admin/period-times`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(times)
+        });
+        if (res.ok) {
+          showModalAlert('Success', 'Period time configuration saved successfully.', 'success');
+        } else {
+          showModalAlert('Error', 'Failed to save period times.', 'danger');
+        }
+      } catch (err) {
+        showModalAlert('Error', 'Connection error.', 'danger');
+      }
+    });
+  }
+
+  // Bind Export Strict Timetable button
+  const btnExportStrictExcel = document.getElementById('btn-export-strict-excel');
+  if (btnExportStrictExcel) {
+    btnExportStrictExcel.addEventListener('click', () => {
+      window.location.href = `${API_BASE}/admin/export/strict-timetable`;
+    });
+  }
+
+  const selectPreview = document.getElementById('export-preview-batch-select');
+  if (selectPreview) {
+    selectPreview.addEventListener('change', (e) => {
+      renderBatchTimetablePreview(e.target.value);
+    });
+  }
   // Custom Modal dialog elements
   window.appModal = {
     overlay: document.getElementById('app-modal'),
@@ -486,7 +600,7 @@ function switchView(viewName) {
 async function fetchGlobalData() {
   try {
     const token = sessionStorage.getItem('adminToken') || 'admin-token';
-    const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes, allocationsRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/admin/departments`, { headers: { 'Authorization': token } }),
       fetch(`${API_BASE}/courses`),
@@ -494,7 +608,8 @@ async function fetchGlobalData() {
       fetch(`${API_BASE}/admin/batch-dept-mappings`),
       fetch(`${API_BASE}/admin/batch-config`),
       fetch(`${API_BASE}/admin/group-mappings`),
-      fetch(`${API_BASE}/batches`)
+      fetch(`${API_BASE}/batches`),
+      fetch(`${API_BASE}/allocations`)
     ]);
 
     state.config          = await configRes.json();
@@ -505,6 +620,7 @@ async function fetchGlobalData() {
     state.batchConfig     = await batchCfgRes.json();
     state.groupMappings   = await groupRes.json();
     state.allBatches      = await allBatchesRes.json();
+    state.allocations     = await allocationsRes.json();
 
     updateAdminSummary();
   } catch (err) {
@@ -614,6 +730,11 @@ function showTab(tabId) {
     renderBatchPreview();
   } else if (tabId === 'tab-admin-group-mappings') {
     renderGroupMappings();
+    renderMajorAllocations();
+    renderBatchAllocationStatus();
+  } else if (tabId === 'tab-admin-export') {
+    loadPeriodTimes();
+    populateExportPreviewDropdown();
   } else if (tabId === 'tab-admin-workload') {
     renderWorkloadSummary();
   }
@@ -1080,6 +1201,7 @@ function renderInspectRecords() {
       <td><span class="text-sm text-muted">${c.department}</span></td>
       <td>
         <button class="btn btn-outline btn-sm btn-edit-course" style="padding: 2px 8px;"><i class="fa-solid fa-edit"></i> Edit</button>
+        <button class="btn btn-outline btn-sm btn-danger btn-delete-course" style="padding: 2px 8px; margin-left: 4px;"><i class="fa-solid fa-trash"></i> Delete</button>
       </td>
     `;
     tr.querySelector('.btn-edit-course').addEventListener('click', () => {
@@ -1087,6 +1209,29 @@ function renderInspectRecords() {
       document.getElementById('edit-course-name').value = c.name;
       document.getElementById('edit-course-alias').value = c.alias || '';
       document.getElementById('modal-edit-course').classList.remove('hidden');
+    });
+    tr.querySelector('.btn-delete-course').addEventListener('click', () => {
+      showModalConfirm(
+        'Delete Course?',
+        `Are you sure you want to delete course '${c.name}' (${c.code.replace(/_G\d+$/, '')})? This will also remove all its allocations and group mappings.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(c.code)}`, {
+              method: 'DELETE'
+            });
+            const result = await res.json();
+            if (res.ok) {
+              showModalAlert('Success', 'Course deleted successfully.', 'success');
+              await fetchGlobalData();
+              renderInspectRecords();
+            } else {
+              showModalAlert('Error', result.message || 'Failed to delete course.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error.', 'danger');
+          }
+        }
+      );
     });
     coursesTbody.appendChild(tr);
   });
@@ -1115,7 +1260,33 @@ function renderInspectRecords() {
       <td><strong>${f.name}</strong></td>
       <td><span class="fac-pill">${f.code}</span></td>
       <td><span class="text-sm text-muted">${f.department}</span></td>
+      <td>
+        <button class="btn btn-outline btn-sm btn-danger btn-delete-faculty" style="padding: 2px 8px;"><i class="fa-solid fa-trash"></i> Delete</button>
+      </td>
     `;
+    tr.querySelector('.btn-delete-faculty').addEventListener('click', () => {
+      showModalConfirm(
+        'Delete Faculty Member?',
+        `Are you sure you want to delete '${f.name}' (${f.staffId})? This will also remove this teacher from all allocated slots across all timetables.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/faculty/${encodeURIComponent(f.staffId)}`, {
+              method: 'DELETE'
+            });
+            const result = await res.json();
+            if (res.ok) {
+              showModalAlert('Success', 'Faculty member deleted successfully.', 'success');
+              await fetchGlobalData();
+              renderInspectRecords();
+            } else {
+              showModalAlert('Error', result.message || 'Failed to delete faculty member.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error.', 'danger');
+          }
+        }
+      );
+    });
     facultyTbody.appendChild(tr);
   });
 }
@@ -1632,8 +1803,37 @@ function renderBatchPreview() {
   batches.forEach(b => {
     const chip = document.createElement('span');
     chip.title = b.batchLabel || b.batchId;
-    chip.style.cssText = 'display:inline-block;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;cursor:default;';
-    chip.textContent = b.batchId;
+    chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;cursor:default;';
+    chip.innerHTML = `${b.batchId} <i class="fa-solid fa-xmark text-danger" style="cursor:pointer;font-size:10px;margin-left:2px;" title="Exclude Batch"></i>`;
+    
+    chip.querySelector('i').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showModalConfirm(
+        'Exclude Batch?',
+        `Are you sure you want to delete/exclude batch '${b.batchId}'? This will remove it from all allocation selectors.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/batches/exclude`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ batchId: b.batchId })
+            });
+            if (res.ok) {
+              const bRes = await fetch(`${API_BASE}/batches`);
+              state.allBatches = await bRes.json();
+              renderBatchPreview();
+              renderBatchAllocationStatus();
+              renderMajorAllocations();
+            } else {
+              showModalAlert('Error', 'Failed to exclude batch.', 'danger');
+            }
+          } catch (err) {
+            showModalAlert('Error', 'Connection error.', 'danger');
+          }
+        }
+      );
+    });
+
     chips.appendChild(chip);
   });
 }
@@ -1681,16 +1881,22 @@ function renderGroupMappings() {
   });
 }
 
-function openGroupMappingModal(course, initialMapped) {
+function openGroupMappingModal(course, initialMapped, isSingleSelect = false) {
   // Work on a mutable copy; sync to modal dataset so save button can read it
   const currentMapped = [...initialMapped];
   const modal = document.getElementById('modal-group-mapping');
+  modal.dataset.isSingleSelect = isSingleSelect ? 'true' : 'false';
   const syncDataset = () => { modal.dataset.currentMapped = JSON.stringify(currentMapped); };
   syncDataset();
 
   const baseCode = course.code.replace(/_G\d+$/, '');
   document.getElementById('mapping-course-code').value = course.code;
-  document.getElementById('mapping-course-title').textContent = `${baseCode}  (Group ${course.group}) — ${course.name}`;
+  
+  if (isSingleSelect) {
+    document.getElementById('mapping-course-title').textContent = `Assign Batch for Major Course: ${baseCode} — ${course.name}`;
+  } else {
+    document.getElementById('mapping-course-title').textContent = `${baseCode} (Group ${course.group || ''}) — ${course.name}`;
+  }
 
   const cfg = state.batchConfig || {};
   const progTypes = cfg.programTypes || {};
@@ -1802,6 +2008,12 @@ function openGroupMappingModal(course, initialMapped) {
       // Update currentMapped on check/uncheck so chips stay in sync
       div.querySelector('input').addEventListener('change', (e) => {
         if (e.target.checked) {
+          if (isSingleSelect) {
+            container.querySelectorAll('input').forEach(cb => {
+              if (cb !== e.target) cb.checked = false;
+            });
+            currentMapped.length = 0;
+          }
           if (!currentMapped.includes(batch.batchId)) currentMapped.push(batch.batchId);
         } else {
           const idx = currentMapped.indexOf(batch.batchId);
@@ -1845,4 +2057,312 @@ function openGroupMappingModal(course, initialMapped) {
   updateSelectedChips();
 
   document.getElementById('modal-group-mapping').classList.remove('hidden');
+}
+
+// -------------------------------------------------------------
+// Period Times Config Helpers
+// -------------------------------------------------------------
+async function loadPeriodTimes() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/period-times`);
+    if (res.ok) {
+      const times = await res.json();
+      for (let p = 1; p <= 7; p++) {
+        const input = document.getElementById(`pt-${p}`);
+        if (input) {
+          input.value = times[p] || '';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load period times:', err);
+  }
+}
+
+// -------------------------------------------------------------
+// Major / Single Batch Course Allocation Helpers
+// -------------------------------------------------------------
+function getRecommendedBatchForCourse(course) {
+  // Building blocks: {ProgramType}{FundingType(default Aided '1')}{DeptCode}{Year(derived from Semester)}
+  const program = course.programType || 'UG';
+  const programCode = program === 'PG' ? 'P' : (program === 'INT' ? 'I' : 'U');
+  const fundingCode = '1'; // Default to Aided '1'
+
+  // Department Code Map Lookup
+  const mapping = state.batchDeptMappings.find(m => m.deptName.toUpperCase() === course.department.toUpperCase());
+  if (!mapping) return null;
+  const deptCode = mapping.code;
+
+  // Year from Sem Map
+  const semInt = parseInt(course.semester);
+  let year = null;
+  if (state.batchConfig && state.batchConfig.yearSemMap) {
+    Object.keys(state.batchConfig.yearSemMap).forEach(yr => {
+      const sems = state.batchConfig.yearSemMap[yr] || [];
+      if (sems.includes(semInt)) {
+        year = yr;
+      }
+    });
+  }
+  if (!year) return null;
+
+  return `${programCode}${fundingCode}${deptCode}${year}`;
+}
+
+function renderMajorAllocations() {
+  const tbody = document.querySelector('#table-major-allocations tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const majorCourses = state.courses.filter(c => !c.group || c.group === 0);
+  if (majorCourses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No major courses found.</td></tr>';
+    return;
+  }
+
+  majorCourses.forEach(c => {
+    const recBatch = getRecommendedBatchForCourse(c);
+    const assignedBatches = state.groupMappings[c.code] || [];
+    const currentSelection = assignedBatches.length > 0 ? assignedBatches[0] : '';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${c.code}</strong></td>
+      <td>${c.name}</td>
+      <td><span class="badge badge-info">${c.semester} Sem</span></td>
+      <td><span class="text-sm text-muted">${c.department}</span></td>
+      <td><span class="badge badge-outline">${c.programType || 'UG'}</span></td>
+      <td>
+        ${recBatch ? `<span class="badge badge-success-light text-success">${recBatch}</span>` : '<span class="text-muted text-sm">N/A</span>'}
+      </td>
+      <td>
+        <button class="btn btn-outline btn-sm btn-major-select-batch-trigger" style="font-weight:600; font-size:12px; min-width: 140px; ${!currentSelection ? 'border-color: var(--danger); color: var(--danger);' : ''}">
+          ${currentSelection || '-- Click to Select --'}
+        </button>
+      </td>
+      <td>
+        <button class="btn btn-outline-danger btn-sm btn-clear-major-mapping" style="padding: 2px 8px;" title="Clear Assignment"><i class="fa-solid fa-eraser"></i> Clear</button>
+      </td>
+    `;
+
+    // Click trigger to open searchable modal
+    tr.querySelector('.btn-major-select-batch-trigger').addEventListener('click', () => {
+      const initialMap = currentSelection ? [currentSelection] : (recBatch ? [recBatch] : []);
+      openGroupMappingModal(c, initialMap, true);
+    });
+
+    // Clear mapping button
+    tr.querySelector('.btn-clear-major-mapping').addEventListener('click', async () => {
+      if (!currentSelection) return;
+      try {
+        const res = await fetch(`${API_BASE}/admin/group-mappings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            courseCode: c.code,
+            batches: []
+          })
+        });
+        if (res.ok) {
+          state.groupMappings[c.code] = [];
+          renderMajorAllocations();
+          renderBatchAllocationStatus();
+        } else {
+          showModalAlert('Error', 'Failed to clear mapping.', 'danger');
+        }
+      } catch (err) {
+        showModalAlert('Error', 'Connection error.', 'danger');
+      }
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+// -------------------------------------------------------------
+// Batch Allocation Status Helpers
+// -------------------------------------------------------------
+function renderBatchAllocationStatus() {
+  const tbody = document.querySelector('#table-batch-allocation-status tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const batches = state.allBatches || [];
+  if (batches.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No batches generated yet. Configure department codes and batch settings.</td></tr>';
+    return;
+  }
+
+  const sortedBatches = [...batches].sort((a, b) => a.batchId.localeCompare(b.batchId));
+
+  sortedBatches.forEach(b => {
+    const assignedCourses = state.courses.filter(c => {
+      const mapped = state.groupMappings[c.code] || [];
+      return mapped.includes(b.batchId);
+    });
+
+    const isAllocated = assignedCourses.length > 0;
+    const semStr = b.semesters ? `Sems ${b.semesters.join(',')}` : '';
+    
+    // Resolve program and funding labels to prevent undefined
+    const progLabel = (state.batchConfig.programTypes && state.batchConfig.programTypes[b.prog]) || b.prog || 'UG';
+    const fundLabel = (state.batchConfig.fundingTypes && state.batchConfig.fundingTypes[b.fund]) || b.fund || 'Aided';
+    const details = `<span class="text-xs text-muted">${progLabel} | ${fundLabel} | ${b.deptName} (${semStr})</span>`;
+
+    const coursesListHtml = isAllocated
+      ? assignedCourses.map(c => `<span class="badge badge-info" style="margin-right:4px;" title="${c.name}">${c.code}</span>`).join('')
+      : '<span class="text-muted text-sm">None</span>';
+
+    const statusPill = isAllocated
+      ? '<span class="badge badge-success">Allocated</span>'
+      : '<span class="badge badge-danger">Not Allocated</span>';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${b.batchId}</strong></td>
+      <td>${details}</td>
+      <td>${coursesListHtml}</td>
+      <td>${statusPill}</td>
+      <td>
+        <button class="btn btn-outline-danger btn-sm btn-delete-batch-status" style="padding: 2px 8px;" title="Exclude Batch"><i class="fa-solid fa-trash"></i> Delete</button>
+      </td>
+    `;
+
+    tr.querySelector('.btn-delete-batch-status').addEventListener('click', () => {
+      showModalConfirm(
+        'Exclude Batch?',
+        `Are you sure you want to delete/exclude batch '${b.batchId}'? This will remove it from all selectors.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/batches/exclude`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ batchId: b.batchId })
+            });
+            if (res.ok) {
+              const bRes = await fetch(`${API_BASE}/batches`);
+              state.allBatches = await bRes.json();
+              renderBatchPreview();
+              renderBatchAllocationStatus();
+              renderMajorAllocations();
+            } else {
+              showModalAlert('Error', 'Failed to exclude batch.', 'danger');
+            }
+          } catch (err) {
+            showModalAlert('Error', 'Connection error.', 'danger');
+          }
+        }
+      );
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function populateExportPreviewDropdown() {
+  const select = document.getElementById('export-preview-batch-select');
+  if (!select) return;
+
+  const currentSelection = select.value;
+  select.innerHTML = '<option value="">-- Select Batch to Preview --</option>';
+
+  const batches = state.allBatches || [];
+  const allocatedBatches = batches.filter(b => {
+    return state.courses.some(c => {
+      const mapped = state.groupMappings[c.code] || [];
+      return mapped.includes(b.batchId);
+    });
+  });
+
+  const sorted = [...allocatedBatches].sort((a, b) => a.batchId.localeCompare(b.batchId));
+  sorted.forEach(b => {
+    const isSel = (b.batchId === currentSelection) ? 'selected' : '';
+    select.innerHTML += `<option value="${b.batchId}" ${isSel}>${b.batchId} — ${b.batchLabel || b.deptName}</option>`;
+  });
+
+  if (currentSelection && allocatedBatches.some(b => b.batchId === currentSelection)) {
+    renderBatchTimetablePreview(currentSelection);
+  } else {
+    select.value = '';
+    renderBatchTimetablePreview('');
+  }
+}
+
+function renderBatchTimetablePreview(batchId) {
+  const container = document.getElementById('export-preview-grid-container');
+  if (!container) return;
+
+  if (!batchId) {
+    container.innerHTML = '<p class="text-muted text-sm text-center py-4">Please select a batch to preview its timetable.</p>';
+    return;
+  }
+
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const periods = ["1", "2", "3", "4", "5", "6", "7"];
+
+  const mappedCourses = state.courses.filter(c => {
+    const assigned = state.groupMappings[c.code] || [];
+    return assigned.includes(batchId);
+  });
+
+  let html = `
+    <table class="table table-bordered text-center" style="font-size:12px; margin-top:10px; table-layout: fixed;">
+      <thead>
+        <tr style="background:var(--surface-2);">
+          <th style="width: 100px;">Day</th>
+          ${periods.map(p => `<th>Period ${p}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  weekdays.forEach(day => {
+    html += `<tr><td style="font-weight:bold; background:var(--surface-1);">${day}</td>`;
+    
+    periods.forEach(p => {
+      const staffList = [];
+      const subjectList = [];
+      let roomNo = "";
+
+      mappedCourses.forEach(course => {
+        Object.entries(state.allocations || {}).forEach(([dept, deptAlloc]) => {
+          if (deptAlloc[course.code] && deptAlloc[course.code][day]) {
+            const pAlloc = deptAlloc[course.code][day][p];
+            if (Array.isArray(pAlloc) && pAlloc.length > 0) {
+              pAlloc.forEach(fac => {
+                const fObj = state.faculty.find(f => f.code === fac);
+                const nameLabel = fObj ? fObj.name : fac;
+                if (!staffList.includes(nameLabel)) {
+                  staffList.push(nameLabel);
+                }
+              });
+              if (!subjectList.includes(course.code)) {
+                subjectList.push(course.code.replace(/_G\d+$/, ''));
+              }
+              if (course.roomNo) {
+                roomNo = course.roomNo;
+              }
+            }
+          }
+        });
+      });
+
+      if (subjectList.length > 0) {
+        html += `
+          <td style="background: var(--primary-muted-light, #f0f7ff); padding: 6px;">
+            <div style="font-weight:600; color:var(--primary);">${subjectList.join(', ')}</div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${staffList.join(', ')}</div>
+            ${roomNo ? `<div style="font-size:10px; font-weight:bold; color:var(--accent-dark); margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${roomNo}</div>` : ''}
+          </td>
+        `;
+      } else {
+        html += `<td style="color:var(--text-muted); font-size:11px;">—</td>`;
+      }
+    });
+
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }

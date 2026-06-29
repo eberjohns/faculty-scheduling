@@ -730,13 +730,43 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
     }
 
     // -------------------------------------------------------
-    // Step 6: Commit to database
+    // Step 6: Commit to database (Non-destructive merge)
     // -------------------------------------------------------
-    db.courses = importedCourses;
+    const mergedCourses = [...db.courses];
+    let newCount = 0;
+    let updatedCount = 0;
+
+    importedCourses.forEach(imported => {
+      const matchIdx = mergedCourses.findIndex(c => c.code === imported.code);
+      if (matchIdx >= 0) {
+        const existing = mergedCourses[matchIdx];
+        mergedCourses[matchIdx] = {
+          ...existing,
+          name: imported.name,
+          department: imported.department,
+          pathway: imported.pathway,
+          semester: imported.semester,
+          category: imported.category,
+          hours: imported.hours,
+          recommendations: imported.recommendations,
+          group: imported.group,
+          programType: imported.programType,
+          courseType: imported.courseType,
+          // Preserve visual alias if coordinator has edited it
+          alias: existing.alias || imported.alias
+        };
+        updatedCount++;
+      } else {
+        mergedCourses.push(imported);
+        newCount++;
+      }
+    });
+
+    db.courses = mergedCourses;
     db.periods = periods;
 
     // Seed default semester label mappings
-    const semestersSet = new Set(importedCourses.map(c => c.semester));
+    const semestersSet = new Set(mergedCourses.map(c => c.semester));
     const roman = { '1': 'I BSC', '2': 'II BSC', '3': 'III BSC', '4': 'IV BSC', '5': 'V BSC', '6': 'VI BSC' };
     semestersSet.forEach(sem => {
       if (!db.config.semesterLabels[sem]) {
@@ -748,7 +778,7 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
 
     res.json({
       success: true,
-      message: `Imported ${importedCourses.length} courses. Periods: [${periods.join(', ')}].`,
+      message: `Import completed. Added ${newCount} new courses, updated ${updatedCount} existing courses. Total: ${db.courses.length} courses. Periods: [${periods.join(', ')}].`,
       warnings,
       debug: {
         slotColumnsFound: slotCols.length,
@@ -782,11 +812,11 @@ app.post('/api/import/staff', upload.single('file'), (req, res) => {
     }
 
     const db = readDb();
-    const importedFaculty = [];
     const warnings = [];
     
-    // Temporary list to build visual codes sequentially
-    const currentFacultyList = [];
+    const mergedFaculty = [...db.faculty];
+    let newCount = 0;
+    let updatedCount = 0;
 
     data.forEach((row, index) => {
       const staffId = String(row['Staff ID'] || '').trim();
@@ -798,27 +828,33 @@ app.post('/api/import/staff', upload.single('file'), (req, res) => {
         return;
       }
 
-      // Generate a unique visual code initials
-      const code = generateFacultyCode(name, currentFacultyList);
-      
-      const record = {
-        staffId,
-        name,
-        code,
-        department
-      };
-      
-      currentFacultyList.push(record);
-      importedFaculty.push(record);
+      const matchIdx = mergedFaculty.findIndex(f => f.staffId === staffId);
+      if (matchIdx >= 0) {
+        // Update details, but preserve their existing unique visual code initials
+        mergedFaculty[matchIdx].name = name;
+        mergedFaculty[matchIdx].department = department;
+        updatedCount++;
+      } else {
+        // Generate a new unique visual code initials
+        const code = generateFacultyCode(name, mergedFaculty);
+        
+        mergedFaculty.push({
+          staffId,
+          name,
+          code,
+          department
+        });
+        newCount++;
+      }
     });
 
     // Commit to DB
-    db.faculty = importedFaculty;
+    db.faculty = mergedFaculty;
     writeDb(db);
 
     res.json({
       success: true,
-      message: `Successfully imported ${importedFaculty.length} faculty members.`,
+      message: `Import completed. Added ${newCount} new faculty members, updated ${updatedCount} existing members. Total: ${db.faculty.length} faculty members.`,
       warnings
     });
   } catch (err) {
@@ -964,6 +1000,7 @@ app.get('/api/batches', (req, res) => {
   const fundingTypes  = cfg.fundingTypes  || {};
   const yearSemMap    = cfg.yearSemMap    || {};
   const mappings = db.batchDeptMappings || [];
+  const excluded = db.config.excludedBatches || [];
 
   // Generate all combinations: {progCode}{fundingCode}{deptCode}{year}
   const batches = [];
@@ -973,6 +1010,7 @@ app.get('/api/batches', (req, res) => {
         Object.keys(yearSemMap).forEach(yr => {
           const semesters = yearSemMap[yr] || [];
           const batchId   = `${prog}${fund}${m.code}${yr}`;
+          if (excluded.includes(batchId)) return;
           const batchLabel = `${programTypes[prog]} ${fundingTypes[fund]} — ${m.deptName || m.code} (${yr})`;
           batches.push({
             batchId,
@@ -991,6 +1029,30 @@ app.get('/api/batches', (req, res) => {
   });
 
   res.json(batches);
+});
+
+app.post('/api/admin/batches/exclude', (req, res) => {
+  const { batchId } = req.body;
+  if (!batchId) return res.status(400).json({ success: false, message: 'batchId is required.' });
+  const db = readDb();
+  if (!db.config.excludedBatches) db.config.excludedBatches = [];
+  const cleanId = batchId.trim().toUpperCase();
+  if (!db.config.excludedBatches.includes(cleanId)) {
+    db.config.excludedBatches.push(cleanId);
+  }
+  writeDb(db);
+  res.json({ success: true, message: `Batch ${cleanId} excluded successfully.` });
+});
+
+app.post('/api/admin/batches/include', (req, res) => {
+  const { batchId } = req.body;
+  if (!batchId) return res.status(400).json({ success: false, message: 'batchId is required.' });
+  const db = readDb();
+  if (!db.config.excludedBatches) db.config.excludedBatches = [];
+  const cleanId = batchId.trim().toUpperCase();
+  db.config.excludedBatches = db.config.excludedBatches.filter(id => id !== cleanId);
+  writeDb(db);
+  res.json({ success: true, message: `Batch ${cleanId} re-included successfully.` });
 });
 
 
@@ -1033,6 +1095,60 @@ app.put('/api/admin/courses/:code', (req, res) => {
 
   writeDb(db);
   res.json({ success: true, message: 'Course details updated successfully.' });
+});
+
+// Delete Course
+app.delete('/api/admin/courses/:code', (req, res) => {
+  const code = req.params.code.trim();
+  const db = readDb();
+  const initialLength = db.courses.length;
+  db.courses = db.courses.filter(c => c.code !== code);
+  if (db.courses.length === initialLength) {
+    return res.status(404).json({ success: false, message: 'Course not found' });
+  }
+  // Also clean up any allocations
+  Object.keys(db.allocations).forEach(dept => {
+    if (db.allocations[dept] && db.allocations[dept][code]) {
+      delete db.allocations[dept][code];
+    }
+  });
+  // Also clean up groupMappings
+  if (db.groupMappings && db.groupMappings[code]) {
+    delete db.groupMappings[code];
+  }
+  writeDb(db);
+  res.json({ success: true, message: 'Course deleted successfully.' });
+});
+
+// Delete Faculty member
+app.delete('/api/admin/faculty/:staffId', (req, res) => {
+  const staffId = req.params.staffId.trim();
+  const db = readDb();
+  const facultyObj = db.faculty.find(f => f.staffId === staffId);
+  if (!facultyObj) {
+    return res.status(404).json({ success: false, message: 'Faculty member not found' });
+  }
+  const facCode = facultyObj.code;
+  db.faculty = db.faculty.filter(f => f.staffId !== staffId);
+  
+  // Clean up allocations
+  Object.keys(db.allocations).forEach(dept => {
+    const deptAlloc = db.allocations[dept];
+    Object.keys(deptAlloc).forEach(courseCode => {
+      const courseAlloc = deptAlloc[courseCode];
+      Object.keys(courseAlloc).forEach(day => {
+        const periodAlloc = courseAlloc[day];
+        Object.keys(periodAlloc).forEach(period => {
+          if (Array.isArray(periodAlloc[period])) {
+            periodAlloc[period] = periodAlloc[period].filter(code => code !== facCode);
+          }
+        });
+      });
+    });
+  });
+  
+  writeDb(db);
+  res.json({ success: true, message: 'Faculty member deleted successfully.' });
 });
 
 // -------------------------------------------------------------
@@ -1371,6 +1487,300 @@ app.post('/api/import/group-mappings', upload.single('file'), (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to process group mappings Excel: ' + err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Period Times Endpoints
+// -------------------------------------------------------------
+app.get('/api/admin/period-times', (req, res) => {
+  const db = readDb();
+  const defaults = {
+    "1": "09:00 AM - 10:00 AM",
+    "2": "10:00 AM - 11:00 AM",
+    "3": "11:00 AM - 12:00 PM",
+    "4": "12:00 PM - 01:00 PM",
+    "5": "02:00 PM - 03:00 PM",
+    "6": "03:00 PM - 04:00 PM",
+    "7": "04:00 PM - 05:00 PM"
+  };
+  res.json(db.config.periodTimes || defaults);
+});
+
+app.put('/api/admin/period-times', (req, res) => {
+  const times = req.body;
+  if (!times || typeof times !== 'object') {
+    return res.status(400).json({ success: false, message: 'Invalid payload.' });
+  }
+  const db = readDb();
+  db.config.periodTimes = times;
+  writeDb(db);
+  res.json({ success: true, message: 'Period times updated successfully.' });
+});
+
+// -------------------------------------------------------------
+// Strict Excel Exporter
+// -------------------------------------------------------------
+app.get('/api/admin/export/strict-timetable', (req, res) => {
+  try {
+    const db = readDb();
+    const cfg = db.batchConfig || {};
+    const programTypes = cfg.programTypes || {};
+    const fundingTypes  = cfg.fundingTypes  || {};
+    const yearSemMap    = cfg.yearSemMap    || {};
+    const mappings = db.batchDeptMappings || [];
+    const periodTimes = db.config.periodTimes || {
+      "1": "09:00 AM - 10:00 AM",
+      "2": "10:00 AM - 11:00 AM",
+      "3": "11:00 AM - 12:00 PM",
+      "4": "12:00 PM - 01:00 PM",
+      "5": "02:00 PM - 03:00 PM",
+      "6": "03:00 PM - 04:00 PM",
+      "7": "04:00 PM - 05:00 PM"
+    };
+
+    // Generate list of all batch codes
+    const batchesList = [];
+    Object.keys(programTypes).forEach(prog => {
+      Object.keys(fundingTypes).forEach(fund => {
+        mappings.forEach(m => {
+          Object.keys(yearSemMap).forEach(yr => {
+            const batchId = `${prog}${fund}${m.code}${yr}`;
+            batchesList.push(batchId);
+          });
+        });
+      });
+    });
+
+    // Excel sheet data
+    const sheetData = [];
+
+    // Row 0: Blank
+    sheetData.push([null]);
+
+    // Row 1: Days
+    const row1 = [null, null];
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    days.forEach(day => {
+      row1.push(day);
+      for (let i = 1; i < 7; i++) {
+        row1.push(null);
+      }
+    });
+    sheetData.push(row1);
+
+    // Row 2: Periods
+    const row2 = ["Batch Name", "Week"];
+    for (let d = 0; d < 5; d++) {
+      for (let p = 1; p <= 7; p++) {
+        row2.push(p);
+      }
+    }
+    sheetData.push(row2);
+
+    // Render 4 rows for each batch
+    batchesList.sort().forEach(batchId => {
+      const mappedCourses = db.courses.filter(c => {
+        const assigned = db.groupMappings[c.code] || [];
+        return assigned.includes(batchId);
+      });
+
+      const staffRow = [batchId, null];
+      const subjectRow = [null, null];
+      const timeRow = [null, null];
+      const roomRow = [null, null];
+
+      let hasAllocations = false;
+
+      // Monday to Friday
+      for (let d = 0; d < 5; d++) {
+        const dayKey = days[d].toUpperCase(); // MONDAY, TUESDAY, etc.
+        // Periods 1 to 7
+        for (let p = 1; p <= 7; p++) {
+          const staffIds = [];
+          const subjectCodes = [];
+          let roomNo = "";
+
+          mappedCourses.forEach(course => {
+            Object.keys(db.allocations).forEach(dept => {
+              const deptAlloc = db.allocations[dept];
+              if (deptAlloc[course.code] && deptAlloc[course.code][dayKey]) {
+                const pAlloc = deptAlloc[course.code][dayKey][p];
+                if (Array.isArray(pAlloc) && pAlloc.length > 0) {
+                  pAlloc.forEach(fac => {
+                    const fObj = db.faculty.find(f => f.code === fac);
+                    const staffId = fObj ? fObj.staffId : fac;
+                    if (!staffIds.includes(staffId)) {
+                      staffIds.push(staffId);
+                    }
+                  });
+                  if (!subjectCodes.includes(course.code)) {
+                    subjectCodes.push(course.code.replace(/_G\d+$/, ''));
+                  }
+                  if (course.roomNo) {
+                    roomNo = course.roomNo;
+                  }
+                  hasAllocations = true;
+                }
+              }
+            });
+          });
+
+          if (subjectCodes.length > 0) {
+            staffRow.push(staffIds.join(','));
+            subjectRow.push(subjectCodes.join(','));
+            timeRow.push(periodTimes[p] || `${p} Period`);
+            roomRow.push(roomNo || null);
+          } else {
+            staffRow.push(null);
+            subjectRow.push(null);
+            timeRow.push(null);
+            roomRow.push(null);
+          }
+        }
+      }
+
+      if (hasAllocations) {
+        sheetData.push(staffRow);
+        sheetData.push(subjectRow);
+        sheetData.push(timeRow);
+        sheetData.push(roomRow);
+      }
+    });
+
+    const ws = xlsx.utils.aoa_to_sheet(sheetData);
+    
+    // Add cell merges for the days
+    ws['!merges'] = [
+      { s: { r: 1, c: 2 }, e: { r: 1, c: 8 } },
+      { s: { r: 1, c: 9 }, e: { r: 1, c: 15 } },
+      { s: { r: 1, c: 16 }, e: { r: 1, c: 22 } },
+      { s: { r: 1, c: 23 }, e: { r: 1, c: 29 } },
+      { s: { r: 1, c: 30 }, e: { r: 1, c: 36 } }
+    ];
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Classes_Summary");
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Disposition', 'attachment; filename="Classes_Summary.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate Excel: ' + err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Major Mappings Import/Export
+// -------------------------------------------------------------
+app.get('/api/admin/export/major-mappings', (req, res) => {
+  try {
+    const db = readDb();
+    const majorCourses = db.courses.filter(c => !c.group || c.group === 0);
+
+    const sheetData = [
+      ['Course Code', 'Course Name', 'Semester', 'Department', 'Program', 'Assigned Batch']
+    ];
+
+    majorCourses.forEach(c => {
+      const assigned = db.groupMappings[c.code] || [];
+      const batchId = assigned.length > 0 ? assigned[0] : '';
+      sheetData.push([
+        c.code,
+        c.name,
+        c.semester,
+        c.department,
+        c.programType || 'UG',
+        batchId
+      ]);
+    });
+
+    const ws = xlsx.utils.aoa_to_sheet(sheetData);
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, "Major_Mappings");
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Disposition', 'attachment; filename="Major_Mappings.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to export major mappings: ' + err.message });
+  }
+});
+
+app.post('/api/import/major-mappings', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length <= 1) {
+      return res.status(400).json({ error: 'Excel sheet has no data rows.' });
+    }
+
+    const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
+    let codeColIdx = -1;
+    let batchColIdx = -1;
+
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = headerRow[c];
+      if (hdr === 'course code' || hdr === 'coursecode' || hdr === 'code') {
+        codeColIdx = c;
+      } else if (hdr === 'assigned batch' || hdr === 'assignedbatch' || hdr === 'batch' || hdr === 'batch name' || hdr === 'batchid' || hdr === 'batch id') {
+        batchColIdx = c;
+      }
+    }
+
+    if (codeColIdx === -1 || batchColIdx === -1) {
+      return res.status(400).json({
+        error: 'Could not find required columns in sheet. Needs "Course Code" and "Assigned Batch".'
+      });
+    }
+
+    const db = readDb();
+    const existingCourses = db.courses || [];
+    const groupMappings = db.groupMappings || {};
+    let importCount = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0) continue;
+
+      const codeVal_raw = row[codeColIdx];
+      const batchVal_raw = row[batchColIdx];
+
+      if (!codeVal_raw) continue;
+      const courseCode = String(codeVal_raw).trim();
+
+      const dbCourse = existingCourses.find(c => c.code === courseCode || c.code.toUpperCase() === courseCode.toUpperCase());
+      if (!dbCourse) continue;
+
+      const batchVal = batchVal_raw ? String(batchVal_raw).trim().toUpperCase() : '';
+      
+      if (batchVal) {
+        groupMappings[dbCourse.code] = [batchVal];
+      } else {
+        groupMappings[dbCourse.code] = [];
+      }
+      importCount++;
+    }
+
+    db.groupMappings = groupMappings;
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: `Imported major mappings for ${importCount} rows successfully.`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process major mappings Excel: ' + err.message });
   }
 });
 

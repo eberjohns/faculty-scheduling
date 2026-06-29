@@ -7,7 +7,19 @@
       "3": "III BSC",
       "5": "V BSC"
     },
-    "adminPassword": "admin"
+    "adminPassword": "admin",
+    "periodTimes": {
+      "1": "09:00 AM - 10:00 AM",
+      "2": "10:00 AM - 11:00 AM",
+      "3": "11:00 AM - 12:00 PM",
+      "4": "01:00 PM - 02:00 PM",
+      "5": "02:00 PM - 03:00 PM",
+      "6": "03:00 PM - 04:00 PM",
+      "7": "04:00 PM - 05:00 PM"
+    },
+    "excludedBatches": [
+      "U1CB2024"
+    ]
   },
   "departments": {
     "ENGLISH": {
@@ -1175,36 +1187,6 @@
       "courseType": "T"
     },
     {
-      "code": "CHE3MN201",
-      "name": "BASIC ORGANIC CHEMISTRY",
-      "department": "CHEMISTRY",
-      "pathway": "SINGLE MAJOR",
-      "semester": "3",
-      "category": "MAJOR",
-      "roomNo": "",
-      "batch": "",
-      "hours": 5,
-      "alias": "BOC",
-      "recommendations": {
-        "MONDAY": {
-          "5": "P",
-          "6": "P"
-        },
-        "TUESDAY": {},
-        "WEDNESDAY": {
-          "1": "T",
-          "2": "T"
-        },
-        "THURSDAY": {},
-        "FRIDAY": {
-          "2": "T"
-        }
-      },
-      "group": 0,
-      "programType": "UG",
-      "courseType": "P"
-    },
-    {
       "code": "STA3CJ201",
       "name": "MATHEMATICAL METHODS FOR STATISTICS 1",
       "department": "STATISTICS",
@@ -2086,7 +2068,7 @@
       "roomNo": "",
       "batch": "",
       "hours": 5,
-      "alias": "ITTWOL",
+      "alias": "liter",
       "recommendations": {
         "MONDAY": {
           "2": "T"
@@ -5008,7 +4990,7 @@
       "name": "Elective 1 in English",
       "department": "ENGLISH",
       "pathway": "DOUBLE MAJOR",
-      "semester": "3",
+      "semester": "5",
       "category": "MAJOR",
       "roomNo": "",
       "batch": "",
@@ -5038,7 +5020,7 @@
       "name": "HIS5EJ305-History of Human Rights",
       "department": "HISTORY",
       "pathway": "DOUBLE MAJOR",
-      "semester": "3",
+      "semester": "5",
       "category": "MAJOR",
       "roomNo": "",
       "batch": "",
@@ -6696,6 +6678,36 @@
       "group": 0,
       "programType": "UG",
       "courseType": "M"
+    },
+    {
+      "code": "CHE3MN201",
+      "name": "BASIC ORGANIC CHEMISTRY",
+      "department": "CHEMISTRY",
+      "pathway": "SINGLE MAJOR",
+      "semester": "3",
+      "category": "MAJOR",
+      "roomNo": "",
+      "batch": "",
+      "hours": 5,
+      "alias": "BOC",
+      "recommendations": {
+        "MONDAY": {
+          "5": "P",
+          "6": "P"
+        },
+        "TUESDAY": {},
+        "WEDNESDAY": {
+          "1": "T",
+          "2": "T"
+        },
+        "THURSDAY": {},
+        "FRIDAY": {
+          "2": "T"
+        }
+      },
+      "group": 0,
+      "programType": "UG",
+      "courseType": "P"
     }
   ],
   "faculty": [
@@ -7366,8 +7378,69 @@
       "department": "ZOOLOGY"
     }
   ],
-  "allocations": {},
-  "submissions": {},
+  "allocations": {
+    "ENGLISH": {
+      "ENG1FA101(2)_G1": {
+        "TUESDAY": {
+          "4": [
+            "AP"
+          ]
+        },
+        "WEDNESDAY": {
+          "3": [
+            "AP"
+          ]
+        },
+        "THURSDAY": {
+          "1": [
+            "AP",
+            "AP",
+            "MKA"
+          ]
+        },
+        "FRIDAY": {
+          "5": [
+            "AP"
+          ]
+        }
+      },
+      "ENG5CJ302": {
+        "THURSDAY": {
+          "1": [
+            "BMA"
+          ]
+        }
+      },
+      "ELECTIVE1(E)": {
+        "MONDAY": {
+          "1": [
+            "VMJ"
+          ]
+        },
+        "WEDNESDAY": {
+          "2": [
+            "VMJ"
+          ]
+        },
+        "THURSDAY": {
+          "5": [
+            "VMJ"
+          ]
+        },
+        "FRIDAY": {
+          "4": [
+            "VMJ"
+          ]
+        }
+      }
+    }
+  },
+  "submissions": {
+    "ENGLISH": {
+      "status": "Approved",
+      "comments": ""
+    }
+  },
   "periods": [
     "1",
     "2",
@@ -7475,7 +7548,11 @@
     }
   ],
   "groupMappings": {
-    "ENG1FA101(2)_G1": []
+    "ENG1FA101(2)_G1": [
+      "U1CS2026",
+      "U1PH2026",
+      "U1BT2026"
+    ]
   },
   "batchConfig": {
     "programTypes": {
