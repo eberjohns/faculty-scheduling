@@ -1,23 +1,52 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Database from 'better-sqlite3';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DB_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DB_DIR, 'db.json');
-const MAX_BACKUPS = 5;
+const DB_PATH = path.join(DB_DIR, 'timetable.db');
+const JSON_DB_PATH = path.join(DB_DIR, 'db.json');
 
-// Initialize db.json if not present
-function initializeDb() {
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
+// Ensure DB directory exists
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
+
+// Connect to SQLite
+const sqliteDb = new Database(DB_PATH);
+
+// Initialize DB schema
+sqliteDb.exec(`
+  CREATE TABLE IF NOT EXISTS app_data (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  )
+`);
+
+let dbInstance = null;
+
+// Synchronize memory cache with SQLite
+export function readDb() {
+  if (dbInstance) {
+    return dbInstance;
   }
 
-  if (!fs.existsSync(DB_PATH)) {
-    const initialData = {
-      config: {
+  try {
+    const rows = sqliteDb.prepare('SELECT key, value FROM app_data').all();
+    const rawData = {};
+    rows.forEach(row => {
+      try {
+        rawData[row.key] = JSON.parse(row.value);
+      } catch (e) {
+        rawData[row.key] = null;
+      }
+    });
+
+    const db = {
+      config: rawData.config || {
         academicYear: "2026-2027",
         semesterType: "Odd",
         semesterLabels: {
@@ -25,106 +54,86 @@ function initializeDb() {
           "3": "III BSC",
           "5": "V BSC"
         },
-        adminPassword: "admin"
+        adminPassword: "admin",
+        excludedBatches: []
       },
-      departments: {}, // Maps deptName -> { password }
-      courses: [],
-      faculty: [],
-      allocations: {}, // Maps deptName -> courseCode -> weekday -> period -> [facultyCodes]
-      submissions: {}, // Maps deptName -> { status: "Draft"|"Submitted"|"Approved"|"Returned", comments: "" }
-      periods: ["1", "2", "3", "LB", "4", "5", "6"] // Default, will be updated by excel upload
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2), 'utf8');
-  }
-}
-
-// Load database state
-export function readDb() {
-  initializeDb();
-  try {
-    const data = fs.readFileSync(DB_PATH, 'utf8');
-    const db = JSON.parse(data);
-    let modified = false;
-    if (db.config && !db.config.excludedBatches) {
-      db.config.excludedBatches = [];
-      modified = true;
-    }
-    if (!db.batchDeptMappings) {
-      db.batchDeptMappings = [];
-      modified = true;
-    }
-    if (!db.groupMappings) {
-      db.groupMappings = {};
-      modified = true;
-    }
-    if (!db.batchConfig) {
-      db.batchConfig = {
+      departments: rawData.departments || {},
+      courses: rawData.courses || [],
+      faculty: rawData.faculty || [],
+      allocations: rawData.allocations || {},
+      submissions: rawData.submissions || {},
+      batchDeptMappings: rawData.batchDeptMappings || [],
+      groupMappings: rawData.groupMappings || {},
+      batchConfig: rawData.batchConfig || {
         programTypes: { "U": "UG", "P": "PG" },
         fundingTypes:  { "1": "Aided", "2": "Self Finance" },
         yearSemMap:    {}
-      };
-      modified = true;
+      },
+      periods: rawData.periods || ["1", "2", "3", "LB", "4", "5", "6"]
+    };
+
+    // Ensure default structures are present
+    if (!db.config.excludedBatches) db.config.excludedBatches = [];
+    if (!db.batchConfig.programTypes) {
+      db.batchConfig.programTypes = { "U": "UG", "P": "PG" };
     }
-    if (modified) {
-      fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
+    if (!db.batchConfig.fundingTypes) {
+      db.batchConfig.fundingTypes = { "1": "Aided", "2": "Self Finance" };
     }
+    if (!db.batchConfig.yearSemMap) {
+      db.batchConfig.yearSemMap = {};
+    }
+
+    dbInstance = db;
     return db;
   } catch (err) {
-    console.error("Error reading database:", err);
-    // If corruption occurred, load from backup
-    return restoreFromLatestBackup() || {};
+    console.error("Error reading database from SQLite:", err);
+    return {};
   }
 }
 
-// Save database state with rotating backups
 export function writeDb(data) {
-  initializeDb();
+  dbInstance = data;
+
+  const stmt = sqliteDb.prepare('INSERT OR REPLACE INTO app_data (key, value) VALUES (?, ?)');
+  
+  const saveTransaction = sqliteDb.transaction((dbData) => {
+    Object.entries(dbData).forEach(([key, val]) => {
+      stmt.run(key, JSON.stringify(val));
+    });
+  });
+
   try {
-    // 1. Create rotating backups before writing
-    if (fs.existsSync(DB_PATH)) {
-      rotateBackups();
-    }
-    // 2. Write new state
-    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2), 'utf8');
+    saveTransaction({
+      config: data.config,
+      departments: data.departments,
+      courses: data.courses,
+      faculty: data.faculty,
+      allocations: data.allocations,
+      submissions: data.submissions,
+      batchDeptMappings: data.batchDeptMappings,
+      groupMappings: data.groupMappings,
+      batchConfig: data.batchConfig,
+      periods: data.periods
+    });
     return true;
   } catch (err) {
-    console.error("Error writing database:", err);
+    console.error("Error writing to SQLite database:", err);
     return false;
   }
 }
 
-// Rotate backups: shift backup 4->5, 3->4, etc. and copy current db to backup.1
-function rotateBackups() {
+// Auto-migrate from db.json if it exists and SQLite is empty
+const checkEmpty = sqliteDb.prepare('SELECT count(*) as count FROM app_data').get();
+if (checkEmpty.count === 0 && fs.existsSync(JSON_DB_PATH)) {
   try {
-    for (let i = MAX_BACKUPS - 1; i >= 1; i--) {
-      const src = path.join(DB_DIR, `db.backup.${i}.json`);
-      const dest = path.join(DB_DIR, `db.backup.${i + 1}.json`);
-      if (fs.existsSync(src)) {
-        fs.renameSync(src, dest);
-      }
-    }
-    const currentBackup = path.join(DB_DIR, 'db.backup.1.json');
-    fs.copyFileSync(DB_PATH, currentBackup);
-  } catch (err) {
-    console.error("Error rotating backups:", err);
+    console.log("Found existing db.json. Migrating to SQLite...");
+    const rawData = fs.readFileSync(JSON_DB_PATH, 'utf8');
+    const oldDb = JSON.parse(rawData);
+    writeDb(oldDb);
+    fs.renameSync(JSON_DB_PATH, JSON_DB_PATH + '.migrated');
+    console.log("Successfully migrated db.json to timetable.db");
+  } catch (e) {
+    console.error("Failed to migrate existing db.json database:", e);
   }
-}
-
-// Attempt to restore from latest backup if main db file is corrupt
-function restoreFromLatestBackup() {
-  for (let i = 1; i <= MAX_BACKUPS; i++) {
-    const backupPath = path.join(DB_DIR, `db.backup.${i}.json`);
-    if (fs.existsSync(backupPath)) {
-      try {
-        console.warn(`Restoring from backup ${i} due to corruption...`);
-        const data = fs.readFileSync(backupPath, 'utf8');
-        const parsed = JSON.parse(data);
-        fs.writeFileSync(DB_PATH, data, 'utf8');
-        return parsed;
-      } catch (err) {
-        console.error(`Backup ${i} is also corrupt:`, err);
-      }
-    }
-  }
-  return null;
 }

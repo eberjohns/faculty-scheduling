@@ -130,6 +130,45 @@ function findAllocationClashes(allocations) {
 }
 
 // -------------------------------------------------------------
+// Authentication & Authorization Middlewares
+// -------------------------------------------------------------
+function requireAdmin(req, res, next) {
+  const token = req.headers['authorization'] || req.query.token;
+  if (token !== 'admin-token') {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Admin access required.' });
+  }
+  next();
+}
+
+function requireDepartment(req, res, next) {
+  const token = req.headers['authorization'];
+  if (!token || !token.startsWith('dept-token-')) {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Department access required.' });
+  }
+  
+  const tokenDept = token.substring('dept-token-'.length).toUpperCase();
+  const reqDept = (req.body.departmentName || req.query.department || '').toUpperCase();
+  
+  if (reqDept && reqDept !== tokenDept) {
+    return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
+  }
+  
+  req.departmentName = tokenDept;
+  next();
+}
+
+function requireUser(req, res, next) {
+  const token = req.headers['authorization'] || req.query.token;
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Access token required.' });
+  }
+  if (token === 'admin-token' || token.startsWith('dept-token-')) {
+    return next();
+  }
+  return res.status(401).json({ success: false, message: 'Unauthorized: Invalid access token.' });
+}
+
+// -------------------------------------------------------------
 // Authentication Endpoints
 // -------------------------------------------------------------
 app.post('/api/auth/login', (req, res) => {
@@ -175,7 +214,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-app.post('/api/config', (req, res) => {
+app.post('/api/config', requireAdmin, (req, res) => {
   const { academicYear, semesterType, semesterLabels } = req.body;
   const db = readDb();
   
@@ -213,7 +252,7 @@ app.get('/api/departments', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/departments/password', (req, res) => {
+app.post('/api/departments/password', requireAdmin, (req, res) => {
   const { name, password } = req.body;
   if (!name || !password) {
     return res.status(400).json({ success: false, message: 'Department name and password required' });
@@ -227,12 +266,7 @@ app.post('/api/departments/password', (req, res) => {
   res.json({ success: true, message: `Password updated for department ${name}.` });
 });
 
-app.get('/api/admin/departments', (req, res) => {
-  const token = req.headers['authorization'];
-  if (token !== 'admin-token') {
-    return res.status(401).json({ success: false, message: 'Unauthorized access' });
-  }
-
+app.get('/api/admin/departments', requireAdmin, (req, res) => {
   const db = readDb();
   const deptSet = new Set();
   db.courses.forEach(c => deptSet.add(c.department));
@@ -266,7 +300,7 @@ function isDepartmentLocked(db, departmentName) {
   return submission.status === 'Submitted' || submission.status === 'Approved';
 }
 
-app.get('/api/courses', (req, res) => {
+app.get('/api/courses', requireUser, (req, res) => {
   const { department } = req.query;
   const db = readDb();
   let result = db.courses || [];
@@ -283,7 +317,7 @@ app.get('/api/courses', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/courses/alias', (req, res) => {
+app.post('/api/courses/alias', requireUser, (req, res) => {
   const { code, alias, name, departmentName } = req.body;
   if (!code) return res.status(400).json({ success: false, message: 'Course code is required' });
   
@@ -309,7 +343,7 @@ app.post('/api/courses/alias', (req, res) => {
   res.json({ success: true, message: 'Course details updated.' });
 });
 
-app.post('/api/courses/alias/batch', (req, res) => {
+app.post('/api/courses/alias/batch', requireUser, (req, res) => {
   const { courses, departmentName } = req.body;
   if (!Array.isArray(courses)) {
     return res.status(400).json({ success: false, message: 'Courses must be an array.' });
@@ -343,7 +377,9 @@ app.post('/api/courses/alias/batch', (req, res) => {
 });
 
 
-app.get('/api/faculty', (req, res) => {
+
+
+app.get('/api/faculty', requireUser, (req, res) => {
   const { department } = req.query;
   const db = readDb();
   let result = db.faculty;
@@ -353,7 +389,7 @@ app.get('/api/faculty', (req, res) => {
   res.json(result);
 });
 
-app.post('/api/faculty/code', (req, res) => {
+app.post('/api/faculty/code', requireUser, (req, res) => {
   const { staffId, code, departmentName } = req.body;
   if (!staffId || !code) return res.status(400).json({ success: false, message: 'Staff ID and code are required' });
   
@@ -403,7 +439,7 @@ app.post('/api/faculty/code', (req, res) => {
   res.json({ success: true, message: 'Faculty code updated.' });
 });
 
-app.post('/api/faculty/code/batch', (req, res) => {
+app.post('/api/faculty/code/batch', requireUser, (req, res) => {
   const { faculty, departmentName } = req.body;
   if (!Array.isArray(faculty)) {
     return res.status(400).json({ success: false, message: 'Faculty must be an array.' });
@@ -480,7 +516,7 @@ app.post('/api/faculty/code/batch', (req, res) => {
 // -------------------------------------------------------------
 // Excel Import Routes
 // -------------------------------------------------------------
-app.post('/api/import/courses', upload.single('file'), (req, res) => {
+app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -798,7 +834,7 @@ app.post('/api/import/courses', upload.single('file'), (req, res) => {
 
 
 
-app.post('/api/import/staff', upload.single('file'), (req, res) => {
+app.post('/api/import/staff', requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -866,7 +902,7 @@ app.post('/api/import/staff', upload.single('file'), (req, res) => {
 // -------------------------------------------------------------
 // Batch-Department Mapping & Dynamic Batches Endpoints
 // -------------------------------------------------------------
-app.post('/api/import/batch-dept-mappings', upload.single('file'), (req, res) => {
+app.post('/api/import/batch-dept-mappings', requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -928,7 +964,7 @@ app.post('/api/import/batch-dept-mappings', upload.single('file'), (req, res) =>
   }
 });
 
-app.post('/api/admin/batch-dept-mappings', (req, res) => {
+app.post('/api/admin/batch-dept-mappings', requireAdmin, (req, res) => {
   const { code, deptName } = req.body;
   if (!code || !deptName) return res.status(400).json({ success: false, message: 'Both code and department name are required' });
 
@@ -944,12 +980,12 @@ app.post('/api/admin/batch-dept-mappings', (req, res) => {
   res.json({ success: true, message: 'Mapping added successfully.' });
 });
 
-app.get('/api/admin/batch-dept-mappings', (req, res) => {
+app.get('/api/admin/batch-dept-mappings', requireAdmin, (req, res) => {
   const db = readDb();
   res.json(db.batchDeptMappings || []);
 });
 
-app.put('/api/admin/batch-dept-mappings/:code', (req, res) => {
+app.put('/api/admin/batch-dept-mappings/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim().toUpperCase();
   const { deptName } = req.body;
   if (!deptName) return res.status(400).json({ success: false, message: 'Department name is required' });
@@ -963,7 +999,7 @@ app.put('/api/admin/batch-dept-mappings/:code', (req, res) => {
   res.json({ success: true, message: 'Mapping updated successfully.' });
 });
 
-app.delete('/api/admin/batch-dept-mappings/:code', (req, res) => {
+app.delete('/api/admin/batch-dept-mappings/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim().toUpperCase();
   const db = readDb();
   const index = db.batchDeptMappings.findIndex(m => m.code === code);
@@ -977,12 +1013,12 @@ app.delete('/api/admin/batch-dept-mappings/:code', (req, res) => {
 // -------------------------------------------------------------
 // Batch Config Endpoints
 // -------------------------------------------------------------
-app.get('/api/admin/batch-config', (req, res) => {
+app.get('/api/admin/batch-config', requireAdmin, (req, res) => {
   const db = readDb();
   res.json(db.batchConfig || { programTypes: {}, fundingTypes: {}, yearSemMap: {} });
 });
 
-app.put('/api/admin/batch-config', (req, res) => {
+app.put('/api/admin/batch-config', requireAdmin, (req, res) => {
   const { programTypes, fundingTypes, yearSemMap } = req.body;
   if (!programTypes || !fundingTypes || !yearSemMap) {
     return res.status(400).json({ success: false, message: 'programTypes, fundingTypes, and yearSemMap are required.' });
@@ -993,7 +1029,7 @@ app.put('/api/admin/batch-config', (req, res) => {
   res.json({ success: true, message: 'Batch config saved.' });
 });
 
-app.get('/api/batches', (req, res) => {
+app.get('/api/batches', requireUser, (req, res) => {
   const db = readDb();
   const cfg = db.batchConfig || {};
   const programTypes = cfg.programTypes || {};
@@ -1031,7 +1067,7 @@ app.get('/api/batches', (req, res) => {
   res.json(batches);
 });
 
-app.post('/api/admin/batches/exclude', (req, res) => {
+app.post('/api/admin/batches/exclude', requireAdmin, (req, res) => {
   const { batchId } = req.body;
   if (!batchId) return res.status(400).json({ success: false, message: 'batchId is required.' });
   const db = readDb();
@@ -1044,7 +1080,7 @@ app.post('/api/admin/batches/exclude', (req, res) => {
   res.json({ success: true, message: `Batch ${cleanId} excluded successfully.` });
 });
 
-app.post('/api/admin/batches/include', (req, res) => {
+app.post('/api/admin/batches/include', requireAdmin, (req, res) => {
   const { batchId } = req.body;
   if (!batchId) return res.status(400).json({ success: false, message: 'batchId is required.' });
   const db = readDb();
@@ -1060,12 +1096,12 @@ app.post('/api/admin/batches/include', (req, res) => {
 // -------------------------------------------------------------
 // Group Mappings & Courses PUT Endpoints
 // -------------------------------------------------------------
-app.get('/api/admin/group-mappings', (req, res) => {
+app.get('/api/admin/group-mappings', requireAdmin, (req, res) => {
   const db = readDb();
   res.json(db.groupMappings || {});
 });
 
-app.post('/api/admin/group-mappings', (req, res) => {
+app.post('/api/admin/group-mappings', requireAdmin, (req, res) => {
   const { courseCode, batches } = req.body;
   if (!courseCode || !Array.isArray(batches)) {
     return res.status(400).json({ success: false, message: 'Course code and batches array are required' });
@@ -1077,7 +1113,7 @@ app.post('/api/admin/group-mappings', (req, res) => {
   res.json({ success: true, message: 'Group mapping updated successfully.' });
 });
 
-app.put('/api/admin/courses/:code', (req, res) => {
+app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim();
   const { name, alias, programType } = req.body;
 
@@ -1098,7 +1134,7 @@ app.put('/api/admin/courses/:code', (req, res) => {
 });
 
 // Delete Course
-app.delete('/api/admin/courses/:code', (req, res) => {
+app.delete('/api/admin/courses/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim();
   const db = readDb();
   const initialLength = db.courses.length;
@@ -1121,7 +1157,7 @@ app.delete('/api/admin/courses/:code', (req, res) => {
 });
 
 // Delete Faculty member
-app.delete('/api/admin/faculty/:staffId', (req, res) => {
+app.delete('/api/admin/faculty/:staffId', requireAdmin, (req, res) => {
   const staffId = req.params.staffId.trim();
   const db = readDb();
   const facultyObj = db.faculty.find(f => f.staffId === staffId);
@@ -1154,7 +1190,7 @@ app.delete('/api/admin/faculty/:staffId', (req, res) => {
 // -------------------------------------------------------------
 // Allocation & Clash Check Endpoints
 // -------------------------------------------------------------
-app.get('/api/allocations', (req, res) => {
+app.get('/api/allocations', requireUser, (req, res) => {
   const { department } = req.query;
   const db = readDb();
   if (department) {
@@ -1165,7 +1201,7 @@ app.get('/api/allocations', (req, res) => {
 });
 
 // Clash Detection Validation API
-app.post('/api/allocations/validate', (req, res) => {
+app.post('/api/allocations/validate', requireUser, (req, res) => {
   const { departmentName, courseCode, weekday, period, facultyCodes } = req.body;
   if (!departmentName || !weekday || !period || !facultyCodes) {
     return res.status(400).json({ success: false, message: 'Missing parameters' });
@@ -1207,7 +1243,7 @@ app.post('/api/allocations/validate', (req, res) => {
 });
 
 // Save Allocations Endpoint (with safety validations)
-app.post('/api/allocations', (req, res) => {
+app.post('/api/allocations', requireDepartment, (req, res) => {
   const { departmentName, allocations } = req.body;
   if (!departmentName || !allocations) {
     return res.status(400).json({ success: false, message: 'Missing parameters' });
@@ -1255,15 +1291,27 @@ app.post('/api/allocations', (req, res) => {
 // -------------------------------------------------------------
 // Submissions (Lifecycle) Endpoints
 // -------------------------------------------------------------
-app.get('/api/submissions', (req, res) => {
+app.get('/api/submissions', requireUser, (req, res) => {
   const db = readDb();
   res.json(db.submissions);
 });
 
-app.post('/api/submissions/status', (req, res) => {
+app.post('/api/submissions/status', requireUser, (req, res) => {
   const { departmentName, status, comments } = req.body;
   if (!departmentName || !status) {
     return res.status(400).json({ success: false, message: 'Department name and status are required' });
+  }
+
+  // Authorize request: Either admin-token, or dept-token matching the departmentName
+  const token = req.headers['authorization'] || req.query.token;
+  if (token !== 'admin-token') {
+    if (!token.startsWith('dept-token-')) {
+      return res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });
+    }
+    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
+    if (departmentName.toUpperCase() !== tokenDept) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
+    }
   }
 
   const db = readDb();
@@ -1283,7 +1331,7 @@ app.post('/api/submissions/status', (req, res) => {
 // -------------------------------------------------------------
 // Workload & Search Endpoints
 // -------------------------------------------------------------
-app.get('/api/reports/workload', (req, res) => {
+app.get('/api/reports/workload', requireUser, (req, res) => {
   const db = readDb();
   
   // Compute workload summaries for all faculty
@@ -1336,7 +1384,7 @@ app.get('/api/reports/workload', (req, res) => {
 });
 
 // Clear database endpoint
-app.post('/api/admin/clear-database', (req, res) => {
+app.post('/api/admin/clear-database', requireAdmin, (req, res) => {
   const db = readDb();
   
   db.courses = [];
@@ -1357,8 +1405,25 @@ app.post('/api/admin/clear-database', (req, res) => {
   res.json({ success: true, message: 'Database cleared successfully.' });
 });
 
+// Change Admin Password Endpoint
+app.post('/api/admin/change-password', requireAdmin, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Current and new passwords are required.' });
+  }
+
+  const db = readDb();
+  if (currentPassword !== db.config.adminPassword) {
+    return res.status(400).json({ success: false, message: 'Incorrect current password.' });
+  }
+
+  db.config.adminPassword = newPassword.trim();
+  writeDb(db);
+  res.json({ success: true, message: 'Administrator password changed successfully.' });
+});
+
 // Import group-to-batch mappings Excel/CSV
-app.post('/api/import/group-mappings', upload.single('file'), (req, res) => {
+app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -1493,7 +1558,7 @@ app.post('/api/import/group-mappings', upload.single('file'), (req, res) => {
 // -------------------------------------------------------------
 // Period Times Endpoints
 // -------------------------------------------------------------
-app.get('/api/admin/period-times', (req, res) => {
+app.get('/api/admin/period-times', requireAdmin, (req, res) => {
   const db = readDb();
   const defaults = {
     "1": "09:00 AM - 10:00 AM",
@@ -1507,7 +1572,7 @@ app.get('/api/admin/period-times', (req, res) => {
   res.json(db.config.periodTimes || defaults);
 });
 
-app.put('/api/admin/period-times', (req, res) => {
+app.put('/api/admin/period-times', requireAdmin, (req, res) => {
   const times = req.body;
   if (!times || typeof times !== 'object') {
     return res.status(400).json({ success: false, message: 'Invalid payload.' });
@@ -1521,7 +1586,7 @@ app.put('/api/admin/period-times', (req, res) => {
 // -------------------------------------------------------------
 // Strict Excel Exporter
 // -------------------------------------------------------------
-app.get('/api/admin/export/strict-timetable', (req, res) => {
+app.get('/api/admin/export/strict-timetable', requireAdmin, (req, res) => {
   try {
     const db = readDb();
     const cfg = db.batchConfig || {};
@@ -1675,7 +1740,7 @@ app.get('/api/admin/export/strict-timetable', (req, res) => {
 // -------------------------------------------------------------
 // Major Mappings Import/Export
 // -------------------------------------------------------------
-app.get('/api/admin/export/major-mappings', (req, res) => {
+app.get('/api/admin/export/major-mappings', requireAdmin, (req, res) => {
   try {
     const db = readDb();
     const majorCourses = db.courses.filter(c => !c.group || c.group === 0);
@@ -1711,7 +1776,7 @@ app.get('/api/admin/export/major-mappings', (req, res) => {
   }
 });
 
-app.post('/api/import/major-mappings', upload.single('file'), (req, res) => {
+app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {

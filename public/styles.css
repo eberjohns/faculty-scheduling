@@ -594,6 +594,20 @@ h1, h2, h3, h4, h5, h6 {
   height: 44px;
   background-color: #f1f5f9;
   font-weight: 700;
+  position: sticky;
+  top: 72px;
+  z-index: 99;
+  box-shadow: 0 2px 2px -1px rgba(0,0,0,0.1);
+}
+#view-department .table-responsive {
+  overflow: visible !important;
+}
+.filters-card {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background-color: var(--surface) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.08) !important;
 }
 .cell-info {
   font-size: 11px;

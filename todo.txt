@@ -49,3 +49,6 @@ this will make it much easier for them to get a batch
 _____________________________________________________________________________________________
 
 TODO:
+
+- in the department view, the slot headers(course code, 1,2,3,.. and the monday, teusday selection too) should be persistent, it should be visible even after scrolling for the slot section
+- in department view, make a way to add groups for major courses if they want and assign batches in department section itself(the recommended batch being the same depatment and same filters)

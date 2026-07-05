@@ -4,6 +4,15 @@
 
 const API_BASE = '/api';
 
+async function authFetch(url, options = {}) {
+  if (!options.headers) options.headers = {};
+  const token = sessionStorage.getItem('token');
+  if (token) {
+    options.headers['Authorization'] = token;
+  }
+  return fetch(url, options);
+}
+
 // Application State
 let state = {
   currentUser: null, // { role: 'department', departmentName: '...' }
@@ -104,7 +113,7 @@ function triggerAutosave() {
     
     const deptName = state.currentUser.departmentName;
     try {
-      const saveRes = await fetch(`${API_BASE}/allocations`, {
+      const saveRes = await authFetch(`${API_BASE}/allocations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -278,8 +287,8 @@ async function fetchGlobalData() {
     const [configRes, deptsRes, coursesRes, facultyRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
-      fetch(`${API_BASE}/courses`),
-      fetch(`${API_BASE}/faculty`)
+      authFetch(`${API_BASE}/courses`),
+      authFetch(`${API_BASE}/faculty`)
     ]);
     
     state.config = await configRes.json();
@@ -314,6 +323,8 @@ function bindAuthEvents() {
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const departmentName = document.getElementById('login-dept').value;
+    const hiddenUser = document.getElementById('hidden-dept-username');
+    if (hiddenUser) hiddenUser.value = departmentName;
     const password = pwdInput.value;
     errBox.classList.add('hidden');
     
@@ -327,8 +338,9 @@ function bindAuthEvents() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.message || 'Login failed');
       
-      state.currentUser = { role: 'department', departmentName };
+      state.currentUser = { role: 'department', departmentName, token: result.token };
       sessionStorage.setItem('currentUser', JSON.stringify(state.currentUser));
+      sessionStorage.setItem('token', result.token);
       document.getElementById('current-user-display').textContent = departmentName;
       document.getElementById('header-user-info').classList.remove('hidden');
       
@@ -343,6 +355,7 @@ function bindAuthEvents() {
   
   logoutBtn.addEventListener('click', () => {
     sessionStorage.removeItem('currentUser');
+    sessionStorage.removeItem('token');
     state.currentUser = null;
     document.getElementById('header-user-info').classList.add('hidden');
     pwdInput.value = '';
@@ -401,7 +414,7 @@ async function loadDepartmentWorkspace() {
   document.getElementById('dept-title-name').textContent = `Department of ${deptName}`;
   
   try {
-    const res = await fetch(`${API_BASE}/allocations?department=${deptName}`);
+    const res = await authFetch(`${API_BASE}/allocations?department=${deptName}`);
     state.allocations = await res.json();
     
     updateDeptStatusBadge();
@@ -475,9 +488,12 @@ function bindDeptEvents() {
   });
 
   // Bottom action buttons
-  document.getElementById('btn-save-draft').addEventListener('click', () => {
-    saveDepartmentAllocations(false);
-  });
+  const saveDraftBtn = document.getElementById('btn-save-draft');
+  if (saveDraftBtn) {
+    saveDraftBtn.addEventListener('click', () => {
+      saveDepartmentAllocations(false);
+    });
+  }
   document.getElementById('btn-submit-timetable').addEventListener('click', () => {
     saveDepartmentAllocations(true);
   });
@@ -494,7 +510,7 @@ function bindDeptEvents() {
         'Are you sure you want to revert your submission back to Draft? This will allow you to edit your timetable allocations again.',
         async () => {
           try {
-            const res = await fetch(`${API_BASE}/submissions/status`, {
+            const res = await authFetch(`${API_BASE}/submissions/status`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -520,6 +536,8 @@ function bindDeptEvents() {
     });
   }
 
+
+
   // Save All buttons
   document.getElementById('btn-save-all-courses').addEventListener('click', async () => {
     const deptName = state.currentUser.departmentName;
@@ -530,7 +548,7 @@ function bindDeptEvents() {
     });
 
     try {
-      const res = await fetch(`${API_BASE}/courses/alias/batch`, {
+      const res = await authFetch(`${API_BASE}/courses/alias/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ courses: coursesToSave, departmentName: deptName })
@@ -561,7 +579,7 @@ function bindDeptEvents() {
     });
 
     try {
-      const res = await fetch(`${API_BASE}/faculty/code/batch`, {
+      const res = await authFetch(`${API_BASE}/faculty/code/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ faculty: facultyToSave, departmentName: deptName })
@@ -767,7 +785,6 @@ function getMergedCourseInfo(baseCode, deptCourses) {
 
 // Renders the interactive contents of a grid cell
 function renderCellSlot(baseCode, courseT, courseP, day, period) {
-  // Determine if there is a recommendation for Theory or Practical on this day/period
   const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
   const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
   
@@ -797,7 +814,6 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
     slotLabel = 'Theory Rec';
     activeCourseCode = courseP.code;
   } else {
-    // Non-recommended slots: we save to -T by default, or fallback to -P
     activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
   }
 
@@ -813,7 +829,6 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
     const facObj = state.faculty.find(f => f.code === facCode);
     const fullName = facObj ? facObj.name : facCode;
     
-    // Detect which course code holds this allocation to allow clean delete
     let targetCode = activeCourseCode;
     if (courseT && assignedT.includes(facCode)) targetCode = courseT.code;
     else if (courseP && assignedP.includes(facCode)) targetCode = courseP.code;
@@ -946,7 +961,7 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
   const deptName = state.currentUser.departmentName;
   
   try {
-    const res = await fetch(`${API_BASE}/allocations/validate`, {
+    const res = await authFetch(`${API_BASE}/allocations/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1146,7 +1161,7 @@ async function saveDepartmentAllocations(isSubmission = false) {
 async function executeSave(isSubmission) {
   const deptName = state.currentUser.departmentName;
   try {
-    const saveRes = await fetch(`${API_BASE}/allocations`, {
+    const saveRes = await authFetch(`${API_BASE}/allocations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1162,7 +1177,7 @@ async function executeSave(isSubmission) {
     }
 
     if (isSubmission) {
-      const subRes = await fetch(`${API_BASE}/submissions/status`, {
+      const subRes = await authFetch(`${API_BASE}/submissions/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1244,7 +1259,7 @@ window.saveDeptCourseRecord = async function(code) {
   const deptName = state.currentUser.departmentName;
   
   try {
-    const res = await fetch(`${API_BASE}/courses/alias`, {
+    const res = await authFetch(`${API_BASE}/courses/alias`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, name, alias, departmentName: deptName })
@@ -1270,7 +1285,7 @@ window.saveDeptFacultyCode = async function(staffId) {
   const deptName = state.currentUser.departmentName;
   
   try {
-    const res = await fetch(`${API_BASE}/faculty/code`, {
+    const res = await authFetch(`${API_BASE}/faculty/code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ staffId, code, departmentName: deptName })
@@ -1578,3 +1593,5 @@ function exportPrintTimetableToCSV() {
   link.click();
   document.body.removeChild(link);
 }
+
+

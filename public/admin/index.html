@@ -41,10 +41,11 @@
         </div>
 
         <form id="login-form">
+          <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
           <div class="form-group">
             <label for="login-password">Administrator Password</label>
             <div class="password-input-wrapper">
-              <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
+              <input type="password" id="login-password" class="form-control" placeholder="••••••••" autocomplete="current-password" required>
               <i class="fa-solid fa-eye toggle-password" id="toggle-pwd-icon"></i>
             </div>
           </div>
@@ -205,6 +206,28 @@
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <!-- Change Admin Password Card -->
+            <div class="card mt-4">
+              <div class="card-header">
+                <h2><i class="fa-solid fa-lock text-primary"></i> Change Administrator Password</h2>
+              </div>
+              <div class="card-body">
+                <p class="text-muted">Change the master administrator sign-in passcode.</p>
+                <form id="form-change-admin-pwd" style="max-width: 400px; margin-top: 15px;">
+                  <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
+                  <div class="form-group mb-3">
+                    <label for="admin-current-pwd">Current Admin Password</label>
+                    <input type="password" id="admin-current-pwd" class="form-control" placeholder="Enter current password" autocomplete="current-password" required>
+                  </div>
+                  <div class="form-group mb-3">
+                    <label for="admin-new-pwd">New Admin Password</label>
+                    <input type="password" id="admin-new-pwd" class="form-control" placeholder="Enter new password" autocomplete="new-password" required>
+                  </div>
+                  <button type="submit" class="btn btn-primary shadow-btn" style="background-color: var(--primary); color: white;"><i class="fa-solid fa-key"></i> Update Admin Password</button>
+                </form>
               </div>
             </div>
           </div>
@@ -715,13 +738,16 @@
         <h2>Verify Admin Password</h2>
         <p class="text-muted mt-2 text-sm">Please verify the administrator password to view department passcodes:</p>
         
-        <input type="password" id="verify-admin-pwd-input" class="form-control mt-3 text-center" placeholder="Enter Admin Password" autocomplete="off">
-        <div id="verify-admin-error" class="text-danger text-sm mt-2 hidden"></div>
-        
-        <div class="actions flex-row justify-center gap-2 mt-4">
-          <button id="btn-submit-verify-admin" class="btn btn-primary">Verify</button>
-          <button id="btn-cancel-verify-admin" class="btn btn-outline">Cancel</button>
-        </div>
+        <form id="form-verify-admin" onsubmit="event.preventDefault();" style="width: 100%;">
+          <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
+          <input type="password" id="verify-admin-pwd-input" class="form-control mt-3 text-center" placeholder="Enter Admin Password" autocomplete="current-password" required>
+          <div id="verify-admin-error" class="text-danger text-sm mt-2 hidden"></div>
+          
+          <div class="actions flex-row justify-center gap-2 mt-4">
+            <button type="submit" id="btn-submit-verify-admin" class="btn btn-primary">Verify</button>
+            <button type="button" id="btn-cancel-verify-admin" class="btn btn-outline">Cancel</button>
+          </div>
+        </form>
       </div>
     </div>
 

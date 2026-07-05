@@ -4,6 +4,27 @@
 
 const API_BASE = '/api';
 
+// Global Fetch Interceptor to attach adminToken automatically
+const originalFetch = window.fetch;
+window.fetch = async function(url, options = {}) {
+  const urlStr = typeof url === 'string' ? url : (url.url || '');
+  const isProtectedApi = urlStr.includes('/api') && !urlStr.includes('/auth/login');
+  if (isProtectedApi) {
+    if (!options.headers) {
+      options.headers = {};
+    }
+    const token = sessionStorage.getItem('adminToken');
+    if (token) {
+      if (options.headers instanceof Headers) {
+        options.headers.set('Authorization', token);
+      } else {
+        options.headers['Authorization'] = token;
+      }
+    }
+  }
+  return originalFetch(url, options);
+};
+
 // Admin State
 let state = {
   currentUser: null,
@@ -347,7 +368,8 @@ function bindCustomModals() {
   const btnExportMajorMappings = document.getElementById('btn-export-major-mappings');
   if (btnExportMajorMappings) {
     btnExportMajorMappings.addEventListener('click', () => {
-      window.location.href = `${API_BASE}/admin/export/major-mappings`;
+      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      window.location.href = `${API_BASE}/admin/export/major-mappings?token=${encodeURIComponent(adminToken)}`;
     });
   }
 
@@ -484,7 +506,35 @@ async function initAdmin() {
   const btnExportStrictExcel = document.getElementById('btn-export-strict-excel');
   if (btnExportStrictExcel) {
     btnExportStrictExcel.addEventListener('click', () => {
-      window.location.href = `${API_BASE}/admin/export/strict-timetable`;
+      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      window.location.href = `${API_BASE}/admin/export/strict-timetable?token=${encodeURIComponent(adminToken)}`;
+    });
+  }
+
+  // Bind change admin password form
+  const formChangeAdminPwd = document.getElementById('form-change-admin-pwd');
+  if (formChangeAdminPwd) {
+    formChangeAdminPwd.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPassword = document.getElementById('admin-current-pwd').value;
+      const newPassword = document.getElementById('admin-new-pwd').value;
+      
+      try {
+        const res = await fetch(`${API_BASE}/admin/change-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          showModalAlert('Success', 'Administrator password updated successfully!', 'success');
+          formChangeAdminPwd.reset();
+        } else {
+          showModalAlert('Error', result.message || 'Failed to update password.', 'danger');
+        }
+      } catch (err) {
+        showModalAlert('Error', 'Connection error.', 'danger');
+      }
     });
   }
 
