@@ -189,6 +189,7 @@
                     <th>Category</th>
                     <th>Display Name</th>
                     <th>Visual Alias</th>
+                    <th>Assigned Batches</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -342,6 +343,44 @@
       </div>
     </div>
 
+    <!-- MODAL: DEPT GROUP & BATCH ASSIGNMENT -->
+    <div id="modal-dept-group-mapping" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width:580px;width:100%;padding:24px;">
+        <div class="modal-header" style="padding:0 0 12px 0;border-bottom:1.5px solid var(--border);">
+          <h2>Course Class & Batch Allocation</h2>
+        </div>
+        <div class="modal-body" style="padding:16px 0 0 0;">
+          <input type="hidden" id="dept-mapping-course-code">
+          
+          <h3 id="dept-mapping-course-title" style="margin-bottom:4px;font-size:15px;font-weight:600;">-</h3>
+          <p id="dept-mapping-course-meta" class="text-muted text-sm mb-3"></p>
+
+          <!-- Group Count Config -->
+          <div class="form-group mb-3" style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+            <label for="dept-group-count-select" style="font-weight: 600; font-size: 13px; display:block;">How many parallel classes/batches are needed?</label>
+            <select id="dept-group-count-select" class="form-control mt-2" style="max-width: 220px;">
+              <option value="1">1 Class (No Split)</option>
+              <option value="2">2 Classes</option>
+              <option value="3">3 Classes</option>
+              <option value="4">4 Classes</option>
+              <option value="5">5 Classes</option>
+            </select>
+            <span class="text-muted text-sm mt-1" style="display:block; margin-top: 4px;">Select how many parallel classes this course will be divided into.</span>
+          </div>
+
+          <!-- Group Selectors -->
+          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 12px; color: var(--primary);"><i class="fa-solid fa-layer-group"></i> Class Batch Assignments</h4>
+          <div id="dept-group-selectors-list" style="display:flex; flex-direction:column; gap:12px; max-height:280px; overflow-y:auto; padding-right:4px; margin-bottom:10px;">
+            <!-- Rendered dynamically -->
+          </div>
+          <datalist id="dept-batch-datalist"></datalist>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4" style="display:flex;justify-content:flex-end;gap:8px;">
+          <button id="btn-save-dept-group-mapping" class="btn btn-primary">Save Changes</button>
+          <button id="btn-close-dept-group-mapping-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
 
 
     <!-- CUSTOM APP ALERT MODAL -->

@@ -738,6 +738,19 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 11px !important;
   min-width: 44px !important;
 }
+/* Sticky two-row thead in week view:
+   Row 1 (day names) sticks at top: 72px (below the app header bar)
+   Row 2 (period numbers) sticks right below row 1 (row1 height 38px → 72+38=110px) */
+.table-grid.full-week-mode thead tr:first-child th {
+  top: 72px !important;
+  z-index: 100 !important;
+  height: 38px !important;
+}
+.table-grid.full-week-mode thead tr:last-child th {
+  top: 110px !important;
+  z-index: 99 !important;
+  height: 28px !important;
+}
 .table-grid.full-week-mode .cell-info {
   display: none !important; /* Hide label string to save vertical space */
 }

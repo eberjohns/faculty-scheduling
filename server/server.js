@@ -376,7 +376,72 @@ app.post('/api/courses/alias/batch', requireUser, (req, res) => {
   res.json({ success: true, message: 'All course details updated successfully.' });
 });
 
+// Class Configuration Endpoint
+app.post('/api/courses/class-config', requireUser, (req, res) => {
+  const { courseCode, classes, batches, departmentName } = req.body;
+  if (!courseCode || classes === undefined || !Array.isArray(batches) || !departmentName) {
+    return res.status(400).json({ success: false, message: 'Missing parameters.' });
+  }
 
+  const db = readDb();
+  const deptUpper = departmentName.toUpperCase();
+
+  // Verify Edit Lock Status
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  // Find course and verify ownership
+  const targetBaseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+  const course = db.courses.find(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode);
+  if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
+
+  if (course.department.toUpperCase() !== deptUpper) {
+    return res.status(403).json({ success: false, message: 'Unauthorized to edit this course.' });
+  }
+
+  // Token ownership check
+  const token = req.headers['authorization'] || req.query.token;
+  if (token !== 'admin-token') {
+    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
+    if (deptUpper !== tokenDept) {
+      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
+    }
+  }
+
+  const targetClassesCount = parseInt(classes) || 1;
+
+  // Set the classes count property directly on all theory/practical variations of the base course
+  const matchingCourses = db.courses.filter(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode);
+  matchingCourses.forEach(c => {
+    c.classes = targetClassesCount;
+  });
+
+  // Clear old mapped batches for this base code and C1..C5 classes
+  delete db.groupMappings[targetBaseCode];
+  for (let i = 1; i <= 5; i++) {
+    delete db.groupMappings[`${targetBaseCode}_C${i}`];
+  }
+
+  if (targetClassesCount > 1) {
+    for (let i = 1; i <= targetClassesCount; i++) {
+      const mapped = batches[i - 1] ? [batches[i - 1].trim().toUpperCase()] : [];
+      db.groupMappings[`${targetBaseCode}_C${i}`] = mapped;
+    }
+  } else {
+    db.groupMappings[targetBaseCode] = batches.map(b => b.trim().toUpperCase());
+  }
+
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: `Successfully updated class configuration to ${targetClassesCount} classes.`
+  });
+});
 
 
 app.get('/api/faculty', requireUser, (req, res) => {
@@ -1096,7 +1161,7 @@ app.post('/api/admin/batches/include', requireAdmin, (req, res) => {
 // -------------------------------------------------------------
 // Group Mappings & Courses PUT Endpoints
 // -------------------------------------------------------------
-app.get('/api/admin/group-mappings', requireAdmin, (req, res) => {
+app.get('/api/admin/group-mappings', requireUser, (req, res) => {
   const db = readDb();
   res.json(db.groupMappings || {});
 });
@@ -1222,7 +1287,10 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
         for (const fac of facultyCodes) {
           if (otherFacs.includes(fac)) {
             const facInfo = db.faculty.find(f => f.code === fac) || { name: fac };
-            const courseInfo = db.courses.find(c => c.code === otherCourseCode) || { name: otherCourseCode };
+            const otherBase = otherCourseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+            const courseInfo = db.courses.find(c => c.code === otherCourseCode)
+                            || db.courses.find(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === otherBase)
+                            || { name: otherCourseCode };
             conflicts.push({
               facultyCode: fac,
               facultyName: facInfo.name,
@@ -1344,7 +1412,8 @@ app.get('/api/reports/workload', requireUser, (req, res) => {
     for (const dept of Object.keys(db.allocations)) {
       const deptAlloc = db.allocations[dept];
       for (const courseCode of Object.keys(deptAlloc)) {
-        const course = db.courses.find(c => c.code === courseCode);
+        const base = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const course = db.courses.find(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === base);
         if (!course) continue;
         
         const courseDays = deptAlloc[courseCode];
@@ -1669,25 +1738,36 @@ app.get('/api/admin/export/strict-timetable', requireAdmin, (req, res) => {
           mappedCourses.forEach(course => {
             Object.keys(db.allocations).forEach(dept => {
               const deptAlloc = db.allocations[dept];
-              if (deptAlloc[course.code] && deptAlloc[course.code][dayKey]) {
-                const pAlloc = deptAlloc[course.code][dayKey][p];
-                if (Array.isArray(pAlloc) && pAlloc.length > 0) {
-                  pAlloc.forEach(fac => {
-                    const fObj = db.faculty.find(f => f.code === fac);
-                    const staffId = fObj ? fObj.staffId : fac;
-                    if (!staffIds.includes(staffId)) {
-                      staffIds.push(staffId);
+              // Find all allocations keys matching this course code base
+              const targetBase = course.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+              Object.keys(deptAlloc).forEach(allocCode => {
+                const allocBase = allocCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+                // Match Theory/Practical suffix type if course.code has it
+                const courseType = course.code.match(/-(T|P)$/) ? course.code.match(/-(T|P)$/)[0] : '';
+                const allocType = allocCode.match(/-(T|P)$/) ? allocCode.match(/-(T|P)$/)[0] : '';
+                if (allocBase === targetBase && allocType === courseType) {
+                  if (deptAlloc[allocCode] && deptAlloc[allocCode][dayKey]) {
+                    const pAlloc = deptAlloc[allocCode][dayKey][p];
+                    if (Array.isArray(pAlloc) && pAlloc.length > 0) {
+                      pAlloc.forEach(fac => {
+                        const fObj = db.faculty.find(f => f.code === fac);
+                        const staffId = fObj ? fObj.staffId : fac;
+                        if (!staffIds.includes(staffId)) {
+                          staffIds.push(staffId);
+                        }
+                      });
+                      const cleanDisplayCode = allocCode.replace(/-(T|P)$/, '').replace(/_C\d+$/, '');
+                      if (!subjectCodes.includes(cleanDisplayCode)) {
+                        subjectCodes.push(cleanDisplayCode);
+                      }
+                      if (course.roomNo) {
+                        roomNo = course.roomNo;
+                      }
+                      hasAllocations = true;
                     }
-                  });
-                  if (!subjectCodes.includes(course.code)) {
-                    subjectCodes.push(course.code.replace(/_G\d+$/, ''));
                   }
-                  if (course.roomNo) {
-                    roomNo = course.roomNo;
-                  }
-                  hasAllocations = true;
                 }
-              }
+              });
             });
           });
 

@@ -26,7 +26,9 @@ let state = {
   filters: {
     semester: '',
     category: ''
-  }
+  },
+  allBatches: [],
+  groupMappings: {}
 };
 
 let autosaveTimer = null;
@@ -284,17 +286,21 @@ async function loadLoginDepartments() {
 
 async function fetchGlobalData() {
   try {
-    const [configRes, deptsRes, coursesRes, facultyRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
       authFetch(`${API_BASE}/courses`),
-      authFetch(`${API_BASE}/faculty`)
+      authFetch(`${API_BASE}/faculty`),
+      authFetch(`${API_BASE}/batches`),
+      authFetch(`${API_BASE}/admin/group-mappings`)
     ]);
     
     state.config = await configRes.json();
     state.departments = await deptsRes.json();
     state.courses = await coursesRes.json();
     state.faculty = await facultyRes.json();
+    state.allBatches = await batchesRes.json();
+    state.groupMappings = await groupRes.json();
   } catch (err) {
     console.error(err);
   }
@@ -536,6 +542,76 @@ function bindDeptEvents() {
     });
   }
 
+  // Department Group & Batch Assignment Modal Events
+  const modalDeptMapping = document.getElementById('modal-dept-group-mapping');
+  const btnCloseDeptMapping = document.getElementById('btn-close-dept-group-mapping-modal');
+  const btnSaveDeptMapping = document.getElementById('btn-save-dept-group-mapping');
+  const deptGroupCountSelect = document.getElementById('dept-group-count-select');
+
+  if (btnCloseDeptMapping) {
+    btnCloseDeptMapping.addEventListener('click', () => {
+      modalDeptMapping.classList.add('hidden');
+    });
+  }
+
+  if (deptGroupCountSelect) {
+    deptGroupCountSelect.addEventListener('change', () => {
+      const courseCode = document.getElementById('dept-mapping-course-code').value;
+      const course = state.courses.find(c => c.code === courseCode);
+      if (!course) return;
+
+      const deptName = state.currentUser.departmentName.toUpperCase();
+      const programCode = course.programType === 'PG' ? 'P' : 'U';
+      const fundingCode = '1';
+
+      const batchForDept = state.allBatches.find(b => b.deptName && b.deptName.toUpperCase() === deptName);
+      const deptCode = batchForDept ? batchForDept.deptCode : '';
+
+      const batchForYear = state.allBatches.find(b => b.semesters && b.semesters.map(String).includes(String(course.semester)));
+      const year = batchForYear ? batchForYear.year : '';
+
+      const defaultBatchId = (programCode + fundingCode + deptCode + year).toUpperCase();
+
+      renderDeptGroupSelects(course, defaultBatchId);
+    });
+  }
+
+  if (btnSaveDeptMapping) {
+    btnSaveDeptMapping.addEventListener('click', async () => {
+      const courseCode = document.getElementById('dept-mapping-course-code').value;
+      const countVal = parseInt(deptGroupCountSelect.value) || 1;
+      
+      const selects = document.querySelectorAll('.dept-group-select-item');
+      const selectedBatches = Array.from(selects).map(s => s.value);
+
+      try {
+        const res = await authFetch(`${API_BASE}/courses/class-config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            courseCode,
+            classes: countVal,
+            batches: selectedBatches,
+            departmentName: state.currentUser.departmentName
+          })
+        });
+
+        if (res.ok) {
+          modalDeptMapping.classList.add('hidden');
+          showModalAlert('Success', 'Class configurations and batch mappings updated successfully!', 'success');
+          await fetchGlobalData();
+          await loadDepartmentWorkspace();
+        } else {
+          const err = await res.json();
+          showModalAlert('Error', err.message || 'Failed to save changes.', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Error', 'Connection error while saving mappings.', 'danger');
+      }
+    });
+  }
+
 
 
   // Save All buttons
@@ -661,35 +737,50 @@ function renderAllocationMatrix() {
     }
 
     baseCourseCodes.forEach(baseCode => {
-      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches } = getMergedCourseInfo(baseCode, deptCourses);
-      const tr = document.createElement('tr');
-      const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
-      tr.innerHTML = `
-        <td style="text-align:left;">${formattedCode}</td>
-        <td style="text-align:left;" title="${dispName}">
-          <span class="badge badge-info">${dispAlias}</span>
-        </td>
-      `;
+      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches, classes } = getMergedCourseInfo(baseCode, deptCourses);
+      
+      const count = classes > 1 ? classes : 1;
+      for (let cl = 1; cl <= count; cl++) {
+        const isCloned = classes > 1;
+        const rowBatchesWeek = isCloned
+          ? (state.groupMappings[`${baseCode}_C${cl}`] || [])
+          : mappedBatches;
+        const classBadgeTooltip = isCloned
+          ? (rowBatchesWeek.length > 0 ? `Batch: ${rowBatchesWeek.join(', ')}` : 'No batch mapped')
+          : '';
+        const formattedCode = isCloned
+          ? `${baseCode} <span class="badge" title="${classBadgeTooltip}" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px; cursor: help;">Class ${cl}</span>`
+          : formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+        const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="text-align:left;">${formattedCode}</td>
+          <td style="text-align:left;" title="${dispName}">
+            <span class="badge badge-info">${rowAlias}</span>
+          </td>
+        `;
 
-      // Render cells sequentially for MON-FRI and P1-P6
-      weekdays.forEach(day => {
-        periods.forEach(p => {
-          const td = document.createElement('td');
-          if (p.toUpperCase() === 'LB') {
-            td.className = 'slot-lb';
-            td.textContent = 'LB';
+        // Render cells sequentially for MON-FRI and P1-P6
+        weekdays.forEach(day => {
+          periods.forEach(p => {
+            const td = document.createElement('td');
+            if (p.toUpperCase() === 'LB') {
+              td.className = 'slot-lb';
+              td.textContent = 'LB';
+              tr.appendChild(td);
+              return;
+            }
+
+            const cellHtml = renderCellSlot(baseCode, courseT, courseP, day, p, isCloned ? cl : null);
+            td.className = cellHtml.classes;
+            td.innerHTML = cellHtml.html;
             tr.appendChild(td);
-            return;
-          }
-
-          const cellHtml = renderCellSlot(baseCode, courseT, courseP, day, p);
-          td.className = cellHtml.classes;
-          td.innerHTML = cellHtml.html;
-          tr.appendChild(td);
+          });
         });
-      });
 
-      tbody.appendChild(tr);
+        tbody.appendChild(tr);
+      }
     });
 
   // -----------------------------------------------------------
@@ -718,40 +809,53 @@ function renderAllocationMatrix() {
     }
 
     baseCourseCodes.forEach(baseCode => {
-      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches } = getMergedCourseInfo(baseCode, deptCourses);
-      const tr = document.createElement('tr');
-      const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
-      tr.innerHTML = `
-        <td style="text-align:left;">${formattedCode}</td>
-        <td style="text-align:left;">
-          <span class="badge badge-info">${dispAlias}</span>
-          <div class="text-sm bold text-muted">${dispName}</div>
-        </td>
-        <td>${sem}</td>
-        <td>${cat}</td>
-        <td style="text-align:left;">
-          ${mappedBatches.length > 0
-            ? mappedBatches.map(b => `<span class="badge badge-info" style="margin:2px; font-size:11px;">${b}</span>`).join('')
-            : '<span class="text-muted text-sm">-</span>'}
-        </td>
-      `;
+      const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches, classes } = getMergedCourseInfo(baseCode, deptCourses);
+      
+      const count = classes > 1 ? classes : 1;
+      for (let cl = 1; cl <= count; cl++) {
+        const isCloned = classes > 1;
+        const formattedCode = isCloned
+          ? `${baseCode} <span class="badge" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">Class ${cl}</span>`
+          : formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+        const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
+        
+        const rowBatches = isCloned
+          ? (state.groupMappings[`${baseCode}_C${cl}`] || [])
+          : mappedBatches;
+          
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="text-align:left;">${formattedCode}</td>
+          <td style="text-align:left;">
+            <span class="badge badge-info">${rowAlias}</span>
+            <div class="text-sm bold text-muted">${dispName}</div>
+          </td>
+          <td>${sem}</td>
+          <td>${cat}</td>
+          <td style="text-align:left;">
+            ${rowBatches.length > 0
+              ? rowBatches.map(b => `<span class="badge badge-info" style="margin:2px; font-size:11px;">${b}</span>`).join('')
+              : '<span class="text-muted text-sm">-</span>'}
+          </td>
+        `;
 
-      periods.forEach(p => {
-        const td = document.createElement('td');
-        if (p.toUpperCase() === 'LB') {
-          td.className = 'slot-lb';
-          td.textContent = 'LB';
+        periods.forEach(p => {
+          const td = document.createElement('td');
+          if (p.toUpperCase() === 'LB') {
+            td.className = 'slot-lb';
+            td.textContent = 'LB';
+            tr.appendChild(td);
+            return;
+          }
+
+          const cellHtml = renderCellSlot(baseCode, courseT, courseP, state.selectedDay, p, isCloned ? cl : null);
+          td.className = cellHtml.classes;
+          td.innerHTML = cellHtml.html;
           tr.appendChild(td);
-          return;
-        }
+        });
 
-        const cellHtml = renderCellSlot(baseCode, courseT, courseP, state.selectedDay, p);
-        td.className = cellHtml.classes;
-        td.innerHTML = cellHtml.html;
-        tr.appendChild(td);
-      });
-
-      tbody.appendChild(tr);
+        tbody.appendChild(tr);
+      }
     });
   }
 }
@@ -768,7 +872,7 @@ function getMergedCourseInfo(baseCode, deptCourses) {
     }
   }
   
-  const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-', group: 0, mappedBatches: [] };
+  const activeCourse = courseT || courseP || { name: baseCode, alias: baseCode, semester: '-', category: '-', group: 0, mappedBatches: [], classes: 1 };
   
   return {
     courseT,
@@ -778,13 +882,14 @@ function getMergedCourseInfo(baseCode, deptCourses) {
     sem: activeCourse.semester,
     cat: activeCourse.category,
     group: activeCourse.group || 0,
-    mappedBatches: activeCourse.mappedBatches || []
+    mappedBatches: activeCourse.mappedBatches || [],
+    classes: activeCourse.classes || 1
   };
 }
 
 
 // Renders the interactive contents of a grid cell
-function renderCellSlot(baseCode, courseT, courseP, day, period) {
+function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = null) {
   const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
   const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
   
@@ -792,7 +897,16 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
   
   let highlightClass = 'slot-recommend-none';
   let slotLabel = '';
-  let activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
+  
+  // Calculate keys for lookup based on class index if provided
+  let courseTCode = courseT ? courseT.code : '';
+  let coursePCode = courseP ? courseP.code : '';
+  if (classIndex) {
+    courseTCode = courseT ? `${baseCode}_C${classIndex}-T` : '';
+    coursePCode = courseP ? `${baseCode}_C${classIndex}-P` : '';
+  }
+  
+  let activeCourseCode = courseTCode || coursePCode;
 
   if (isM) {
     highlightClass = 'slot-recommend-m';
@@ -800,26 +914,26 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
   } else if (recT === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = courseT.code;
+    activeCourseCode = courseTCode;
   } else if (recP === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = courseP.code;
+    activeCourseCode = coursePCode;
   } else if (recT === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = courseT.code;
+    activeCourseCode = courseTCode;
   } else if (recP === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = courseP.code;
+    activeCourseCode = coursePCode;
   } else {
-    activeCourseCode = (courseT ? courseT.code : '') || (courseP ? courseP.code : '');
+    activeCourseCode = courseTCode || coursePCode;
   }
 
   // Load active assigned codes for this slot (merging allocations from both suffixes if any)
-  const assignedT = (courseT && state.allocations[courseT.code] && state.allocations[courseT.code][day] && state.allocations[courseT.code][day][period]) || [];
-  const assignedP = (courseP && state.allocations[courseP.code] && state.allocations[courseP.code][day] && state.allocations[courseP.code][day][period]) || [];
+  const assignedT = (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period]) || [];
+  const assignedP = (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period]) || [];
   const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
 
   // Render assigned pills with dark red crosses and tooltips
@@ -830,8 +944,8 @@ function renderCellSlot(baseCode, courseT, courseP, day, period) {
     const fullName = facObj ? facObj.name : facCode;
     
     let targetCode = activeCourseCode;
-    if (courseT && assignedT.includes(facCode)) targetCode = courseT.code;
-    else if (courseP && assignedP.includes(facCode)) targetCode = courseP.code;
+    if (courseTCode && assignedT.includes(facCode)) targetCode = courseTCode;
+    else if (coursePCode && assignedP.includes(facCode)) targetCode = coursePCode;
 
     const crossIcon = locked ? '' : `<i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>`;
 
@@ -996,8 +1110,10 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     // Close faculty selector modal first
     document.getElementById('modal-faculty-select').classList.add('hidden');
     
-    // Auto-fill triggers
-    const course = state.courses.find(c => c.code === courseCode);
+    // Auto-fill triggers — resolve base course for recommendations (handles _C1/_C2 suffixed codes)
+    const baseCodeForRec = courseCode.replace(/_C\d+/, '');
+    const course = state.courses.find(c => c.code === courseCode) 
+               || state.courses.find(c => c.code === baseCodeForRec);
     const recType = (course && course.recommendations[day] && course.recommendations[day][period]) || '';
     if (recType === 'T' || recType === 'P') {
       showAutoFillPrompt(courseCode, recType, facultyCode);
@@ -1046,26 +1162,31 @@ function showAutoFillPrompt(courseCode, type, facultyCode) {
 document.getElementById('btn-autofill-all').addEventListener('click', () => {
   if (autoFillContext) {
     const { courseCode, type, facultyCode } = autoFillContext;
-    const course = state.courses.find(c => c.code === courseCode);
+    // Resolve base course for recommendations (handles _C1/_C2 class-suffixed codes)
+    const baseCodeForRec = courseCode.replace(/_C\d+/, '');
+    const course = state.courses.find(c => c.code === courseCode)
+               || state.courses.find(c => c.code === baseCodeForRec);
     const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
     
-    weekdays.forEach(d => {
-      const recs = course.recommendations[d] || {};
-      Object.keys(recs).forEach(p => {
-        if (recs[p] === type) {
-          const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
-          if (!hasClash) {
-            if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-            if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
-            if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
-            
-            if (!state.allocations[courseCode][d][p].includes(facultyCode)) {
-              state.allocations[courseCode][d][p].push(facultyCode);
+    if (course) {
+      weekdays.forEach(d => {
+        const recs = course.recommendations[d] || {};
+        Object.keys(recs).forEach(p => {
+          if (recs[p] === type) {
+            const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
+            if (!hasClash) {
+              if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+              if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
+              if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
+              
+              if (!state.allocations[courseCode][d][p].includes(facultyCode)) {
+                state.allocations[courseCode][d][p].push(facultyCode);
+              }
             }
           }
-        }
+        });
       });
-    });
+    }
   }
   closeAutoFill();
 });
@@ -1214,6 +1335,22 @@ function renderDeptDataEditors() {
   const coursesTbody = document.querySelector('#table-dept-courses tbody');
   coursesTbody.innerHTML = '';
   deptCourses.forEach(c => {
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+    let mapped = [];
+    if (c.classes && c.classes > 1) {
+      for (let i = 1; i <= c.classes; i++) {
+        const list = state.groupMappings[`${cleanCode}_C${i}`] || [];
+        if (list.length > 0) {
+          mapped.push(`C${i}: ${list.join('/')}`);
+        }
+      }
+    } else {
+      mapped = state.groupMappings[cleanCode] || [];
+    }
+    const batchListHtml = mapped.length > 0 
+      ? mapped.map(b => `<span class="badge badge-info" style="font-size: 11px; margin-right: 4px;">${b}</span>`).join('')
+      : `<span class="text-muted text-sm">None</span>`;
+
     const tr = document.createElement('tr');
     const formattedCode = formatCourseCodeWithGroup(c.code, c.group, c.mappedBatches);
     tr.innerHTML = `
@@ -1225,6 +1362,16 @@ function renderDeptDataEditors() {
       </td>
       <td>
         <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}" ${locked ? 'disabled' : ''}>
+      </td>
+      <td>
+        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; max-width: 250px;">
+          <div style="display:flex; flex-wrap:wrap; gap:4px; flex:1;">${batchListHtml}</div>
+          ${String(c.semester) === '5' ? `
+            <button class="btn btn-outline btn-xs" style="padding: 2px 6px; font-size:10px; margin-left: auto;" onclick="openDeptBatchMappingModal('${c.code}')" ${locked ? 'disabled' : ''}>
+              <i class="fa-solid fa-edit"></i> Map
+            </button>
+          ` : ''}
+        </div>
       </td>
       <td>
         <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
@@ -1400,9 +1547,27 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   const weekdayShort = { "MONDAY": "MON", "TUESDAY": "TUES", "WEDNESDAY": "WED", "THURSDAY": "THUR", "FRIDAY": "FRI" };
 
+  // Expand courses that have classes > 1 into virtual course objects!
+  const expandedCourses = [];
+  courses.forEach(c => {
+    if (c.classes && c.classes > 1) {
+      for (let cl = 1; cl <= c.classes; cl++) {
+        const base = c.code.replace(/-(T|P)$/, '');
+        const suffix = c.code.match(/-(T|P)$/) ? c.code.match(/-(T|P)$/)[0] : '';
+        expandedCourses.push({
+          ...c,
+          code: `${base}_C${cl}${suffix}`,
+          classNum: cl
+        });
+      }
+    } else {
+      expandedCourses.push(c);
+    }
+  });
+
   weekdays.forEach(day => {
     const categoriesMap = {};
-    courses.forEach(c => {
+    expandedCourses.forEach(c => {
       const cat = getTimetableRowCategory(c);
       if (!categoriesMap[cat]) categoriesMap[cat] = [];
       categoriesMap[cat].push(c);
@@ -1537,8 +1702,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-  const groupSuffix = course.group > 0 ? ` (G${course.group})` : '';
+  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const groupSuffix = course.group > 0 ? ` (G${course.group})` : (course.classNum ? ` (Class ${course.classNum})` : '');
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -1592,6 +1757,103 @@ function exportPrintTimetableToCSV() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+
+// -------------------------------------------------------------
+// Department Group & Batch Assignment Modal Helpers
+// -------------------------------------------------------------
+window.openDeptBatchMappingModal = function(courseCode) {
+  const course = state.courses.find(c => c.code === courseCode);
+  if (!course) return;
+
+  document.getElementById('dept-mapping-course-code').value = courseCode;
+  document.getElementById('dept-mapping-course-title').textContent = `${course.code} - ${course.name}`;
+  document.getElementById('dept-mapping-course-meta').textContent = `Semester: ${course.semester} | Category: ${course.category}`;
+  
+  const currentCount = course.classes || 1;
+
+  const countSelect = document.getElementById('dept-group-count-select');
+  countSelect.value = String(currentCount);
+
+  // Populate datalist options with all batches
+  const datalist = document.getElementById('dept-batch-datalist');
+  if (datalist) {
+    datalist.innerHTML = '';
+    state.allBatches.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.batchId;
+      opt.textContent = `${b.batchId} - ${b.batchLabel}`;
+      datalist.appendChild(opt);
+    });
+  }
+
+  // Calculate default batch ID
+  const deptName = state.currentUser.departmentName.toUpperCase();
+  const programCode = course.programType === 'PG' ? 'P' : 'U';
+  const fundingCode = '1'; // Aided only
+
+  const batchForDept = state.allBatches.find(b => b.deptName && b.deptName.toUpperCase() === deptName);
+  const deptCode = batchForDept ? batchForDept.deptCode : '';
+
+  const batchForYear = state.allBatches.find(b => b.semesters && b.semesters.map(String).includes(String(course.semester)));
+  const year = batchForYear ? batchForYear.year : '';
+
+  const defaultBatchId = (programCode + fundingCode + deptCode + year).toUpperCase();
+
+  renderDeptGroupSelects(course, defaultBatchId);
+
+  document.getElementById('modal-dept-group-mapping').classList.remove('hidden');
+};
+
+function renderDeptGroupSelects(course, defaultBatchId) {
+  const listContainer = document.getElementById('dept-group-selectors-list');
+  listContainer.innerHTML = '';
+
+  const countSelect = document.getElementById('dept-group-count-select');
+  const count = parseInt(countSelect.value) || 1;
+
+  const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+
+  for (let i = 1; i <= count; i++) {
+    const div = document.createElement('div');
+    div.className = 'form-group mb-2';
+    div.style.display = 'flex';
+    div.style.flexDirection = 'column';
+    div.style.gap = '4px';
+
+    const label = document.createElement('label');
+    label.style.fontWeight = '600';
+    label.style.fontSize = '12px';
+    label.textContent = `Class ${i} Batch:`;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-control dept-group-select-item';
+    input.setAttribute('list', 'dept-batch-datalist');
+    input.placeholder = 'Type department or code...';
+    input.dataset.groupIndex = i;
+
+    // Load preselected batch dynamically matching C{i} or fallback to default
+    let savedBatch = '';
+    if (count > 1) {
+      savedBatch = (state.groupMappings[`${cleanCode}_C${i}`] && state.groupMappings[`${cleanCode}_C${i}`][0]) || '';
+    } else {
+      savedBatch = (state.groupMappings[cleanCode] && state.groupMappings[cleanCode][0]) || '';
+    }
+
+    const preselected = savedBatch || defaultBatchId;
+    input.value = preselected;
+
+    // Focus input to highlight current value on click
+    input.addEventListener('click', () => {
+      input.select();
+    });
+
+    div.appendChild(label);
+    div.appendChild(input);
+    listContainer.appendChild(div);
+  }
 }
 
 

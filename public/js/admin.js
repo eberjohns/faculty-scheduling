@@ -1483,9 +1483,27 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
   const weekdayShort = { "MONDAY": "MON", "TUESDAY": "TUES", "WEDNESDAY": "WED", "THURSDAY": "THUR", "FRIDAY": "FRI" };
 
+  // Expand courses that have classes > 1 into virtual course objects!
+  const expandedCourses = [];
+  courses.forEach(c => {
+    if (c.classes && c.classes > 1) {
+      for (let cl = 1; cl <= c.classes; cl++) {
+        const base = c.code.replace(/-(T|P)$/, '');
+        const suffix = c.code.match(/-(T|P)$/) ? c.code.match(/-(T|P)$/)[0] : '';
+        expandedCourses.push({
+          ...c,
+          code: `${base}_C${cl}${suffix}`,
+          classNum: cl
+        });
+      }
+    } else {
+      expandedCourses.push(c);
+    }
+  });
+
   weekdays.forEach(day => {
     const categoriesMap = {};
-    courses.forEach(c => {
+    expandedCourses.forEach(c => {
       const cat = getTimetableRowCategory(c);
       if (!categoriesMap[cat]) categoriesMap[cat] = [];
       categoriesMap[cat].push(c);
@@ -1620,8 +1638,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-  const groupSuffix = course.group > 0 ? ` (G${course.group})` : '';
+  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const groupSuffix = course.group > 0 ? ` (G${course.group})` : (course.classNum ? ` (Class ${course.classNum})` : '');
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
