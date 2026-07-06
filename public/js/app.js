@@ -68,26 +68,32 @@ function getImplicitBatch(course) {
 // If classIndex is provided (e.g. 1, 2), it resolves batches specifically for that class.
 function getCourseClassBatches(course, classIndex = null) {
   if (!course) return [];
-  const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+  const keyWithGroup = course.code.replace(/-(T|P)$/, '').replace(/_C\d+$/, '');
+  const keyWithoutGroup = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
 
   if (classIndex) {
-    const list = state.groupMappings[`${cleanCode}_C${classIndex}`] || [];
+    const list = state.groupMappings[`${keyWithoutGroup}_C${classIndex}`] || state.groupMappings[`${keyWithGroup}_C${classIndex}`] || [];
     if (list.length > 0) return list;
   } else {
     let mapped = [];
     if (course.classes && course.classes > 1) {
       for (let i = 1; i <= course.classes; i++) {
-        const list = state.groupMappings[`${cleanCode}_C${i}`] || [];
+        const list = state.groupMappings[`${keyWithoutGroup}_C${i}`] || state.groupMappings[`${keyWithGroup}_C${i}`] || [];
         if (list.length > 0) {
           mapped.push(`C${i}: ${list.join('/')}`);
         }
       }
     } else {
-      mapped = state.groupMappings[cleanCode] || [];
+      mapped = state.groupMappings[keyWithGroup] || state.groupMappings[keyWithoutGroup] || [];
     }
     if (mapped.length > 0) {
       return mapped;
     }
+  }
+
+  // If this is a grouped course (elective), do not fallback to implicit department batch
+  if (course.group && course.group > 0) {
+    return [];
   }
 
   return getImplicitBatch(course);
@@ -1396,8 +1402,7 @@ function renderDeptDataEditors() {
 
     const tr = document.createElement('tr');
     // For tooltip and visual code formatting, fetch appropriate batches list
-    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
-    const mappedBaseBatches = state.groupMappings[cleanCode] || getImplicitBatch(c);
+    const mappedBaseBatches = getCourseClassBatches(c);
     const formattedCode = formatCourseCodeWithGroup(c.code, c.group, mappedBaseBatches);
     tr.innerHTML = `
       <td><strong>${formattedCode}</strong></td>
