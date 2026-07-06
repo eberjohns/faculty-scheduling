@@ -46,9 +46,9 @@ so add a new column UG/PG/INT(for integrated) to the courses. and if not mention
 this will make it much easier for them to get a batch
 - give an export button which exports all the course codes and groups which needs batches assigned as csv or excel, so that it can be added in excel via some souce and we should be able to upload the new excel with batches either the batches being comma sepertaed in the batches column or the batces will be in each row with the course code merged like in the attached
  
+- in the department view, the slot headers(course code, 1,2,3,.. and the monday, teusday selection too) should be persistent, it should be visible even after scrolling for the slot section
+- in department view, make a way to add groups for major courses if they want and assign batches in department section itself(the recommended batch being the same depatment and same filters)
 _____________________________________________________________________________________________
 
 TODO:
 
-- in the department view, the slot headers(course code, 1,2,3,.. and the monday, teusday selection too) should be persistent, it should be visible even after scrolling for the slot section
-- in department view, make a way to add groups for major courses if they want and assign batches in department section itself(the recommended batch being the same depatment and same filters)
