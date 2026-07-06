@@ -48,7 +48,10 @@ this will make it much easier for them to get a batch
  
 - in the department view, the slot headers(course code, 1,2,3,.. and the monday, teusday selection too) should be persistent, it should be visible even after scrolling for the slot section
 - in department view, make a way to add groups for major courses if they want and assign batches in department section itself(the recommended batch being the same depatment and same filters)
+
+- once submitted, department can't change, anything right, so show some dialogue when they try to edit slot/alias or anything because else they would be confused
+- show the category from the 'Category' column in excel(i have added it)
+- also show the batch for all the courses since we are allocation for everything
 _____________________________________________________________________________________________
 
 TODO:
-

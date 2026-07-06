@@ -602,7 +602,6 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
     const DAY_MAP = { MON: 'MONDAY', TUE: 'TUESDAY', WED: 'WEDNESDAY', THU: 'THURSDAY', FRI: 'FRIDAY' };
     const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
 
-    // Named metadata column indices (detected by header name)
     let codeColIdx  = -1;
     let groupColIdx = -1;
     let typeColIdx  = -1;
@@ -610,39 +609,41 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
     let deptColIdx  = -1;
     let semColIdx   = -1;
     let programColIdx = -1;
-
-    // Slot columns: { idx, day (full), period (label string) }
-    const slotCols = [];
-    const periodSet = new Set(); // unique period labels in order
-
-    for (let c = 0; c < headerRow.length; c++) {
-      const hdr = String(headerRow[c] || '').trim();
-      const hdrLow = hdr.toLowerCase();
-
-      // Check for slot columns: pattern DAY-N (e.g. MON-1, TUE-LB, etc.)
-      const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI)-(.+)$/i);
-      if (slotMatch) {
-        const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
-        const period  = slotMatch[2].trim(); // e.g. "1", "2", "LB"
-        if (dayFull && period.toUpperCase() !== 'LB') {
-          // Only real period columns (skip lunch break)
-          slotCols.push({ idx: c, day: dayFull, period });
-          periodSet.add(period);
-        }
-        continue;
-      }
-
-      // Named metadata columns (case-insensitive)
-      if (hdrLow === 'course code' || hdrLow === 'coursecode') { codeColIdx  = c; continue; }
-      if (hdrLow === 'group')                                   { groupColIdx = c; continue; }
-      if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
-      if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
-      if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
-      if (hdrLow === 'semester'    || hdrLow === 'sem')         { semColIdx   = c; continue; }
-      if (hdrLow === 'program'     || hdrLow === 'prog' || hdrLow === 'program type' || hdrLow === 'programtype') { programColIdx = c; continue; }
-    }
-
-    const is_new_format = codeColIdx !== -1;
+    let categoryColIdx = -1;
+ 
+     // Slot columns: { idx, day (full), period (label string) }
+     const slotCols = [];
+     const periodSet = new Set(); // unique period labels in order
+ 
+     for (let c = 0; c < headerRow.length; c++) {
+       const hdr = String(headerRow[c] || '').trim();
+       const hdrLow = hdr.toLowerCase();
+ 
+       // Check for slot columns: pattern DAY-N (e.g. MON-1, TUE-LB, etc.)
+       const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI)-(.+)$/i);
+       if (slotMatch) {
+         const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
+         const period  = slotMatch[2].trim(); // e.g. "1", "2", "LB"
+         if (dayFull && period.toUpperCase() !== 'LB') {
+           // Only real period columns (skip lunch break)
+           slotCols.push({ idx: c, day: dayFull, period });
+           periodSet.add(period);
+         }
+         continue;
+       }
+ 
+       // Named metadata columns (case-insensitive)
+       if (hdrLow === 'course code' || hdrLow === 'coursecode') { codeColIdx  = c; continue; }
+       if (hdrLow === 'group')                                   { groupColIdx = c; continue; }
+       if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
+       if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
+       if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
+       if (hdrLow === 'semester'    || hdrLow === 'sem')         { semColIdx   = c; continue; }
+       if (hdrLow === 'program'     || hdrLow === 'prog' || hdrLow === 'program type' || hdrLow === 'programtype') { programColIdx = c; continue; }
+       if (hdrLow === 'category'    || hdrLow === 'cat' || hdrLow === 'course category' || hdrLow === 'coursecategory') { categoryColIdx = c; continue; }
+     }
+ 
+     const is_new_format = codeColIdx !== -1;
 
     if (!is_new_format) {
       return res.status(400).json({
@@ -748,6 +749,14 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         program_val = dbMatch.programType;
       }
 
+      // Parse Course Category
+      let category_val = 'MAJOR';
+      if (categoryColIdx >= 0 && row[categoryColIdx] !== undefined && row[categoryColIdx] !== null) {
+        category_val = String(row[categoryColIdx]).trim().toUpperCase();
+      } else if (dbMatch && dbMatch.category) {
+        category_val = dbMatch.category;
+      }
+
       // -------------------------------------------------------
       // Step 3: Extract recommended slots from slot columns
       // A cell is marked if it contains the same value as type_val (T or P)
@@ -818,7 +827,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         department,
         pathway:     String(row[0] || 'SINGLE MAJOR').trim(),
         semester,
-        category:    'MAJOR',
+        category:    category_val,
         roomNo:      '',
         batch:       '',
         hours,

@@ -45,6 +45,54 @@ function formatCourseCodeWithGroup(code, group, mappedBatches = []) {
   return base;
 }
 
+// Get the implicitly determined batch based on program, department, semester, and funding
+function getImplicitBatch(course) {
+  if (!state.currentUser || !state.currentUser.departmentName || !course) return [];
+  const deptName = state.currentUser.departmentName.toUpperCase();
+  const programCode = course.programType === 'PG' ? 'P' : 'U';
+  const fundingCode = '1'; // Default to Aided
+
+  const batchForDept = state.allBatches.find(b => b.deptName && b.deptName.toUpperCase() === deptName);
+  const deptCode = batchForDept ? batchForDept.deptCode : '';
+
+  const batchForYear = state.allBatches.find(b => b.semesters && b.semesters.map(String).includes(String(course.semester)));
+  const year = batchForYear ? batchForYear.year : '';
+
+  if (deptCode && year) {
+    return [(programCode + fundingCode + deptCode + year).toUpperCase()];
+  }
+  return [];
+}
+
+// Get final batches array for a course (explicit mapping or implicit default fallback)
+// If classIndex is provided (e.g. 1, 2), it resolves batches specifically for that class.
+function getCourseClassBatches(course, classIndex = null) {
+  if (!course) return [];
+  const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+
+  if (classIndex) {
+    const list = state.groupMappings[`${cleanCode}_C${classIndex}`] || [];
+    if (list.length > 0) return list;
+  } else {
+    let mapped = [];
+    if (course.classes && course.classes > 1) {
+      for (let i = 1; i <= course.classes; i++) {
+        const list = state.groupMappings[`${cleanCode}_C${i}`] || [];
+        if (list.length > 0) {
+          mapped.push(`C${i}: ${list.join('/')}`);
+        }
+      }
+    } else {
+      mapped = state.groupMappings[cleanCode] || [];
+    }
+    if (mapped.length > 0) {
+      return mapped;
+    }
+  }
+
+  return getImplicitBatch(course);
+}
+
 
 function isTimetableLocked() {
   if (!state.currentUser || !state.currentUser.departmentName) return false;
@@ -742,15 +790,14 @@ function renderAllocationMatrix() {
       const count = classes > 1 ? classes : 1;
       for (let cl = 1; cl <= count; cl++) {
         const isCloned = classes > 1;
-        const rowBatchesWeek = isCloned
-          ? (state.groupMappings[`${baseCode}_C${cl}`] || [])
-          : mappedBatches;
+        const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
+        const rowBatchesWeek = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
         const classBadgeTooltip = isCloned
           ? (rowBatchesWeek.length > 0 ? `Batch: ${rowBatchesWeek.join(', ')}` : 'No batch mapped')
           : '';
         const formattedCode = isCloned
           ? `${baseCode} <span class="badge" title="${classBadgeTooltip}" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px; cursor: help;">Class ${cl}</span>`
-          : formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+          : formatCourseCodeWithGroup(baseCode, group, rowBatchesWeek);
         const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
         
         const tr = document.createElement('tr');
@@ -814,14 +861,12 @@ function renderAllocationMatrix() {
       const count = classes > 1 ? classes : 1;
       for (let cl = 1; cl <= count; cl++) {
         const isCloned = classes > 1;
+        const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
+        const rowBatches = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
         const formattedCode = isCloned
           ? `${baseCode} <span class="badge" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">Class ${cl}</span>`
-          : formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+          : formatCourseCodeWithGroup(baseCode, group, rowBatches);
         const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
-        
-        const rowBatches = isCloned
-          ? (state.groupMappings[`${baseCode}_C${cl}`] || [])
-          : mappedBatches;
           
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -975,7 +1020,16 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
 }
 
 window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, period) {
-  if (isTimetableLocked()) return;
+  if (isTimetableLocked()) {
+    const deptName = state.currentUser ? state.currentUser.departmentName : '';
+    const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+    showModalAlert(
+      'Timetable Locked',
+      `Your timetable is currently ${deptInfo.status}. You cannot make any changes to allocations unless you revert the submission or ask the Admin to unlock it.`,
+      'info'
+    );
+    return;
+  }
   const cell = cellContainer.closest('td');
   
   const openSelector = () => {
@@ -1335,24 +1389,16 @@ function renderDeptDataEditors() {
   const coursesTbody = document.querySelector('#table-dept-courses tbody');
   coursesTbody.innerHTML = '';
   deptCourses.forEach(c => {
-    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
-    let mapped = [];
-    if (c.classes && c.classes > 1) {
-      for (let i = 1; i <= c.classes; i++) {
-        const list = state.groupMappings[`${cleanCode}_C${i}`] || [];
-        if (list.length > 0) {
-          mapped.push(`C${i}: ${list.join('/')}`);
-        }
-      }
-    } else {
-      mapped = state.groupMappings[cleanCode] || [];
-    }
+    const mapped = getCourseClassBatches(c);
     const batchListHtml = mapped.length > 0 
       ? mapped.map(b => `<span class="badge badge-info" style="font-size: 11px; margin-right: 4px;">${b}</span>`).join('')
       : `<span class="text-muted text-sm">None</span>`;
 
     const tr = document.createElement('tr');
-    const formattedCode = formatCourseCodeWithGroup(c.code, c.group, c.mappedBatches);
+    // For tooltip and visual code formatting, fetch appropriate batches list
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+    const mappedBaseBatches = state.groupMappings[cleanCode] || getImplicitBatch(c);
+    const formattedCode = formatCourseCodeWithGroup(c.code, c.group, mappedBaseBatches);
     tr.innerHTML = `
       <td><strong>${formattedCode}</strong></td>
       <td>${c.semester}</td>
@@ -1397,6 +1443,36 @@ function renderDeptDataEditors() {
     `;
     facultyTbody.appendChild(tr);
   });
+
+  // Setup click warning handler on details tab when locked
+  const tableCourses = document.getElementById('table-dept-courses');
+  if (tableCourses) {
+    tableCourses.onclick = (e) => {
+      if (isTimetableLocked()) {
+        const deptName = state.currentUser ? state.currentUser.departmentName : '';
+        const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+        showModalAlert(
+          'Timetable Locked',
+          `Your timetable is currently ${deptInfo.status}. You cannot edit course aliases or map batches unless you revert the submission or ask the Admin to unlock it.`,
+          'info'
+        );
+      }
+    };
+  }
+  const tableFaculty = document.getElementById('table-dept-faculty');
+  if (tableFaculty) {
+    tableFaculty.onclick = (e) => {
+      if (isTimetableLocked()) {
+        const deptName = state.currentUser ? state.currentUser.departmentName : '';
+        const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+        showModalAlert(
+          'Timetable Locked',
+          `Your timetable is currently ${deptInfo.status}. You cannot edit faculty visual initials codes unless you revert the submission or ask the Admin to unlock it.`,
+          'info'
+        );
+      }
+    };
+  }
 }
 
 window.saveDeptCourseRecord = async function(code) {
@@ -1531,15 +1607,29 @@ function buildPrintTimetableHtml(displayMode) {
   renderPrintGridRows(deptCourses, state.allocations, periods, displayMode, tbody);
 }
 
+function formatCategory(cat) {
+  if (!cat) return "Major";
+  const upper = cat.toUpperCase();
+  if (["MDC", "SEC", "AEC", "VAC", "OEC", "VBC"].includes(upper)) {
+    return upper;
+  }
+  return upper.charAt(0) + upper.slice(1).toLowerCase();
+}
+
 function getTimetableRowCategory(course) {
   const semLabel = state.config.semesterLabels[course.semester] || `${course.semester} Sem`;
-  if (course.code.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('POST GRADUATE')) {
-    return semLabel + " MSC";
+  const catStr = formatCategory(course.category);
+  
+  if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
+    return `${semLabel} ${catStr}`;
   }
-  if (course.category.toUpperCase().includes('MINOR')) {
-    return semLabel + " MINOR";
-  }
-  return semLabel + " BSC";
+  
+  const isPg = course.code.toUpperCase().includes('MSC') || 
+               course.pathway.toUpperCase().includes('MSC') || 
+               course.pathway.toUpperCase().includes('POST GRADUATE') ||
+               course.programType === 'PG';
+  const progLabel = isPg ? 'MSC' : 'BSC';
+  return `${semLabel} ${progLabel} ${catStr}`;
 }
 
 function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) {

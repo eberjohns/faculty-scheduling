@@ -6,8 +6,8 @@ import Database from 'better-sqlite3';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DB_DIR, 'timetable.db');
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'timetable.db');
+const DB_DIR = path.dirname(DB_PATH);
 const JSON_DB_PATH = path.join(DB_DIR, 'db.json');
 
 // Ensure DB directory exists

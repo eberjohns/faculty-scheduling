@@ -1,0 +1,28 @@
+# fly.toml configuration file for Fly.io deployment
+#
+# To deploy:
+# 1. Install Fly CLI: https://fly.io/docs/hands-on/install-flyctl/
+# 2. Run: fly launch (to set up the app name and region)
+# 3. Create the volume: fly volumes create timetable_data --size 1
+# 4. Deploy: fly deploy
+
+app = "college-timetable"
+primary_region = "ams" # Replace with your preferred region (e.g. lhr, iad, sin)
+
+[build]
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[mounts]]
+  source = "timetable_data"
+  destination = "/data"
+
+[env]
+  DATABASE_PATH = "/data/timetable.db"
+  PORT = "5000"

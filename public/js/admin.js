@@ -1467,15 +1467,29 @@ async function buildPrintTimetableHtml(displayMode) {
   }
 }
 
+function formatCategory(cat) {
+  if (!cat) return "Major";
+  const upper = cat.toUpperCase();
+  if (["MDC", "SEC", "AEC", "VAC", "OEC", "VBC"].includes(upper)) {
+    return upper;
+  }
+  return upper.charAt(0) + upper.slice(1).toLowerCase();
+}
+
 function getTimetableRowCategory(course) {
   const semLabel = state.config.semesterLabels[course.semester] || `${course.semester} Sem`;
-  if (course.code.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('MSC') || course.pathway.toUpperCase().includes('POST GRADUATE')) {
-    return semLabel + " MSC";
+  const catStr = formatCategory(course.category);
+  
+  if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
+    return `${semLabel} ${catStr}`;
   }
-  if (course.category.toUpperCase().includes('MINOR')) {
-    return semLabel + " MINOR";
-  }
-  return semLabel + " BSC";
+  
+  const isPg = course.code.toUpperCase().includes('MSC') || 
+               course.pathway.toUpperCase().includes('MSC') || 
+               course.pathway.toUpperCase().includes('POST GRADUATE') ||
+               course.programType === 'PG';
+  const progLabel = isPg ? 'MSC' : 'BSC';
+  return `${semLabel} ${progLabel} ${catStr}`;
 }
 
 function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) {
