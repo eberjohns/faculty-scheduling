@@ -169,6 +169,18 @@ function requireUser(req, res, next) {
 }
 
 // -------------------------------------------------------------
+// Health Check Endpoint (For Uptime Robot monitoring)
+// -------------------------------------------------------------
+app.head('/healthcheck', (req, res) => {
+  res.status(200).end();
+});
+
+app.get('/healthcheck', (req, res) => {
+  res.status(200).end();
+});
+
+
+// -------------------------------------------------------------
 // Authentication Endpoints
 // -------------------------------------------------------------
 app.post('/api/auth/login', (req, res) => {
