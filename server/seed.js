@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import xlsx from 'xlsx';
 const { readFile, utils } = xlsx;
-import { readDb, writeDb } from './db.js';
+import { initDb, readDb, writeDb } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -200,5 +200,9 @@ export function seedDatabase() {
 
 // If run directly
 if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
-  seedDatabase();
+  initDb().then(() => {
+    seedDatabase();
+  }).catch(err => {
+    console.error("Failed to initialize database for seeding:", err);
+  });
 }

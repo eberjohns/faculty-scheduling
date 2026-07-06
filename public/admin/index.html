@@ -172,6 +172,22 @@
               </div>
             </div>
             
+            <!-- Database Backup & Restore -->
+            <div class="card mt-4">
+              <div class="card-header">
+                <h2><i class="fa-solid fa-database text-primary"></i> Database Backup & Restore</h2>
+              </div>
+              <div class="card-body">
+                <p class="text-muted text-sm">Download a complete copy of the current timetable database as a file, or restore a previously saved backup file. This enables easy migration of testing data to the college production server.</p>
+                
+                <div style="display: flex; gap: 12px; margin-top: 15px; flex-wrap: wrap;">
+                  <button type="button" id="btn-backup-db" class="btn btn-primary"><i class="fa-solid fa-download"></i> Backup Database (JSON)</button>
+                  <button type="button" id="btn-trigger-restore-db" class="btn btn-outline"><i class="fa-solid fa-upload"></i> Restore Database (JSON)...</button>
+                  <input type="file" id="restore-db-file" class="hidden" accept=".json">
+                </div>
+              </div>
+            </div>
+            
             <!-- Danger Zone -->
             <div class="card mt-4" style="border-color: var(--danger);">
               <div class="card-header" style="background-color: var(--danger-light); color: var(--danger-dark); border-bottom: 1.5px solid var(--danger);">

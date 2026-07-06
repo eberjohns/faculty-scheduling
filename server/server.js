@@ -4,7 +4,7 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { readDb, writeDb } from './db.js';
+import { initDb, readDb, writeDb } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -575,6 +575,47 @@ app.post('/api/faculty/code/batch', requireUser, (req, res) => {
   
   writeDb(db);
   res.json({ success: true, message: 'All faculty codes updated successfully.' });
+});
+
+
+// -------------------------------------------------------------
+// Backup & Restore Routes
+// -------------------------------------------------------------
+app.get('/api/admin/backup', requireAdmin, (req, res) => {
+  try {
+    const db = readDb();
+    res.setHeader('Content-Disposition', 'attachment; filename="timetable_backup.json"');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(db, null, 2));
+  } catch (err) {
+    console.error("Backup generation failed:", err);
+    res.status(500).json({ success: false, message: 'Failed to generate backup.' });
+  }
+});
+
+app.post('/api/admin/restore', requireAdmin, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No backup file uploaded.' });
+  }
+
+  try {
+    const backupData = JSON.parse(req.file.buffer.toString('utf8'));
+    
+    // Validate required fields
+    if (!backupData.config || !backupData.courses || !backupData.faculty) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid backup file. It must containconfig, courses, and faculty records.' 
+      });
+    }
+
+    // Write back to database
+    writeDb(backupData);
+    res.json({ success: true, message: 'Database successfully restored from backup file.' });
+  } catch (err) {
+    console.error("Backup restoration failed:", err);
+    res.status(400).json({ success: false, message: 'Failed to restore database. Ensure the file is valid JSON.' });
+  }
 });
 
 
@@ -1983,6 +2024,11 @@ try {
 }
 
 // Start Server
-app.listen(PORT, () => {
-  console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
+  });
+}).catch(err => {
+  console.error("Critical database initialization error:", err);
+  process.exit(1);
 });

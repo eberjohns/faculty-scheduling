@@ -986,6 +986,61 @@ function bindConfigEvents() {
       }
     });
   }
+
+  // Backup & Restore Database click handlers
+  const btnBackupDb = document.getElementById('btn-backup-db');
+  if (btnBackupDb) {
+    btnBackupDb.addEventListener('click', () => {
+      const token = sessionStorage.getItem('adminToken');
+      if (!token) return;
+      window.location.href = `${API_BASE}/admin/backup?token=${encodeURIComponent(token)}`;
+    });
+  }
+
+  const btnTriggerRestoreDb = document.getElementById('btn-trigger-restore-db');
+  const restoreDbFile = document.getElementById('restore-db-file');
+
+  if (btnTriggerRestoreDb && restoreDbFile) {
+    btnTriggerRestoreDb.addEventListener('click', () => {
+      restoreDbFile.click();
+    });
+
+    restoreDbFile.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const confirmed = window.confirm("Are you sure you want to restore the database from backup? This will overwrite the current database.");
+      if (!confirmed) {
+        restoreDbFile.value = '';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/restore`, {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await res.json();
+        restoreDbFile.value = '';
+
+        if (res.ok && data.success) {
+          showModalAlert('Database Restored', 'The database has been successfully restored.', 'success');
+          await fetchGlobalData();
+          showTab('tab-admin-dashboard');
+        } else {
+          showModalAlert('Error', 'Failed to restore database: ' + (data.message || 'Unknown error'), 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        restoreDbFile.value = '';
+        showModalAlert('Error', 'An error occurred during database restoration.', 'danger');
+      }
+    });
+  }
 }
 
 // Passwords Editor
