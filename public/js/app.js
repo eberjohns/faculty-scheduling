@@ -24,6 +24,7 @@ let state = {
   selectedDay: 'MONDAY',
   viewMode: 'day',   // 'day' or 'week'
   filters: {
+    program: '',
     semester: '',
     category: ''
   },
@@ -428,8 +429,17 @@ function bindAuthEvents() {
 // Filters & Toggles Binds
 // -------------------------------------------------------------
 function bindFilterEvents() {
+  const progSelect = document.getElementById('filter-program');
   const semSelect = document.getElementById('filter-semester');
   const catSelect = document.getElementById('filter-category');
+  
+  if (progSelect) {
+    progSelect.addEventListener('change', () => {
+      state.filters.program = progSelect.value;
+      populateFilters();
+      renderAllocationMatrix();
+    });
+  }
   
   semSelect.addEventListener('change', () => {
     state.filters.semester = semSelect.value;
@@ -444,22 +454,70 @@ function bindFilterEvents() {
   // Dynamic filter lists population
   function populateFilters() {
     const deptName = state.currentUser.departmentName;
-    const deptCourses = state.courses.filter(c => c.department === deptName);
+    let deptCourses = state.courses.filter(c => c.department === deptName);
+    
+    // Apply program filter to find available semesters and categories
+    if (state.filters.program) {
+      deptCourses = deptCourses.filter(c => (c.programType || 'UG') === state.filters.program);
+    }
     
     // Semesters
     const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
+    const prevSelectedSem = state.filters.semester;
+    
     semSelect.innerHTML = '<option value="">All Semesters</option>';
     sems.forEach(s => {
-      const label = state.config.semesterLabels[s] || `Sem ${s}`;
+      let label = state.config.semesterLabels[s] || `Sem ${s}`;
+      
+      // Determine what program types exist for this semester in the filtered list
+      const coursePrograms = Array.from(new Set(deptCourses.filter(c => c.semester === s).map(c => c.programType || 'UG')));
+      if (coursePrograms.length === 1) {
+        label = getSemesterLabel(s, coursePrograms[0]);
+      } else if (coursePrograms.length > 1) {
+        label = `${getSemesterLabel(s, 'UG')} / ${getSemesterLabel(s, 'PG')}`;
+      }
+      
       semSelect.innerHTML += `<option value="${s}">${label}</option>`;
     });
+    
+    if (sems.includes(prevSelectedSem)) {
+      semSelect.value = prevSelectedSem;
+    } else {
+      state.filters.semester = '';
+      semSelect.value = '';
+    }
 
     // Categories
     const cats = Array.from(new Set(deptCourses.map(c => c.category))).sort();
+    const prevSelectedCat = state.filters.category;
+    
     catSelect.innerHTML = '<option value="">All Categories</option>';
     cats.forEach(c => {
       catSelect.innerHTML += `<option value="${c}">${c}</option>`;
     });
+    
+    if (cats.includes(prevSelectedCat)) {
+      catSelect.value = prevSelectedCat;
+    } else {
+      state.filters.category = '';
+      catSelect.value = '';
+    }
+  }
+
+  function getSemesterLabel(s, program) {
+    const baseLabel = state.config.semesterLabels[s] || `Sem ${s}`;
+    if (program === 'PG') {
+      if (baseLabel.toUpperCase().includes('BSC')) {
+        return baseLabel.replace(/BSC/i, 'MSC');
+      }
+      return `${baseLabel} MSC`;
+    } else if (program === 'UG') {
+      if (baseLabel.toUpperCase().includes('BSC')) {
+        return baseLabel;
+      }
+      return `${baseLabel} BSC`;
+    }
+    return baseLabel;
   }
 
   // Hook populateFilters to trigger when loading workspace
@@ -751,6 +809,9 @@ function renderAllocationMatrix() {
   let deptCourses = state.courses.filter(c => c.department === deptName);
   
   // Apply Dropdown Filters
+  if (state.filters.program) {
+    deptCourses = deptCourses.filter(c => (c.programType || 'UG') === state.filters.program);
+  }
   if (state.filters.semester) {
     deptCourses = deptCourses.filter(c => c.semester === state.filters.semester);
   }

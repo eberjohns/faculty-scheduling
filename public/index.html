@@ -124,8 +124,16 @@
           </div>
           <div class="placeholder-span" id="full-week-header-label" style="display: none;"><h3 class="text-primary"><i class="fa-solid fa-calendar-week"></i> Full Week Timetable Matrix</h3></div>
           
-          <!-- Filters (Semester and Category) -->
+          <!-- Filters (Program, Semester and Category) -->
           <div class="filters-group flex-row gap-2">
+            <div class="filter-item">
+              <select id="filter-program" class="form-control form-control-sm">
+                <option value="">All Programs</option>
+                <option value="UG">UG (Under Graduate)</option>
+                <option value="PG">PG (Post Graduate)</option>
+                <option value="INT">INT (Integrated)</option>
+              </select>
+            </div>
             <div class="filter-item">
               <select id="filter-semester" class="form-control form-control-sm">
                 <option value="">All Semesters</option>
