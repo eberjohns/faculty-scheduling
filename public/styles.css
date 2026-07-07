@@ -731,6 +731,27 @@ h1, h2, h3, h4, h5, h6 {
   transform: scale(1.3);
 }
 
+/* PG Course Row Styling */
+.table-grid tbody tr.row-pg td {
+  background-color: #f5f3ff !important;
+}
+.table-grid tbody tr.row-pg td.slot-recommend-none {
+  background-color: #ede9fe !important;
+  opacity: 0.9 !important;
+}
+.table-grid tbody tr.row-pg td.slot-interactive:hover {
+  background-color: #ddd6fe !important;
+}
+.table-grid tbody tr.row-pg td.slot-recommend-t {
+  background-color: var(--warning-light) !important;
+}
+.table-grid tbody tr.row-pg td.slot-recommend-p {
+  background-color: var(--success-light) !important;
+}
+.table-grid tbody tr.row-pg td.slot-recommend-m {
+  background-color: #f3e8ff !important;
+}
+
 /* Full Week Grid View Overrides */
 .table-grid.full-week-mode th, .table-grid.full-week-mode td {
   padding: 4px 2px !important;

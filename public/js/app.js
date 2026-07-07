@@ -868,6 +868,9 @@ function renderAllocationMatrix() {
         const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
         
         const tr = document.createElement('tr');
+        if (activeCourseRef.programType === 'PG') {
+          tr.classList.add('row-pg');
+        }
         tr.innerHTML = `
           <td style="text-align:left;">${formattedCode}</td>
           <td style="text-align:left;" title="${dispName}">
@@ -936,6 +939,9 @@ function renderAllocationMatrix() {
         const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
           
         const tr = document.createElement('tr');
+        if (activeCourseRef.programType === 'PG') {
+          tr.classList.add('row-pg');
+        }
         tr.innerHTML = `
           <td style="text-align:left;">${formattedCode}</td>
           <td style="text-align:left;">
