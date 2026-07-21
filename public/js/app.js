@@ -591,6 +591,93 @@ function bindDeptEvents() {
     renderAllocationMatrix();
   });
 
+  // Format Excel & Import Timetable Buttons
+  const btnFormatExcel = document.getElementById('btn-dept-format-excel');
+  const btnImportExcel = document.getElementById('btn-dept-import-excel');
+  const fileInputDept = document.getElementById('import-dept-timetable-file');
+  const modalFormat = document.getElementById('modal-dept-excel-format');
+  const btnCloseFormat1 = document.getElementById('btn-close-dept-excel-format');
+  const btnCloseFormat2 = document.getElementById('btn-close-dept-excel-format-secondary');
+  const btnDownloadTemplate = document.getElementById('btn-download-dept-template');
+
+  function downloadDepartmentTemplate() {
+    if (!state.currentUser || !state.currentUser.departmentName) return;
+    const deptName = encodeURIComponent(state.currentUser.departmentName);
+    const token = sessionStorage.getItem('token') || '';
+    window.location.href = `${API_BASE}/department/import-template?department=${deptName}&token=${encodeURIComponent(token)}`;
+  }
+
+  if (btnFormatExcel) {
+    btnFormatExcel.addEventListener('click', () => {
+      if (modalFormat) modalFormat.classList.remove('hidden');
+    });
+  }
+
+  if (btnCloseFormat1) {
+    btnCloseFormat1.addEventListener('click', () => modalFormat.classList.add('hidden'));
+  }
+  if (btnCloseFormat2) {
+    btnCloseFormat2.addEventListener('click', () => modalFormat.classList.add('hidden'));
+  }
+
+  if (btnDownloadTemplate) {
+    btnDownloadTemplate.addEventListener('click', () => {
+      downloadDepartmentTemplate();
+    });
+  }
+
+  if (btnImportExcel && fileInputDept) {
+    btnImportExcel.addEventListener('click', () => {
+      if (isTimetableLocked()) {
+        const deptName = state.currentUser ? state.currentUser.departmentName : '';
+        const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+        showModalAlert('Timetable Locked', `Your department timetable is locked because it is currently ${deptInfo.status}. Editing or importing allocations is disabled.`, 'warning');
+        return;
+      }
+      fileInputDept.click();
+    });
+
+    fileInputDept.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('departmentName', state.currentUser.departmentName);
+
+      try {
+        const res = await authFetch(`${API_BASE}/department/import-timetable`, {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await res.json();
+        fileInputDept.value = ''; // Reset input
+
+        if (res.ok && result.success) {
+          let warnMsg = '';
+          if (result.warnings && result.warnings.length > 0) {
+            warnMsg = '\n\nNote:\n' + result.warnings.slice(0, 5).join('\n') + (result.warnings.length > 5 ? `\n...and ${result.warnings.length - 5} more warnings.` : '');
+          }
+          showModalAlert('Import Successful', result.message + warnMsg, 'success', async () => {
+            await fetchGlobalData();
+            await loadDepartmentWorkspace();
+          });
+        } else {
+          let clashDetails = '';
+          if (result.clashes && result.clashes.length > 0) {
+            clashDetails = '\n\nClashes detected:\n' + result.clashes.map(c => `• ${c.facultyCode} double booked on ${c.weekday} P${c.period} (${c.courses.join(', ')})`).join('\n');
+          }
+          showModalAlert('Import Failed', (result.message || result.error || 'Failed to import timetable.') + clashDetails, 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        fileInputDept.value = '';
+        showModalAlert('Error', 'Connection error while uploading timetable Excel.', 'danger');
+      }
+    });
+  }
+
   // Department Sub-tabs for inline editors
   document.querySelectorAll('.tab-sub-item').forEach(btn => {
     btn.addEventListener('click', () => {

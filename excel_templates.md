@@ -105,3 +105,29 @@ The importer supports visual layout mapping where the `Course Code` and `Group` 
 | | | `U1mc2024` |
 | `BOT5FS112` | 1 | `U1bt2024` |
 | | | `U1ec2024` |
+
+---
+
+## 5. Department Timetable Import Excel
+
+Used by department coordinators to bulk-import teacher assignments into timetable slots automatically.
+
+### Structure & Column Headers
+
+The columns are constructed based on the logical database relationships:
+
+| Column Header | Status | Description / Allowed Values |
+| :--- | :--- | :--- |
+| `Course Code` | **Required** | Unique course ID (e.g. `CSC3CR201` or `CSC3CR201_G1`). |
+| `Course Name` | Optional | Visual display name of the course. |
+| `Semester` | Optional | Semester digit (1 to 8). |
+| `Category` | Optional | Category (e.g. `MAJOR`, `AEC`). |
+| **Slot Columns** | **Allocations** | Headers matching `DAY-PERIOD` (e.g. `MON-1`, `MON-2` ... `FRI-6`). Mark cells with teacher visual codes (e.g. `EJ`), Staff IDs (e.g. `STF101`), or teacher names. Multiple teachers can be separated by `/` or `,` (e.g. `EJ / SJ`). |
+
+### Sample Structure
+
+| Course Code | Course Name | Semester | Category | MON-1 | MON-2 | MON-3 | MON-4 | TUE-1 | TUE-2 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `CSC3CR201` | Database Systems | 3 | MAJOR | `EJ` | `EJ` | | | `SJ / MM` | `SJ` |
+| `CSC3CR201_P` | Database Systems Lab | 3 | MAJOR | | | `EJ / SJ` | `EJ / SJ` | | |
+

@@ -90,6 +90,9 @@
             <div class="legend-row"><span class="legend-box lb-box">LB</span> <span class="bold text-sm">Lunch Break</span></div>
           </div>
           <div class="view-toggle-actions flex-row gap-2">
+            <button id="btn-dept-format-excel" class="btn btn-outline"><i class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
+            <button id="btn-dept-import-excel" class="btn btn-outline"><i class="fa-solid fa-file-import text-primary"></i> Import Timetable</button>
+            <input type="file" id="import-dept-timetable-file" class="hidden" accept=".xlsx, .xls">
             <button id="btn-toggle-grid-mode" class="btn btn-outline"><i class="fa-solid fa-table-cells"></i> Switch to Full Week View</button>
           </div>
         </div>
@@ -390,6 +393,75 @@
       </div>
     </div>
 
+
+    <!-- MODAL: DEPARTMENT TIMETABLE EXCEL FORMAT GUIDE & TEMPLATE -->
+    <div id="modal-dept-excel-format" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 620px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="font-size: 18px; font-weight: 700; margin: 0;"><i class="fa-solid fa-file-excel text-success"></i> Timetable Import Excel Format</h2>
+          <button id="btn-close-dept-excel-format" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0;">
+          <p class="text-muted text-sm mb-3">
+            Importing an Excel sheet automatically assigns teachers to course slots in your department's timetable.
+            The spreadsheet columns are structured by the logical relationships in the database:
+          </p>
+
+          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary);"><i class="fa-solid fa-table-columns"></i> Required & Optional Columns</h4>
+          <div class="table-responsive mb-3" style="max-height: 220px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
+            <table class="table" style="font-size: 12px; margin: 0;">
+              <thead>
+                <tr>
+                  <th>Column Header</th>
+                  <th>Status</th>
+                  <th>Description & Cell Rules</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Course Code</code></td>
+                  <td><span class="badge badge-info" style="font-size: 10px;">Required</span></td>
+                  <td>Course ID (e.g. <code>CSC3CR201</code> or <code>CSC3CR201_G1</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>Course Name</code></td>
+                  <td>Optional</td>
+                  <td>Display title of the course</td>
+                </tr>
+                <tr>
+                  <td><code>Semester</code></td>
+                  <td>Optional</td>
+                  <td>Semester number (e.g. <code>3</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>Category</code></td>
+                  <td>Optional</td>
+                  <td>Category name (e.g. <code>MAJOR</code>, <code>AEC</code>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Slot Columns</strong><br><code>MON-1</code>, <code>MON-2</code> ... <code>FRI-6</code></td>
+                  <td>Allocations</td>
+                  <td>
+                    Teacher visual code (e.g. <code>EJ</code>), Staff ID (e.g. <code>STF101</code>), or Name.<br>
+                    Separate multiple teachers with <code>/</code> or <code>,</code> (e.g. <code>EJ / SJ</code>).
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); margin-bottom: 15px;">
+            <span class="text-sm" style="font-weight: 600; display: block; color: var(--text);"><i class="fa-solid fa-lightbulb text-warning"></i> Quick Download</span>
+            <span class="text-muted text-sm" style="display: block; margin-top: 2px;">Click below to download a pre-filled Excel template containing all courses currently registered in your department.</span>
+          </div>
+
+          <div class="actions flex-row justify-between items-center mt-3" style="display: flex; justify-content: space-between; align-items: center;">
+            <button id="btn-download-dept-template" class="btn btn-primary"><i class="fa-solid fa-download"></i> Download Department Excel Template (.xlsx)</button>
+            <button id="btn-close-dept-excel-format-secondary" class="btn btn-outline">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- CUSTOM APP ALERT MODAL -->
     <div id="app-modal" class="modal flex-center hidden no-print">

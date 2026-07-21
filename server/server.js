@@ -1419,6 +1419,251 @@ app.post('/api/allocations', requireDepartment, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// Department Timetable Excel Import & Format Template Endpoints
+// -------------------------------------------------------------
+app.get('/api/department/import-template', requireUser, (req, res) => {
+  const db = readDb();
+  let deptName = (req.query.department || req.departmentName || '').toUpperCase();
+  
+  if (!deptName && req.headers['authorization'] && req.headers['authorization'].startsWith('dept-token-')) {
+    deptName = req.headers['authorization'].substring('dept-token-'.length).toUpperCase();
+  }
+  
+  if (!deptName) {
+    return res.status(400).json({ success: false, message: 'Department name is required.' });
+  }
+
+  const deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptName);
+  const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+  const DAY_SHORT = { MONDAY: 'MON', TUESDAY: 'TUE', WEDNESDAY: 'WED', THURSDAY: 'THU', FRIDAY: 'FRI' };
+  const rawPeriods = db.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const periods = rawPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+
+  const slotHeaders = [];
+  weekdays.forEach(d => {
+    periods.forEach(p => {
+      slotHeaders.push(`${DAY_SHORT[d]}-${p}`);
+    });
+  });
+
+  const headers = ['Course Code', 'Course Name', 'Semester', 'Category', ...slotHeaders];
+  const rows = [];
+
+  const deptAlloc = db.allocations[deptName] || {};
+
+  deptCourses.forEach(c => {
+    const row = [
+      c.code,
+      c.name,
+      c.semester || '',
+      c.category || ''
+    ];
+
+    const courseAlloc = deptAlloc[c.code] || {};
+    weekdays.forEach(d => {
+      const dayAlloc = courseAlloc[d] || {};
+      periods.forEach(p => {
+        const facs = dayAlloc[p] || [];
+        row.push(Array.isArray(facs) ? facs.join(' / ') : '');
+      });
+    });
+
+    rows.push(row);
+  });
+
+  const ws = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, `${deptName.substring(0, 31)} Timetable`);
+
+  const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const filename = `${deptName.replace(/[^a-zA-Z0-9_\-]/g, '_')}_Timetable_Format.xlsx`;
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
+});
+
+app.post('/api/department/import-timetable', requireDepartment, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const db = readDb();
+  const deptUpper = (req.departmentName || req.body.departmentName || '').toUpperCase();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length < 2) {
+      return res.status(400).json({ error: 'Excel sheet must contain a header row and at least one data row.' });
+    }
+
+    const headerRow = data[0];
+    const DAY_MAP = { MON: 'MONDAY', TUE: 'TUESDAY', WED: 'WEDNESDAY', THU: 'THURSDAY', FRI: 'FRIDAY', MONDAY: 'MONDAY', TUESDAY: 'TUESDAY', WEDNESDAY: 'WEDNESDAY', THURSDAY: 'THURSDAY', FRIDAY: 'FRIDAY' };
+
+    let codeColIdx = -1;
+    let nameColIdx = -1;
+    const slotCols = [];
+
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = String(headerRow[c] || '').trim();
+      const hdrLow = hdr.toLowerCase();
+
+      const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY)[-_\s]?(.+)$/i);
+      if (slotMatch) {
+        const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
+        const period = slotMatch[2].trim();
+        if (dayFull && period.toUpperCase() !== 'LB') {
+          slotCols.push({ idx: c, day: dayFull, period });
+        }
+        continue;
+      }
+
+      if (hdrLow === 'course code' || hdrLow === 'coursecode' || hdrLow === 'code') {
+        codeColIdx = c;
+        continue;
+      }
+      if (hdrLow === 'course name' || hdrLow === 'coursename' || hdrLow === 'name') {
+        nameColIdx = c;
+        continue;
+      }
+    }
+
+    if (codeColIdx === -1) {
+      return res.status(400).json({ error: 'Could not find a "Course Code" column in header row.' });
+    }
+
+    if (slotCols.length === 0) {
+      return res.status(400).json({ error: 'No timetable slot columns found in header (expected headers like MON-1, MON-2, etc.).' });
+    }
+
+    const warnings = [];
+    const deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptUpper);
+    const facultyList = db.faculty || [];
+
+    function resolveFacultyCode(token) {
+      const clean = token.trim();
+      if (!clean) return null;
+      const cleanUpper = clean.toUpperCase();
+
+      let fac = facultyList.find(f => f.code.toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => f.staffId.toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => f.name.toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      const cleanTitleName = cleanUpper.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim();
+      fac = facultyList.find(f => f.name.toUpperCase().replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim() === cleanTitleName);
+      if (fac) return fac.code;
+
+      return null;
+    }
+
+    const newDeptAlloc = JSON.parse(JSON.stringify(db.allocations[deptUpper] || {}));
+    let updatedCoursesCount = 0;
+    let allocatedSlotsCount = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0) continue;
+
+      const rawCode = String(row[codeColIdx] || '').trim();
+      if (!rawCode || rawCode.toLowerCase() === 'course code') continue;
+
+      const matchedCourse = deptCourses.find(c => c.code === rawCode || c.alias === rawCode || c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, ''));
+
+      if (!matchedCourse) {
+        warnings.push(`Row ${r + 1}: Course code '${rawCode}' not found in ${deptUpper} department catalog. Skipped.`);
+        continue;
+      }
+
+      const targetCourseCode = matchedCourse.code;
+      if (!newDeptAlloc[targetCourseCode]) {
+        newDeptAlloc[targetCourseCode] = {};
+      }
+
+      let courseSlotCount = 0;
+
+      slotCols.forEach(({ idx, day, period }) => {
+        const cellVal = String(row[idx] || '').trim();
+        if (!cellVal) {
+          if (newDeptAlloc[targetCourseCode][day]) {
+            delete newDeptAlloc[targetCourseCode][day][period];
+          }
+          return;
+        }
+
+        const rawTokens = cellVal.split(/[/,;+&]/).map(t => t.trim()).filter(Boolean);
+        const resolvedFacs = [];
+
+        rawTokens.forEach(token => {
+          const code = resolveFacultyCode(token);
+          if (code) {
+            if (!resolvedFacs.includes(code)) resolvedFacs.push(code);
+          } else {
+            warnings.push(`Row ${r + 1} (${targetCourseCode}, ${day}-${period}): Unrecognized faculty '${token}'.`);
+          }
+        });
+
+        if (resolvedFacs.length > 0) {
+          if (!newDeptAlloc[targetCourseCode][day]) {
+            newDeptAlloc[targetCourseCode][day] = {};
+          }
+          newDeptAlloc[targetCourseCode][day][period] = resolvedFacs;
+          courseSlotCount++;
+          allocatedSlotsCount++;
+        }
+      });
+
+      if (courseSlotCount > 0) {
+        updatedCoursesCount++;
+      }
+    }
+
+    const testAllocations = JSON.parse(JSON.stringify(db.allocations));
+    testAllocations[deptUpper] = newDeptAlloc;
+
+    const clashes = findAllocationClashes(testAllocations);
+    if (clashes.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Import failed due to faculty clashes across timetables.',
+        clashes
+      });
+    }
+
+    db.allocations[deptUpper] = newDeptAlloc;
+    if (!db.submissions[deptUpper]) {
+      db.submissions[deptUpper] = { status: 'Draft', comments: '' };
+    } else {
+      db.submissions[deptUpper].status = 'Draft';
+    }
+
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: `Import completed successfully! Allocated ${allocatedSlotsCount} slot assignments across ${updatedCoursesCount} courses.`,
+      warnings
+    });
+  } catch (err) {
+    console.error("Department Excel import failed:", err);
+    res.status(500).json({ error: 'Failed to process department timetable Excel: ' + err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // Submissions (Lifecycle) Endpoints
 // -------------------------------------------------------------
 app.get('/api/submissions', requireUser, (req, res) => {
