@@ -87,9 +87,11 @@
             <div class="legend-row"><span class="legend-box recommend-p">P</span> <span class="bold text-sm">Recommended Practical Slot</span></div>
             <div class="legend-row"><span class="legend-box recommend-m">M</span> <span class="bold text-sm">Common Slot</span></div>
             <div class="legend-row"><span class="legend-box recommend-none"></span> <span class="bold text-sm">Non-Recommended Slot</span> (Click to Unlock)</div>
+            <div class="legend-row"><span class="legend-box recommend-global-locked"><i class="fa-solid fa-lock" style="font-size: 10px;"></i></span> <span class="bold text-sm text-danger">Admin Locked</span></div>
             <div class="legend-row"><span class="legend-box lb-box">LB</span> <span class="bold text-sm">Lunch Break</span></div>
           </div>
           <div class="view-toggle-actions flex-row gap-2">
+            <button id="btn-open-auto-gen" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto Generate</button>
             <button id="btn-dept-format-excel" class="btn btn-outline"><i class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
             <button id="btn-dept-import-excel" class="btn btn-outline"><i class="fa-solid fa-file-import text-primary"></i> Import Timetable</button>
             <input type="file" id="import-dept-timetable-file" class="hidden" accept=".xlsx, .xls">
@@ -475,6 +477,115 @@
         </div>
       </div>
     </div>
+
+    <!-- SIDE DRAWER: AUTOMATIC TIMETABLE GENERATOR -->
+    <div id="side-drawer-overlay" class="side-drawer-overlay no-print"></div>
+    <aside id="side-drawer-auto-gen" class="side-drawer no-print">
+      <div class="side-drawer-header">
+        <h2><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Auto Timetable Generator</h2>
+        <button id="btn-close-auto-gen-drawer" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="side-drawer-body">
+        <p class="text-muted text-sm mb-3">
+          Automatically place all department courses into conflict-free timetable slots respecting continuous practical blocks and teacher rest limits.
+        </p>
+
+        <!-- STEP 1: Select Scope -->
+        <div class="auto-gen-card">
+          <h3><span class="step-num-badge">1</span> Scope & Semester Selection</h3>
+          <div class="form-group mt-2">
+            <label for="auto-gen-sem-select" class="text-sm bold">Target Semester</label>
+            <select id="auto-gen-sem-select" class="form-control mt-1">
+              <option value="">All Semesters in Department</option>
+              <!-- Populated dynamically -->
+            </select>
+            <span class="text-muted text-sm mt-1" style="display:block;">Choose whether to generate for all courses or a specific semester.</span>
+          </div>
+        </div>
+
+        <!-- STEP 2: Constraints & Rules -->
+        <div class="auto-gen-card">
+          <h3><span class="step-num-badge">2</span> Constraints & Workload Rules</h3>
+          
+          <div class="toggle-switch-row">
+            <div>
+              <strong class="text-sm" style="display:block;">Preserve / Pin Existing Slots</strong>
+              <span class="text-muted text-sm">Keep currently allocated slots and generate around them.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="auto-gen-pin-slots">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+            <div>
+              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-flask text-success"></i> Continuous Practicals</strong>
+              <span class="text-muted text-sm">2-hour unbroken lab blocks (no lunch break split).</span>
+            </div>
+            <span class="badge badge-success" style="font-size: 11px;">Enforced</span>
+          </div>
+
+          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+            <div>
+              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-mug-hot text-warning"></i> Teacher Rest Interval</strong>
+              <span class="text-muted text-sm">Max 2 continuous teaching hours before a rest break.</span>
+            </div>
+            <span class="badge badge-warning" style="font-size: 11px;">Max 2h</span>
+          </div>
+
+          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+            <div>
+              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-lock text-danger"></i> Admin Global Locks</strong>
+              <span class="text-muted text-sm">College-wide locked periods strictly excluded.</span>
+            </div>
+            <span class="badge badge-danger" style="font-size: 11px;" id="auto-gen-global-locks-badge">Active</span>
+          </div>
+        </div>
+
+        <!-- STEP 3: Course Faculty Bindings -->
+        <div class="auto-gen-card">
+          <h3><span class="step-num-badge">3</span> Course & Teacher Bindings (<span id="auto-gen-courses-count">0</span>)</h3>
+          <p class="text-muted text-sm mb-2">Review teacher assignments before generation:</p>
+          <div id="auto-gen-faculty-bindings-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background-color: var(--surface);">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- RESULTS / AUDIT CARD (Initially Hidden) -->
+        <div id="auto-gen-results-card" class="auto-gen-card hidden" style="background-color: var(--success-light); border-color: var(--success);">
+          <h3 style="color: var(--success-dark);"><i class="fa-solid fa-circle-check"></i> Generation Successful!</h3>
+          <p class="text-sm" id="auto-gen-results-msg" style="color: var(--success-dark); font-weight: 500;"></p>
+          
+          <div class="audit-metrics-grid">
+            <div class="audit-metric-box">
+              <div class="metric-val text-success" id="audit-stat-slots">0</div>
+              <div class="metric-lbl">Slots Scheduled</div>
+            </div>
+            <div class="audit-metric-box">
+              <div class="metric-val text-success" id="audit-stat-clashes">0</div>
+              <div class="metric-lbl">Faculty Clashes</div>
+            </div>
+            <div class="audit-metric-box">
+              <div class="metric-val text-success" id="audit-stat-practicals">100%</div>
+              <div class="metric-lbl">Continuous Practicals</div>
+            </div>
+            <div class="audit-metric-box">
+              <div class="metric-val text-success" id="audit-stat-violations">0</div>
+              <div class="metric-lbl">Rest Rule Violations</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="auto-gen-error-alert" class="alert alert-danger hidden mt-2"></div>
+      </div>
+
+      <div class="side-drawer-footer">
+        <button id="btn-run-auto-generate" class="btn btn-primary" style="flex: 1;"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Timetable</button>
+        <button id="btn-apply-auto-generate" class="btn btn-success hidden" style="flex: 1; background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i> Apply to Timetable</button>
+      </div>
+    </aside>
 
   </div>
 
