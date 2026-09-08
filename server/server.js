@@ -5,6 +5,7 @@ import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb, readDb, writeDb } from './db.js';
+import { generateDepartmentSchedule } from './scheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -222,7 +223,8 @@ app.get('/api/config', (req, res) => {
     academicYear: db.config.academicYear,
     semesterType: db.config.semesterType,
     semesterLabels: db.config.semesterLabels,
-    periods: db.periods || ["1", "2", "3", "LB", "4", "5", "6"]
+    periods: db.periods || ["1", "2", "3", "LB", "4", "5", "6"],
+    globalLockedPeriods: db.config.globalLockedPeriods || []
   });
 });
 
@@ -236,6 +238,22 @@ app.post('/api/config', requireAdmin, (req, res) => {
   
   writeDb(db);
   res.json({ success: true, message: 'Academic configuration updated.' });
+});
+
+app.get('/api/admin/global-locked-periods', requireUser, (req, res) => {
+  const db = readDb();
+  res.json(db.config.globalLockedPeriods || []);
+});
+
+app.post('/api/admin/global-locked-periods', requireAdmin, (req, res) => {
+  const { locks } = req.body;
+  if (!Array.isArray(locks)) {
+    return res.status(400).json({ success: false, message: 'Locks must be an array.' });
+  }
+  const db = readDb();
+  db.config.globalLockedPeriods = locks;
+  writeDb(db);
+  res.json({ success: true, message: 'Global locked periods updated successfully.' });
 });
 
 // -------------------------------------------------------------
@@ -1337,6 +1355,23 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
   const db = readDb();
   const conflicts = [];
 
+  // Check Global Locked Periods (Admin College-wide Locks)
+  const globalLocks = db.config.globalLockedPeriods || [];
+  const isGlobalLocked = globalLocks.some(l => l.day.toUpperCase() === weekday.toUpperCase() && String(l.period) === String(period));
+  if (isGlobalLocked) {
+    const lockObj = globalLocks.find(l => l.day.toUpperCase() === weekday.toUpperCase() && String(l.period) === String(period));
+    return res.json({
+      valid: false,
+      conflicts: [{
+        facultyCode: 'LOCK',
+        facultyName: 'Admin Global Lock',
+        clashingCourseCode: 'COLLEGE-LOCK',
+        clashingCourseName: lockObj && lockObj.label ? `Global Lock: ${lockObj.label}` : 'Period is locked institution-wide by Central Admin',
+        department: 'ADMIN'
+      }]
+    });
+  }
+
   // Check if any selected faculty is already allocated in another course for the same weekday & period
   for (const dept of Object.keys(db.allocations)) {
     const deptAlloc = db.allocations[dept];
@@ -1370,6 +1405,41 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
     return res.json({ valid: false, conflicts });
   }
   return res.json({ valid: true });
+});
+
+// Auto-generate Timetable Endpoint
+app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
+  const { departmentName, semester, courseFacultyMap, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
+  const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
+  const db = readDb();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  try {
+    const result = generateDepartmentSchedule({
+      db,
+      departmentName: deptUpper,
+      semester: semester || '',
+      courseFacultyMap: courseFacultyMap || {},
+      pinnedSlots: pinnedSlots || {},
+      maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
+      practicalBlockSize: parseInt(practicalBlockSize) || 2
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error("Auto-generate error:", err);
+    res.status(500).json({ success: false, message: 'Auto-generation failed: ' + err.message });
+  }
 });
 
 // Save Allocations Endpoint (with safety validations)

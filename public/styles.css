@@ -594,10 +594,22 @@ h1, h2, h3, h4, h5, h6 {
   height: 44px;
   background-color: #f1f5f9;
   font-weight: 700;
+}
+#view-department #table-allocation-matrix th {
   position: sticky;
   top: 72px;
   z-index: 99;
   box-shadow: 0 2px 2px -1px rgba(0,0,0,0.1);
+}
+#table-global-locks-grid th {
+  position: static !important;
+  top: auto !important;
+  box-shadow: none !important;
+  background-color: #f1f5f9 !important;
+  height: 44px;
+}
+#table-global-locks-grid td {
+  height: 56px;
 }
 #view-department .table-responsive {
   overflow: visible !important;
@@ -670,6 +682,28 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--surface) !important;
   border: 2px solid var(--primary) !important;
   color: var(--text-main) !important;
+}
+
+/* Global Locked Slot (Admin Institution-Wide Lock) */
+.slot-global-locked {
+  background-image: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 10px, #fca5a5 10px, #fca5a5 20px) !important;
+  color: #991b1b !important;
+  border: 1.5px solid #ef4444 !important;
+  cursor: not-allowed !important;
+  opacity: 0.9 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+.legend-box.recommend-global-locked {
+  background-color: #fee2e2;
+  border: 1.5px solid #ef4444;
+  color: #991b1b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Lunch Break LB static style */
@@ -1070,3 +1104,190 @@ h1, h2, h3, h4, h5, h6 {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
+
+/* ==========================================================================
+   Side Drawer & Automatic Timetable Generation Panel
+   ========================================================================== */
+.side-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.side-drawer-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.side-drawer {
+  position: fixed;
+  top: 0;
+  right: -560px;
+  width: 540px;
+  max-width: 95vw;
+  height: 100vh;
+  background-color: var(--surface);
+  box-shadow: -5px 0 25px rgba(0, 0, 0, 0.18);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.side-drawer.active {
+  right: 0;
+}
+
+.side-drawer-header {
+  padding: 20px 24px;
+  border-bottom: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--surface);
+}
+
+.side-drawer-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.side-drawer-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.side-drawer-footer {
+  padding: 16px 24px;
+  border-top: 1.5px solid var(--border);
+  background-color: var(--background);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.auto-gen-card {
+  background-color: var(--background);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.auto-gen-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+}
+
+.step-num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Switch toggle control */
+.toggle-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .3s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--primary);
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Audit summary grid */
+.audit-metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.audit-metric-box {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  text-align: center;
+}
+
+.audit-metric-box .metric-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: 'Outfit', sans-serif;
+}
+
+.audit-metric-box .metric-lbl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+

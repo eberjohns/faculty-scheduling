@@ -448,6 +448,7 @@ async function initAdmin() {
   bindImportEvents();
   bindSearchEvents();
   bindCustomModals();
+  bindGlobalLocksEvents();
   // Handle Batch Allocation sub-tabs switching
   document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -782,6 +783,8 @@ function showTab(tabId) {
     renderGroupMappings();
     renderMajorAllocations();
     renderBatchAllocationStatus();
+  } else if (tabId === 'tab-admin-global-locks') {
+    renderGlobalLocksGrid();
   } else if (tabId === 'tab-admin-export') {
     loadPeriodTimes();
     populateExportPreviewDropdown();
@@ -2502,4 +2505,222 @@ function renderBatchTimetablePreview(batchId) {
 
   html += '</tbody></table>';
   container.innerHTML = html;
+}
+
+// -------------------------------------------------------------
+// Common College Global Locks Handlers
+// -------------------------------------------------------------
+let localGlobalLocks = [];
+
+async function loadGlobalLocks() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/global-locked-periods`);
+    if (res.ok) {
+      localGlobalLocks = await res.json();
+    }
+  } catch (e) {
+    console.error('Failed to load global locks:', e);
+  }
+}
+
+function renderGlobalLocksGrid() {
+  const table = document.getElementById('table-global-locks-grid');
+  if (!table) return;
+  
+  const rawPeriods = (state.config && state.config.periods) || ['1', '2', '3', 'LB', '4', '5', '6'];
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  
+  const countBadge = document.getElementById('global-locks-count-badge');
+  if (countBadge) {
+    countBadge.textContent = `${localGlobalLocks.length} period${localGlobalLocks.length === 1 ? '' : 's'} locked`;
+  }
+  
+  let headerHtml = '<tr><th style="width: 140px; text-align: center;">Weekday</th>';
+  rawPeriods.forEach(p => {
+    if (String(p).toUpperCase() === 'LB') {
+      headerHtml += `<th style="width: 70px; text-align: center; background-color: var(--background); color: var(--text-muted); font-size: 11px;">Lunch</th>`;
+    } else {
+      headerHtml += `<th style="text-align: center;">Period ${p}</th>`;
+    }
+  });
+  headerHtml += '</tr>';
+  thead.innerHTML = headerHtml;
+  
+  const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+  let bodyHtml = '';
+  
+  weekdays.forEach(day => {
+    bodyHtml += `<tr><td style="font-weight: 700; text-align: center; background-color: var(--background);">${day}</td>`;
+    
+    rawPeriods.forEach(p => {
+      const pStr = String(p).trim();
+      if (pStr.toUpperCase() === 'LB') {
+        bodyHtml += `<td style="background-color: var(--background); color: var(--text-muted); font-weight: 600; font-size: 11px;">LB</td>`;
+      } else {
+        const isLocked = localGlobalLocks.some(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr);
+        const lockObj = localGlobalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr);
+        const label = lockObj && lockObj.label ? lockObj.label : '';
+        
+        if (isLocked) {
+          bodyHtml += `
+            <td class="global-lock-cell locked" data-day="${day}" data-period="${pStr}" title="Locked: ${label || 'College Common Period'}" style="cursor: pointer; background-color: #fee2e2; border: 1.5px solid #ef4444; color: #b91c1c; font-weight: 700; padding: 10px 4px; transition: all 0.2s;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <i class="fa-solid fa-lock" style="font-size: 14px;"></i>
+                <span style="font-size: 11px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${label || 'LOCKED'}</span>
+              </div>
+            </td>`;
+        } else {
+          bodyHtml += `
+            <td class="global-lock-cell open" data-day="${day}" data-period="${pStr}" title="Click to lock this period college-wide" style="cursor: pointer; background-color: var(--surface); padding: 10px 4px; transition: all 0.2s;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-muted); opacity: 0.6;">
+                <i class="fa-regular fa-circle" style="font-size: 14px;"></i>
+                <span style="font-size: 10px;">Available</span>
+              </div>
+            </td>`;
+        }
+      }
+    });
+    
+    bodyHtml += '</tr>';
+  });
+  tbody.innerHTML = bodyHtml;
+  
+  table.querySelectorAll('.global-lock-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const day = cell.getAttribute('data-day');
+      const period = cell.getAttribute('data-period');
+      openGlobalLockModal(day, period);
+    });
+  });
+}
+
+function openGlobalLockModal(day, period) {
+  const modal = document.getElementById('modal-edit-global-lock');
+  const dayPeriodSpan = document.getElementById('modal-lock-day-period');
+  const dayInput = document.getElementById('modal-lock-target-day');
+  const periodInput = document.getElementById('modal-lock-target-period');
+  const labelInput = document.getElementById('modal-lock-label-input');
+  const unlockBtn = document.getElementById('btn-modal-unlock-period');
+  const defaultGlobalLabel = (document.getElementById('global-lock-default-label') && document.getElementById('global-lock-default-label').value.trim()) || 'College Assembly / Mentor Hour';
+
+  if (!modal) return;
+
+  dayInput.value = day;
+  periodInput.value = period;
+  if (dayPeriodSpan) dayPeriodSpan.textContent = `${day} Period ${period}`;
+
+  // Check if currently locked
+  const existing = localGlobalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
+  if (existing) {
+    labelInput.value = existing.label || defaultGlobalLabel;
+    if (unlockBtn) unlockBtn.classList.remove('hidden');
+  } else {
+    labelInput.value = defaultGlobalLabel;
+    if (unlockBtn) unlockBtn.classList.add('hidden');
+  }
+
+  modal.classList.remove('hidden');
+  labelInput.focus();
+}
+
+function closeGlobalLockModal() {
+  const modal = document.getElementById('modal-edit-global-lock');
+  if (modal) modal.classList.add('hidden');
+}
+
+function bindGlobalLocksEvents() {
+  const btnSave = document.getElementById('btn-save-global-locks');
+  const btnClear = document.getElementById('btn-clear-global-locks');
+  const alertBox = document.getElementById('global-locks-alert');
+  
+  const modal = document.getElementById('modal-edit-global-lock');
+  const btnCloseModal = document.getElementById('btn-close-lock-modal');
+  const btnCancelModal = document.getElementById('btn-modal-cancel-lock');
+  const btnSaveModal = document.getElementById('btn-modal-save-lock');
+  const btnUnlockModal = document.getElementById('btn-modal-unlock-period');
+  const labelInput = document.getElementById('modal-lock-label-input');
+
+  if (btnCloseModal) btnCloseModal.addEventListener('click', closeGlobalLockModal);
+  if (btnCancelModal) btnCancelModal.addEventListener('click', closeGlobalLockModal);
+
+  // Preset buttons in modal
+  document.querySelectorAll('.preset-lock-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.getAttribute('data-val');
+      if (labelInput && val) {
+        labelInput.value = val;
+      }
+    });
+  });
+
+  // Modal Save Lock button
+  if (btnSaveModal) {
+    btnSaveModal.addEventListener('click', () => {
+      const day = document.getElementById('modal-lock-target-day').value;
+      const period = document.getElementById('modal-lock-target-period').value;
+      const label = (labelInput && labelInput.value.trim()) || 'College Common Hour';
+
+      const existingIdx = localGlobalLocks.findIndex(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
+      if (existingIdx >= 0) {
+        localGlobalLocks[existingIdx].label = label;
+      } else {
+        localGlobalLocks.push({ day, period, label });
+      }
+
+      closeGlobalLockModal();
+      renderGlobalLocksGrid();
+    });
+  }
+
+  // Modal Unlock button
+  if (btnUnlockModal) {
+    btnUnlockModal.addEventListener('click', () => {
+      const day = document.getElementById('modal-lock-target-day').value;
+      const period = document.getElementById('modal-lock-target-period').value;
+
+      const existingIdx = localGlobalLocks.findIndex(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
+      if (existingIdx >= 0) {
+        localGlobalLocks.splice(existingIdx, 1);
+      }
+
+      closeGlobalLockModal();
+      renderGlobalLocksGrid();
+    });
+  }
+
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          if (alertBox) {
+            alertBox.textContent = `Saved ${localGlobalLocks.length} global locked period(s) successfully.`;
+            alertBox.classList.remove('hidden');
+            setTimeout(() => alertBox.classList.add('hidden'), 3500);
+          }
+          showModalAlert('Success', 'Global locked periods saved successfully.', 'success');
+          await fetchGlobalData();
+        } else {
+          showModalAlert('Error', result.message || 'Failed to save global locks.', 'danger');
+        }
+      } catch (err) {
+        showModalAlert('Error', 'Connection error.', 'danger');
+      }
+    });
+  }
+  
+  if (btnClear) {
+    btnClear.addEventListener('click', () => {
+      showModalConfirm('Clear All Locks', 'Are you sure you want to clear all global locked periods?', () => {
+        localGlobalLocks = [];
+        renderGlobalLocksGrid();
+      });
+    });
+  }
 }

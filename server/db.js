@@ -110,6 +110,7 @@ function parseDbData(rawData) {
 
   // Ensure default structures are present
   if (!db.config.excludedBatches) db.config.excludedBatches = [];
+  if (!db.config.globalLockedPeriods) db.config.globalLockedPeriods = [];
   if (!db.batchConfig.programTypes) {
     db.batchConfig.programTypes = { "U": "UG", "P": "PG" };
   }
