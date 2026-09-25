@@ -100,6 +100,7 @@ function parseDbData(rawData) {
     submissions: rawData.submissions || {},
     batchDeptMappings: rawData.batchDeptMappings || [],
     groupMappings: rawData.groupMappings || {},
+    teacherUnavailability: rawData.teacherUnavailability || {},
     batchConfig: rawData.batchConfig || {
       programTypes: { "U": "UG", "P": "PG" },
       fundingTypes:  { "1": "Aided", "2": "Self Finance" },
@@ -109,6 +110,7 @@ function parseDbData(rawData) {
   };
 
   // Ensure default structures are present
+  if (!db.teacherUnavailability) db.teacherUnavailability = {};
   if (!db.config.excludedBatches) db.config.excludedBatches = [];
   if (!db.config.globalLockedPeriods) db.config.globalLockedPeriods = [];
   if (!db.batchConfig.programTypes) {
@@ -185,6 +187,7 @@ export function writeDb(data) {
     submissions: data.submissions,
     batchDeptMappings: data.batchDeptMappings,
     groupMappings: data.groupMappings,
+    teacherUnavailability: data.teacherUnavailability || {},
     batchConfig: data.batchConfig,
     periods: data.periods
   };

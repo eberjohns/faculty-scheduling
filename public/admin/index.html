@@ -725,17 +725,20 @@
         </div>
         <div class="modal-body no-print">
           <div class="card bg-slate-50 mb-3">
-            <div class="card-body">
-              <div class="row items-center gap-3">
-                <div class="col-md-4 form-group">
-                  <label for="print-mode-select">Display Format Mode</label>
-                  <select id="print-mode-select" class="form-control">
-                    <option value="short">Short Mode (EJ OOPS)</option>
-                    <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
-                    <option value="full">Full Mode (Eber Johns - Object Oriented Programming)</option>
-                  </select>
+            <div class="card-body" style="padding: 14px 20px;">
+              <div class="export-options-bar">
+                <div class="export-options-left">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <label for="print-mode-select" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;">Display Format:</label>
+                    <select id="print-mode-select" class="form-control" style="width: auto; min-width: 220px;">
+                      <option value="short">Short Mode (EJ OOPS)</option>
+                      <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
+                      <option value="full">Full Mode (Eber Johns - Object Oriented Programming)</option>
+                    </select>
+                  </div>
                 </div>
-                <div class="col-md-8 text-right flex-row justify-end gap-2 mt-3-md">
+                <div class="export-options-right">
+                  <button id="btn-switch-to-teacher-timetable" class="btn btn-outline" style="border-color: #6366f1; color: #4338ca;"><i class="fa-solid fa-chalkboard-user text-primary"></i> View Teacher-wise</button>
                   <button id="btn-trigger-print" class="btn btn-primary"><i class="fa-solid fa-print"></i> Print Timetable PDF</button>
                   <button id="btn-export-timetable-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i> Export CSV Grid</button>
                 </div>
@@ -775,6 +778,50 @@
               <!-- Dynamic Timetable Rows -->
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: TEACHER-WISE TIMETABLE & PDF EXPORT (ADMIN) -->
+    <div id="modal-teacher-timetable" class="modal hidden">
+      <div class="modal-content modal-lg" style="max-height: 95vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+          <h2><i class="fa-solid fa-chalkboard-user text-primary"></i> Teacher-wise Timetable</h2>
+          <div class="actions flex-row gap-2 no-print">
+            <button id="btn-close-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-xmark"></i> Close</button>
+          </div>
+        </div>
+        <div class="modal-body no-print" style="padding-bottom: 12px;">
+          <div class="card bg-slate-50 mb-2">
+            <div class="card-body" style="padding: 14px 20px;">
+              <div class="export-options-bar">
+                <div class="export-options-left">
+                  <div class="flex-row items-center gap-2">
+                    <label for="select-teacher-timetable-faculty" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;"><i class="fa-solid fa-user-tie text-primary"></i> Teacher:</label>
+                    <select id="select-teacher-timetable-faculty" class="form-control" style="width: auto; min-width: 230px; font-weight: 600;">
+                      <option value="ALL">All Teachers (Entire Department)</option>
+                    </select>
+                  </div>
+                  <div class="flex-row items-center gap-2">
+                    <label for="select-teacher-timetable-mode" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;">Display Detail:</label>
+                    <select id="select-teacher-timetable-mode" class="form-control" style="width: auto; min-width: 155px;">
+                      <option value="medium" selected>Medium (Alias & Sem)</option>
+                      <option value="full">Full (Course Name & Code)</option>
+                      <option value="short">Short (Code Only)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="export-options-right">
+                  <button id="btn-trigger-teacher-print" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
+                  <button id="btn-export-teacher-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i> Export CSV Grid</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="teacher-print-area" class="timetable-print-sheet" style="overflow-y: auto; flex: 1; padding: 20px 25px; background: #ffffff;">
+          <!-- Dynamically populated teacher sheets -->
         </div>
       </div>
     </div>
@@ -929,7 +976,7 @@
 
     <!-- MODAL: EDIT / ASSIGN GLOBAL LOCKED PERIOD -->
     <div id="modal-edit-global-lock" class="modal flex-center hidden no-print">
-      <div class="modal-content modal-md" style="max-width: 500px; width: 100%; padding: 24px;">
+      <div class="modal-content modal-md" style="max-width: 540px; width: 100%; padding: 24px;">
         <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
           <h2 style="font-size: 18px; font-weight: 700; margin: 0;"><i class="fa-solid fa-lock text-primary"></i> Lock Period: <span id="modal-lock-day-period" class="text-primary">-</span></h2>
           <button id="btn-close-lock-modal" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
@@ -939,24 +986,18 @@
           <input type="hidden" id="modal-lock-target-period">
 
           <p class="text-muted text-sm mb-3">
-            Lock this period college-wide. It will be protected from all department schedules and excluded from auto-generation.
+            Lock this period college-wide or for specific semesters with designated subjects/activities. Locked periods are excluded from automatic timetable generation.
           </p>
 
-          <div class="form-group">
-            <label for="modal-lock-label-input" style="font-weight: 600; font-size: 13px;">Program / Activity Name</label>
-            <input type="text" id="modal-lock-label-input" class="form-control mt-1" placeholder="e.g. College Assembly, Mentor Hour, Chapel, Club Activity" required>
+          <div id="modal-lock-rows-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Rendered Dynamically (Select Sem + Subject Name) -->
           </div>
 
-          <!-- Quick presets -->
-          <div class="mt-3">
-            <label style="font-size: 12px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 6px;">Quick Presets:</label>
-            <div class="flex-row wrap-gap gap-2" id="quick-lock-presets">
-              <button type="button" class="btn btn-outline btn-xs preset-lock-btn" data-val="College Assembly"><i class="fa-solid fa-bullhorn text-primary"></i> College Assembly</button>
-              <button type="button" class="btn btn-outline btn-xs preset-lock-btn" data-val="Common Mentor Hour"><i class="fa-solid fa-user-group text-success"></i> Mentor Hour</button>
-              <button type="button" class="btn btn-outline btn-xs preset-lock-btn" data-val="Chapel / Value Education"><i class="fa-solid fa-church text-warning"></i> Chapel / Ethics</button>
-              <button type="button" class="btn btn-outline btn-xs preset-lock-btn" data-val="Association & Club Activities"><i class="fa-solid fa-shapes text-info"></i> Club Activity</button>
-              <button type="button" class="btn btn-outline btn-xs preset-lock-btn" data-val="Sports / Physical Education"><i class="fa-solid fa-volleyball text-danger"></i> Sports</button>
-            </div>
+          <!-- Add Other Sem button (visible only when specific semester is selected, hidden if "all" is selected) -->
+          <div class="mt-3" id="wrapper-add-lock-sem-row">
+            <button type="button" id="btn-add-lock-sem-row" class="btn btn-outline btn-sm" style="color: var(--primary); border-color: var(--primary); font-weight: 600;">
+              <i class="fa-solid fa-plus"></i> Add Other Sem
+            </button>
           </div>
         </div>
         <div class="actions flex-row justify-between items-center mt-4 pt-3" style="border-top: 1.5px solid var(--border); display: flex; justify-content: space-between;">

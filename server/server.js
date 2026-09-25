@@ -1355,21 +1355,26 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
   const db = readDb();
   const conflicts = [];
 
-  // Check Global Locked Periods (Admin College-wide Locks)
-  const globalLocks = db.config.globalLockedPeriods || [];
-  const isGlobalLocked = globalLocks.some(l => l.day.toUpperCase() === weekday.toUpperCase() && String(l.period) === String(period));
-  if (isGlobalLocked) {
-    const lockObj = globalLocks.find(l => l.day.toUpperCase() === weekday.toUpperCase() && String(l.period) === String(period));
-    return res.json({
-      valid: false,
-      conflicts: [{
-        facultyCode: 'LOCK',
-        facultyName: 'Admin Global Lock',
-        clashingCourseCode: 'COLLEGE-LOCK',
-        clashingCourseName: lockObj && lockObj.label ? `Global Lock: ${lockObj.label}` : 'Period is locked institution-wide by Central Admin',
-        department: 'ADMIN'
-      }]
+  // Check Teacher Unavailability / Blackout Slots
+  const teacherUnavail = db.teacherUnavailability || {};
+  for (const fac of facultyCodes) {
+    const unavail = teacherUnavail[fac] || [];
+    const isUnavail = unavail.some(u => {
+      if (u.day.toUpperCase() !== weekday.toUpperCase()) return false;
+      if (u.period === 'all') return true;
+      return String(u.period) === String(period);
     });
+
+    if (isUnavail) {
+      const facInfo = db.faculty.find(f => f.code === fac) || { name: fac };
+      conflicts.push({
+        facultyCode: fac,
+        facultyName: facInfo.name,
+        clashingCourseCode: 'TEACHER-UNAVAILABLE',
+        clashingCourseName: `Faculty ${facInfo.name} has marked ${weekday} Period ${period} as an unavailable / off period.`,
+        department: departmentName
+      });
+    }
   }
 
   // Check if any selected faculty is already allocated in another course for the same weekday & period
@@ -1404,12 +1409,86 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
   if (conflicts.length > 0) {
     return res.json({ valid: false, conflicts });
   }
-  return res.json({ valid: true });
+
+  // Check if slot has an Admin Global Lock note (permits manual assignment but returns notice)
+  const globalLocks = db.config.globalLockedPeriods || [];
+  const lockObj = globalLocks.find(l => l.day.toUpperCase() === weekday.toUpperCase() && String(l.period) === String(period));
+
+  return res.json({ 
+    valid: true, 
+    adminLockNotice: lockObj ? (lockObj.label || 'College Common Activity') : null 
+  });
+});
+
+// Teacher Unavailability Endpoints
+app.get('/api/department/teacher-unavailability', requireUser, (req, res) => {
+  const db = readDb();
+  res.json(db.teacherUnavailability || {});
+});
+
+app.post('/api/department/teacher-unavailability', requireUser, (req, res) => {
+  const { facultyCode, unavailableSlots, departmentName } = req.body;
+  if (!facultyCode || !Array.isArray(unavailableSlots)) {
+    return res.status(400).json({ success: false, message: 'facultyCode and unavailableSlots array are required.' });
+  }
+
+  const db = readDb();
+  const deptUpper = departmentName ? departmentName.toUpperCase() : null;
+  if (deptUpper && isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  if (!db.teacherUnavailability) db.teacherUnavailability = {};
+  db.teacherUnavailability[facultyCode.trim().toUpperCase()] = unavailableSlots;
+
+  writeDb(db);
+  res.json({ success: true, message: 'Teacher availability updated successfully.' });
+});
+
+// Clear Semester Timetable Endpoint
+app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
+  const { departmentName, semester } = req.body;
+  const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
+  const db = readDb();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  const deptAlloc = db.allocations[deptUpper] || {};
+  let deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptUpper);
+  if (semester && semester !== 'all') {
+    deptCourses = deptCourses.filter(c => String(c.semester).trim() === String(semester).trim());
+  }
+
+  const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
+  let clearedCount = 0;
+
+  Object.keys(deptAlloc).forEach(cCode => {
+    const base = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+    if (targetBases.has(base) || targetBases.has(cCode)) {
+      delete deptAlloc[cCode];
+      clearedCount++;
+    }
+  });
+
+  db.allocations[deptUpper] = deptAlloc;
+  writeDb(db);
+  res.json({ 
+    success: true, 
+    message: `Allocations cleared for ${semester && semester !== 'all' ? `Semester ${semester}` : 'all semesters'} (${clearedCount} course allocations removed).` 
+  });
 });
 
 // Auto-generate Timetable Endpoint
 app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
-  const { departmentName, semester, courseFacultyMap, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
+  const { departmentName, semester, selectedCourseCodes, courseFacultyMap, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
   const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
   const db = readDb();
 
@@ -1425,10 +1504,12 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       db,
       departmentName: deptUpper,
       semester: semester || '',
+      selectedCourseCodes: selectedCourseCodes || [],
       courseFacultyMap: courseFacultyMap || {},
       pinnedSlots: pinnedSlots || {},
       maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
-      practicalBlockSize: parseInt(practicalBlockSize) || 2
+      practicalBlockSize: parseInt(practicalBlockSize) || 2,
+      forceRelaxed: !!req.body.forceRelaxed
     });
 
     if (!result.success) {

@@ -29,7 +29,8 @@ let state = {
     category: ''
   },
   allBatches: [],
-  groupMappings: {}
+  groupMappings: {},
+  teacherUnavailability: {}
 };
 
 let autosaveTimer = null;
@@ -217,7 +218,11 @@ function showModalAlert(title, message, type = 'info', callback = null) {
   const { overlay, icon, btnPrimary, btnSecondary } = window.appModal;
   
   window.appModal.title.textContent = title;
-  window.appModal.message.textContent = message;
+  if (typeof message === 'string' && message.includes('<')) {
+    window.appModal.message.innerHTML = message;
+  } else {
+    window.appModal.message.textContent = message;
+  }
   
   let iconHtml = '<i class="fa-solid fa-circle-info text-primary"></i>';
   if (type === 'success') iconHtml = '<i class="fa-solid fa-circle-check text-success"></i>';
@@ -245,7 +250,11 @@ function showModalConfirm(title, message, onConfirm) {
   const { overlay, icon, btnPrimary, btnSecondary } = window.appModal;
   
   window.appModal.title.textContent = title;
-  window.appModal.message.textContent = message;
+  if (typeof message === 'string' && message.includes('<')) {
+    window.appModal.message.innerHTML = message;
+  } else {
+    window.appModal.message.textContent = message;
+  }
   window.appModal.icon.innerHTML = '<i class="fa-solid fa-circle-question text-primary"></i>';
   
   btnSecondary.classList.remove('hidden');
@@ -342,13 +351,14 @@ async function loadLoginDepartments() {
 
 async function fetchGlobalData() {
   try {
-    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
       authFetch(`${API_BASE}/courses`),
       authFetch(`${API_BASE}/faculty`),
       authFetch(`${API_BASE}/batches`),
-      authFetch(`${API_BASE}/admin/group-mappings`)
+      authFetch(`${API_BASE}/admin/group-mappings`),
+      authFetch(`${API_BASE}/department/teacher-unavailability`)
     ]);
     
     state.config = await configRes.json();
@@ -357,6 +367,9 @@ async function fetchGlobalData() {
     state.faculty = await facultyRes.json();
     state.allBatches = await batchesRes.json();
     state.groupMappings = await groupRes.json();
+    if (unavailRes && unavailRes.ok) {
+      state.teacherUnavailability = await unavailRes.json();
+    }
   } catch (err) {
     console.error(err);
   }
@@ -533,14 +546,23 @@ async function loadDepartmentWorkspace() {
   document.getElementById('dept-title-name').textContent = `Department of ${deptName}`;
   
   try {
-    const res = await authFetch(`${API_BASE}/allocations?department=${deptName}`);
-    state.allocations = await res.json();
+    const [allocRes, configRes] = await Promise.all([
+      authFetch(`${API_BASE}/allocations?department=${deptName}`),
+      fetch(`${API_BASE}/config`)
+    ]);
+    state.allocations = await allocRes.json();
+    if (configRes && configRes.ok) {
+      state.config = await configRes.json();
+    }
     
     updateDeptStatusBadge();
     window.populateFiltersDropdowns();
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
     renderDeptDataEditors();
+    renderTeacherAvailabilityEditor();
+    populateTeacherTimetableDropdowns();
+    renderTeacherTimetablesTab();
     applyEditLocksUI();
   } catch (err) {
     console.error(err);
@@ -679,6 +701,83 @@ function bindDeptEvents() {
     });
   }
 
+  // Clear Semester Timetable Button
+  const btnClearSem = document.getElementById('btn-clear-sem-timetable');
+  if (btnClearSem) {
+    btnClearSem.addEventListener('click', () => {
+      if (isTimetableLocked()) {
+        const deptName = state.currentUser ? state.currentUser.departmentName : '';
+        const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+        showModalAlert('Timetable Locked', `Your department timetable is locked because it is currently ${deptInfo.status}. Clearing allocations is disabled.`, 'warning');
+        return;
+      }
+
+      const activeSem = state.filters.semester;
+      const targetLabel = activeSem ? `Semester ${activeSem}` : 'All Semesters';
+
+      showModalConfirm(
+        `Clear ${targetLabel} Allocations?`,
+        `Are you sure you want to clear all timetable allocations for ${targetLabel}? All faculty assignments for these courses will be removed.`,
+        async () => {
+          try {
+            const res = await authFetch(`${API_BASE}/department/clear-semester`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                departmentName: state.currentUser.departmentName,
+                semester: activeSem || 'all'
+              })
+            });
+            const result = await res.json();
+            if (res.ok && result.success) {
+              const deptName = state.currentUser.departmentName;
+              let deptCourses = state.courses.filter(c => c.department === deptName);
+              if (activeSem) {
+                deptCourses = deptCourses.filter(c => String(c.semester) === String(activeSem));
+              }
+              const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
+              Object.keys(state.allocations).forEach(cCode => {
+                const base = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+                if (targetBases.has(base) || targetBases.has(cCode)) {
+                  delete state.allocations[cCode];
+                }
+              });
+              renderAllocationMatrix();
+              updateDeptLiveWorkloadTracker();
+              triggerAutosave();
+              showModalAlert('Timetable Cleared', result.message, 'success');
+            } else {
+              showModalAlert('Clear Failed', result.message || 'Failed to clear timetable.', 'danger');
+            }
+          } catch (err) {
+            console.error(err);
+            showModalAlert('Error', 'Connection error while clearing timetable.', 'danger');
+          }
+        }
+      );
+    });
+  }
+
+  // Quick-access button at top of workspace
+  const btnTopAvail = document.getElementById('btn-open-teacher-availability');
+  if (btnTopAvail) {
+    btnTopAvail.addEventListener('click', () => {
+      document.querySelectorAll('.tab-sub-item').forEach(b => {
+        if (b.getAttribute('data-subtab') === 'subtab-dept-availability') b.classList.add('active');
+        else b.classList.remove('active');
+      });
+      document.querySelectorAll('.subtab-pane').forEach(p => {
+        if (p.id === 'subtab-dept-availability') p.classList.remove('hidden');
+        else p.classList.add('hidden');
+      });
+      renderTeacherAvailabilityEditor();
+      const targetCard = document.getElementById('subtab-dept-availability');
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }
+
   // Department Sub-tabs for inline editors
   document.querySelectorAll('.tab-sub-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -690,8 +789,70 @@ function bindDeptEvents() {
         if (p.id === subId) p.classList.remove('hidden');
         else p.classList.add('hidden');
       });
+
+      if (subId === 'subtab-dept-availability') {
+        renderTeacherAvailabilityEditor();
+      }
+      if (subId === 'subtab-dept-teacher-timetable') {
+        renderTeacherTimetablesTab();
+      }
     });
   });
+
+
+  // Teacher Availability Controls
+  const selectAvailTeacher = document.getElementById('select-avail-teacher');
+  if (selectAvailTeacher) {
+    selectAvailTeacher.addEventListener('change', () => {
+      activeUnavailTeacherCode = selectAvailTeacher.value;
+      const allUnavail = state.teacherUnavailability || {};
+      localTeacherUnavail = JSON.parse(JSON.stringify(allUnavail[activeUnavailTeacherCode] || []));
+      loadTeacherUnavailMatrix();
+    });
+  }
+
+  const btnClearTeacherUnavail = document.getElementById('btn-clear-teacher-unavail');
+  if (btnClearTeacherUnavail) {
+    btnClearTeacherUnavail.addEventListener('click', () => {
+      if (isTimetableLocked()) return;
+      localTeacherUnavail = [];
+      loadTeacherUnavailMatrix();
+    });
+  }
+
+  const btnSaveTeacherUnavail = document.getElementById('btn-save-teacher-unavailability');
+  if (btnSaveTeacherUnavail) {
+    btnSaveTeacherUnavail.addEventListener('click', async () => {
+      if (isTimetableLocked()) {
+        showModalAlert('Timetable Locked', 'Timetable is locked. Modifying teacher availability is disabled.', 'warning');
+        return;
+      }
+      if (!activeUnavailTeacherCode) return;
+
+      try {
+        const res = await authFetch(`${API_BASE}/department/teacher-unavailability`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            facultyCode: activeUnavailTeacherCode,
+            unavailableSlots: localTeacherUnavail,
+            departmentName: state.currentUser.departmentName
+          })
+        });
+        const result = await res.json();
+        if (res.ok && result.success) {
+          if (!state.teacherUnavailability) state.teacherUnavailability = {};
+          state.teacherUnavailability[activeUnavailTeacherCode] = localTeacherUnavail;
+          showModalAlert('Saved', `Availability updated for ${activeUnavailTeacherCode}.`, 'success');
+        } else {
+          showModalAlert('Error', result.message || 'Failed to save availability.', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Error', 'Connection error while saving availability.', 'danger');
+      }
+    });
+  }
 
   // Bottom action buttons
   const saveDraftBtn = document.getElementById('btn-save-draft');
@@ -706,6 +867,7 @@ function bindDeptEvents() {
   document.getElementById('btn-preview-timetable').addEventListener('click', () => {
     openTimetablePrintPreview(state.currentUser.departmentName);
   });
+  bindTeacherTimetableEvents();
   
   const btnRevert = document.getElementById('btn-revert-submission');
   if (btnRevert) {
@@ -1096,20 +1258,21 @@ function getMergedCourseInfo(baseCode, deptCourses) {
 
 // Renders the interactive contents of a grid cell
 function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = null) {
-  // Check if period is locked college-wide by Admin
+  // Check if period is flagged by Admin for this course's semester
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
-  const globalLock = globalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
-  if (globalLock) {
-    const lockLabel = globalLock.label || 'College Common Hour';
-    const classes = 'slot-global-locked';
-    const html = `
-      <div class="cell-slot" title="Locked College-Wide by Admin: ${lockLabel}">
-        <div class="cell-info text-sm bold" style="color: #991b1b;"><i class="fa-solid fa-lock"></i> Locked</div>
-        <div class="text-sm bold" style="font-size: 11px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7f1d1d;">${lockLabel}</div>
-      </div>
-    `;
-    return { classes, html };
-  }
+  const courseSem = String((courseT && courseT.semester) || (courseP && courseP.semester) || '').replace(/^Sem(ester)?\s*/i, '').trim();
+  const matchingLocks = globalLocks.filter(l => {
+    if (l.day.toUpperCase() !== day.toUpperCase()) return false;
+    if (String(l.period).trim() !== String(period).trim()) return false;
+    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    if (!lockSem || lockSem === 'all' || lockSem === '') return true;
+    return lockSem === courseSem.toLowerCase();
+  });
+  // Prefer specific semester match over 'all'
+  const globalLock = matchingLocks.find(l => {
+    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    return lockSem === courseSem.toLowerCase();
+  }) || matchingLocks[0];
 
   const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
   const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
@@ -1182,9 +1345,19 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   if (mergedAssigned.length > 0) {
     classes += ' slot-has-assignments';
   }
+  if (globalLock) {
+    classes += ' slot-admin-flagged';
+  }
+
+  const lockFlagBadge = globalLock ? `
+    <div class="admin-lock-tag" title="Admin Flag: ${globalLock.label || 'Locked Period'}" style="font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
+      <i class="fa-solid fa-lock" style="font-size: 9px;"></i> ${globalLock.label || 'Admin Flag'}
+    </div>
+  ` : '';
   
   const html = `
     <div class="cell-slot" onclick="activateSlot(this, '${baseCode}', '${activeCourseCode}', '${day}', '${period}')">
+      ${lockFlagBadge}
       <div class="cell-info text-sm bold text-muted">${slotLabel}</div>
       <div class="cell-assigned-box">
         ${pillsHtml}
@@ -1207,24 +1380,38 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
     return;
   }
 
-  // Check if period is locked college-wide
-  const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
-  const globalLock = globalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
-  if (globalLock) {
-    showModalAlert(
-      'College-Wide Locked Period',
-      `This period (${day} Period ${period}) is locked institution-wide by Central Admin for: "${globalLock.label || 'Common College Activity'}". No classes can be scheduled here.`,
-      'warning'
-    );
-    return;
-  }
-
   const cell = cellContainer.closest('td');
   
   const openSelector = () => {
     cell.classList.add('slot-active');
     openFacultySelectModal(baseCode, activeCourseCode, day, period, cell);
   };
+
+  // Check if period is flagged by Admin
+  const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+  const course = state.courses.find(c => c.code === activeCourseCode) || state.courses.find(c => c.code === baseCode);
+  const courseSem = course ? String(course.semester).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+  const matchingLocks = globalLocks.filter(l => {
+    if (l.day.toUpperCase() !== day.toUpperCase() || String(l.period).trim() !== String(period).trim()) return false;
+    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    if (!lockSem || lockSem === 'all' || lockSem === '') return true;
+    return lockSem === courseSem;
+  });
+  const globalLock = matchingLocks.find(l => {
+    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    return lockSem === courseSem;
+  }) || matchingLocks[0];
+
+  if (globalLock) {
+    showModalConfirm(
+      'Admin Flagged Period',
+      `This period (${day} Period ${period}) is flagged institution-wide by Central Admin: "${globalLock.label || 'College Common Activity'}".\n\nDo you want to manually assign a faculty member to this slot?`,
+      () => {
+        openSelector();
+      }
+    );
+    return;
+  }
 
   if (cell.classList.contains('slot-recommend-none')) {
     if (!cell.classList.contains('slot-active')) {
@@ -1289,6 +1476,9 @@ function renderFacultySelectList() {
   
   deptFaculty.forEach(f => {
     const isAssigned = mergedAssigned.includes(f.code);
+    const unavailList = (state.teacherUnavailability && state.teacherUnavailability[f.code]) || [];
+    const isUnavail = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(period)));
+
     const tr = document.createElement('tr');
     
     // Check which actual course holds this allocation (T or P)
@@ -1298,14 +1488,23 @@ function renderFacultySelectList() {
       else if (assignedP.includes(f.code)) assignedCourseCode = coursePCode;
     }
     
+    let actionBtn = '';
+    if (isAssigned) {
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" onclick="unassignFacultyFromModal('${assignedCourseCode}', '${f.code}')"><i class="fa-solid fa-user-minus"></i> Remove</button>`;
+    } else if (isUnavail) {
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member marked this slot off as unavailable"><i class="fa-solid fa-ban"></i> Unavailable</button>`;
+    } else {
+      actionBtn = `<button class="btn btn-primary btn-xs" onclick="assignFacultyFromModal('${courseCode}', '${f.code}')"><i class="fa-solid fa-user-plus"></i> Assign</button>`;
+    }
+
     tr.innerHTML = `
       <td style="text-align: center;"><span class="fac-pill">${f.code}</span></td>
-      <td><strong>${f.name}</strong></td>
+      <td>
+        <strong>${f.name}</strong>
+        ${isUnavail ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-calendar-xmark"></i> Blackout Slot</span>` : ''}
+      </td>
       <td style="text-align: center;">
-        ${isAssigned ? 
-          `<button class="btn btn-outline btn-xs btn-danger" onclick="unassignFacultyFromModal('${assignedCourseCode}', '${f.code}')"><i class="fa-solid fa-user-minus"></i> Remove</button>` : 
-          `<button class="btn btn-primary btn-xs" onclick="assignFacultyFromModal('${courseCode}', '${f.code}')"><i class="fa-solid fa-user-plus"></i> Assign</button>`
-        }
+        ${actionBtn}
       </td>
     `;
     tbody.appendChild(tr);
@@ -1721,6 +1920,154 @@ window.saveDeptFacultyCode = async function(staffId) {
 };
 
 // -------------------------------------------------------------
+// Teacher Availability / Blackout Days Editor
+// -------------------------------------------------------------
+let activeUnavailTeacherCode = '';
+let localTeacherUnavail = [];
+
+function renderTeacherAvailabilityEditor() {
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const select = document.getElementById('select-avail-teacher');
+  if (!select) return;
+
+  if (deptFaculty.length === 0) {
+    select.innerHTML = '<option value="">No faculty found in department</option>';
+    return;
+  }
+
+  const currentVal = select.value;
+  select.innerHTML = '';
+  deptFaculty.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.code;
+    opt.textContent = `${f.code} - ${f.name}`;
+    select.appendChild(opt);
+  });
+
+  if (currentVal && deptFaculty.some(f => f.code === currentVal)) {
+    select.value = currentVal;
+  } else {
+    select.value = deptFaculty[0].code;
+  }
+
+  activeUnavailTeacherCode = select.value;
+  const allUnavail = state.teacherUnavailability || {};
+  localTeacherUnavail = JSON.parse(JSON.stringify(allUnavail[activeUnavailTeacherCode] || []));
+  loadTeacherUnavailMatrix();
+}
+
+function loadTeacherUnavailMatrix() {
+  const table = document.getElementById('table-teacher-unavail-matrix');
+  const countBadge = document.getElementById('teacher-unavail-status-badge');
+  if (!table || !activeUnavailTeacherCode) return;
+
+  const rawPeriods = (state.config && state.config.periods) || ['1', '2', '3', 'LB', '4', '5', '6'];
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+
+  if (countBadge) {
+    countBadge.textContent = `${localTeacherUnavail.length} Unavailable Period(s)`;
+  }
+
+  const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+  let headerHtml = '<tr><th style="width: 130px; text-align: center;">Weekday</th>';
+  rawPeriods.forEach(p => {
+    if (String(p).toUpperCase() === 'LB') {
+      headerHtml += '<th style="width: 60px; background: var(--background); font-size: 11px; text-align: center;">LB</th>';
+    } else {
+      headerHtml += `<th style="text-align: center;">Period ${p}</th>`;
+    }
+  });
+  headerHtml += '<th style="width: 130px; text-align: center;">Quick Action</th></tr>';
+  thead.innerHTML = headerHtml;
+
+  let bodyHtml = '';
+  weekdays.forEach(day => {
+    bodyHtml += `<tr><td style="font-weight: 700; text-align: center; background: var(--surface-1);">${day}</td>`;
+    
+    rawPeriods.forEach(p => {
+      const pStr = String(p).trim();
+      if (pStr.toUpperCase() === 'LB') {
+        bodyHtml += '<td style="background: var(--background); color: var(--text-muted); font-size: 11px; text-align: center;">LB</td>';
+      } else {
+        const isOff = localTeacherUnavail.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === pStr));
+        if (isOff) {
+          // Entire box is solid red! No toggle icons!
+          bodyHtml += `
+            <td class="teacher-unavail-cell off" data-day="${day}" data-period="${pStr}" title="Click to mark Available">
+              <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.5px;">UNAVAILABLE</span>
+            </td>`;
+        } else {
+          // Available clean cell! No toggle icons!
+          bodyHtml += `
+            <td class="teacher-unavail-cell available" data-day="${day}" data-period="${pStr}" title="Click to mark Unavailable">
+              <span style="font-size: 11px; font-weight: 500;">Available</span>
+            </td>`;
+        }
+      }
+    });
+
+    // Quick Day Toggle button
+    const realPeriods = rawPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+    const dayOffCount = localTeacherUnavail.filter(u => u.day.toUpperCase() === day.toUpperCase()).length;
+    const isDayFull = dayOffCount >= realPeriods.length;
+
+    bodyHtml += `
+      <td style="text-align: center;">
+        <button type="button" class="btn btn-outline btn-xs btn-toggle-day-off" data-day="${day}" style="font-size: 11px; padding: 4px 10px; ${isDayFull ? 'background: #fee2e2; color: #dc2626; border-color: #fca5a5;' : ''}">
+          ${isDayFull ? 'Clear Day' : 'Mark Day Off'}
+        </button>
+      </td>
+    </tr>`;
+  });
+  tbody.innerHTML = bodyHtml;
+
+  // Bind cell clicks to toggle availability
+  table.querySelectorAll('.teacher-unavail-cell').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isTimetableLocked()) return;
+      const day = cell.getAttribute('data-day');
+      const period = cell.getAttribute('data-period');
+      
+      const idx = localTeacherUnavail.findIndex(u => u.day.toUpperCase() === day.toUpperCase() && String(u.period) === String(period));
+      if (idx >= 0) {
+        localTeacherUnavail.splice(idx, 1);
+      } else {
+        localTeacherUnavail.push({ day, period: String(period) });
+      }
+      loadTeacherUnavailMatrix();
+    });
+  });
+
+  // Bind Day Toggle buttons
+  table.querySelectorAll('.btn-toggle-day-off').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (isTimetableLocked()) return;
+      const day = btn.getAttribute('data-day');
+      const realPeriods = rawPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+      const dayCount = localTeacherUnavail.filter(u => u.day.toUpperCase() === day.toUpperCase()).length;
+
+      if (dayCount >= realPeriods.length) {
+        // Clear all entries for this day
+        localTeacherUnavail = localTeacherUnavail.filter(u => u.day.toUpperCase() !== day.toUpperCase());
+      } else {
+        // Mark all real periods of this day
+        realPeriods.forEach(p => {
+          if (!localTeacherUnavail.some(u => u.day.toUpperCase() === day.toUpperCase() && String(u.period) === String(p))) {
+            localTeacherUnavail.push({ day, period: String(p) });
+          }
+        });
+      }
+      loadTeacherUnavailMatrix();
+    });
+  });
+}
+
+
+// -------------------------------------------------------------
 // Print Preview timetime modal
 // -------------------------------------------------------------
 let activePrintDept = "";
@@ -2038,6 +2385,379 @@ function exportPrintTimetableToCSV() {
 }
 
 
+// =============================================================
+// TEACHER-WISE TIMETABLE ENGINE & PDF EXPORT
+// =============================================================
+
+function computeFacultyWeeklySchedules(deptName) {
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+  const schedules = {};
+  deptFaculty.forEach(fac => {
+    schedules[fac.code] = {
+      info: fac,
+      totalHours: 0,
+      theoryHours: 0,
+      practicalHours: 0,
+      slots: {}
+    };
+    weekdays.forEach(d => {
+      schedules[fac.code].slots[d] = {};
+    });
+  });
+
+  const deptAlloc = state.allocations || {};
+
+  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_C\d+-(T|P)$/, '').replace(/_C\d+$/, '').replace(/_G\d+$/, '');
+    const course = state.courses.find(c => c.code === cCode) || 
+                   state.courses.find(c => c.code === baseCode) || 
+                   { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
+
+    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
+
+    Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+      const dayUpper = day.toUpperCase();
+      Object.entries(periodObj || {}).forEach(([period, facList]) => {
+        if (Array.isArray(facList)) {
+          facList.forEach(facCode => {
+            if (schedules[facCode]) {
+              if (!schedules[facCode].slots[dayUpper]) {
+                schedules[facCode].slots[dayUpper] = {};
+              }
+              if (!schedules[facCode].slots[dayUpper][period]) {
+                schedules[facCode].slots[dayUpper][period] = [];
+              }
+              schedules[facCode].slots[dayUpper][period].push({
+                courseCode: cCode,
+                courseName: course.name,
+                courseAlias: course.alias || course.name,
+                semester: course.semester,
+                category: course.category,
+                type: isPrac ? 'P' : 'T'
+              });
+              schedules[facCode].totalHours++;
+              if (isPrac) {
+                schedules[facCode].practicalHours++;
+              } else {
+                schedules[facCode].theoryHours++;
+              }
+            }
+          });
+        }
+      });
+    });
+  });
+
+  return schedules;
+}
+
+function renderTeacherTimetableSheet(facSchedule, displayMode, periods, deptName) {
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const fac = facSchedule.info;
+
+  let theadHtml = `
+    <tr>
+      <th class="teacher-day-th">Day</th>
+      ${periods.map(p => `<th>${String(p).toUpperCase() === 'LB' ? 'Lunch Break' : `Period ${p}`}</th>`).join('')}
+    </tr>
+  `;
+
+  let tbodyHtml = '';
+  weekdays.forEach(day => {
+    let cellsHtml = `<td class="teacher-day-cell"><strong>${day}</strong></td>`;
+    periods.forEach(p => {
+      const pUpper = String(p).toUpperCase();
+      if (pUpper === 'LB') {
+        cellsHtml += `<td class="teacher-slot-lb">LB</td>`;
+        return;
+      }
+
+      const assignedList = facSchedule.slots[day] && facSchedule.slots[day][p];
+      if (assignedList && assignedList.length > 0) {
+        const itemHtmls = assignedList.map(item => {
+          const isP = item.type === 'P';
+          const typeLabel = isP ? 'PR' : 'TH';
+          
+          let dispText = item.courseAlias;
+          if (displayMode === 'short') {
+            dispText = item.courseCode;
+          } else if (displayMode === 'full') {
+            dispText = `${item.courseName} (${item.courseCode})`;
+          } else {
+            dispText = `${item.courseAlias || item.courseCode}`;
+          }
+
+          const semLabel = item.semester && item.semester !== '-' ? `Sem ${item.semester}` : '';
+
+          return `
+            <div class="teacher-slot-inner">
+              <span class="teacher-slot-course" title="${item.courseName} (${item.courseCode})">${dispText}</span>
+              <div style="display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 2px;">
+                ${semLabel ? `<span class="teacher-slot-sem-pill">${semLabel}</span>` : ''}
+                <span class="teacher-slot-type-badge">${typeLabel}</span>
+              </div>
+            </div>
+          `;
+        }).join('<div style="border-top: 1px dashed rgba(0,0,0,0.15); margin: 3px 0;"></div>');
+
+        const primaryTypeClass = assignedList.some(x => x.type === 'P') ? 'teacher-slot-pr' : 'teacher-slot-th';
+        cellsHtml += `<td class="${primaryTypeClass}">${itemHtmls}</td>`;
+      } else {
+        cellsHtml += `<td class="teacher-slot-free">—</td>`;
+      }
+    });
+
+    tbodyHtml += `<tr>${cellsHtml}</tr>`;
+  });
+
+  return `
+    <div class="teacher-sheet-page">
+      <div class="print-header text-center" style="margin-bottom: 12px;">
+        <h2 style="font-size: 16px; margin: 0; font-weight: 800; letter-spacing: 0.5px;">ST. THOMAS COLLEGE (AUTONOMOUS), THRISSUR</h2>
+        <h3 style="font-size: 14px; margin: 2px 0; color: #475569;">DEPARTMENT OF ${deptName}</h3>
+        <h4 style="font-size: 12px; margin: 0; color: #64748b; font-weight: 600;">TEACHER INDIVIDUAL TIMETABLE & WORKLOAD – <span class="uppercase">${state.config.semesterType || 'ODD'} SEMESTER</span> ${state.config.academicYear || ''}</h4>
+      </div>
+
+      <div class="teacher-meta-header">
+        <div class="teacher-meta-left">
+          <h3>
+            <i class="fa-solid fa-user-tie text-primary"></i> ${fac.name} 
+            <span class="teacher-code-pill">${fac.code}</span>
+          </h3>
+          <span class="text-muted text-sm">${fac.designation || 'Faculty Member'} | Department of ${deptName}</span>
+        </div>
+        <div class="teacher-meta-right">
+          <span class="teacher-stat-badge teacher-stat-total" title="Total teaching periods per week">
+            <i class="fa-solid fa-clock"></i> Total: <strong>${facSchedule.totalHours} hrs/week</strong>
+          </span>
+          <span class="teacher-stat-badge teacher-stat-th" title="Theory hours per week">
+            <i class="fa-solid fa-book-open"></i> Theory: <strong>${facSchedule.theoryHours} hrs</strong>
+          </span>
+          <span class="teacher-stat-badge teacher-stat-pr" title="Practical lab hours per week">
+            <i class="fa-solid fa-flask"></i> Practical: <strong>${facSchedule.practicalHours} hrs</strong>
+          </span>
+        </div>
+      </div>
+
+      <table class="teacher-grid-table">
+        <thead>${theadHtml}</thead>
+        <tbody>${tbodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTeacherTimetables(containerElement, targetFacultyCode = 'ALL', displayMode = 'medium') {
+  if (!containerElement) return;
+  const deptName = state.currentUser ? state.currentUser.departmentName : 'Department';
+  const schedules = computeFacultyWeeklySchedules(deptName);
+  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+
+  const facultyList = targetFacultyCode === 'ALL'
+    ? Object.values(schedules)
+    : [schedules[targetFacultyCode]].filter(Boolean);
+
+  if (facultyList.length === 0) {
+    containerElement.innerHTML = `
+      <div class="text-center text-muted" style="padding: 40px 20px;">
+        <i class="fa-solid fa-user-slash" style="font-size: 36px; margin-bottom: 12px; color: #cbd5e1;"></i>
+        <p>No faculty members found for this department.</p>
+      </div>
+    `;
+    return;
+  }
+
+  containerElement.innerHTML = facultyList.map(facSched => {
+    return renderTeacherTimetableSheet(facSched, displayMode, periods, deptName);
+  }).join('');
+}
+
+function populateTeacherTimetableDropdowns() {
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+
+  const modalSelect = document.getElementById('select-teacher-timetable-faculty');
+  const tabSelect = document.getElementById('tab-select-teacher-faculty');
+
+  const optionsHtml = `
+    <option value="ALL">All Teachers (${deptFaculty.length} Faculty Members)</option>
+    ${deptFaculty.map(f => `<option value="${f.code}">${f.name} (${f.code})</option>`).join('')}
+  `;
+
+  if (modalSelect) modalSelect.innerHTML = optionsHtml;
+  if (tabSelect) tabSelect.innerHTML = optionsHtml;
+}
+
+function openTeacherTimetableModal(selectedFacultyCode = 'ALL') {
+  populateTeacherTimetableDropdowns();
+  
+  const modalSelect = document.getElementById('select-teacher-timetable-faculty');
+  if (modalSelect) {
+    modalSelect.value = selectedFacultyCode;
+  }
+
+  const modeSelect = document.getElementById('select-teacher-timetable-mode');
+  const mode = modeSelect ? modeSelect.value : 'medium';
+
+  const container = document.getElementById('teacher-print-area');
+  renderTeacherTimetables(container, selectedFacultyCode, mode);
+
+  const modal = document.getElementById('modal-teacher-timetable');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function renderTeacherTimetablesTab() {
+  populateTeacherTimetableDropdowns();
+  const tabSelect = document.getElementById('tab-select-teacher-faculty');
+  const selectedFacultyCode = tabSelect ? tabSelect.value : 'ALL';
+  const container = document.getElementById('tab-teacher-timetable-container');
+  renderTeacherTimetables(container, selectedFacultyCode, 'medium');
+}
+
+function exportTeacherTimetableToCSV(targetFacultyCode = 'ALL') {
+  const deptName = state.currentUser ? state.currentUser.departmentName : 'Department';
+  const schedules = computeFacultyWeeklySchedules(deptName);
+  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+  const facultyList = targetFacultyCode === 'ALL'
+    ? Object.values(schedules)
+    : [schedules[targetFacultyCode]].filter(Boolean);
+
+  let csvRows = [];
+  csvRows.push([`ST. THOMAS COLLEGE (AUTONOMOUS) - DEPARTMENT OF ${deptName}`]);
+  csvRows.push([`TEACHER TIMETABLE REPORT - ${state.config.semesterType || 'ODD'} SEMESTER ${state.config.academicYear || ''}`]);
+  csvRows.push([]);
+
+  facultyList.forEach(facSched => {
+    const fac = facSched.info;
+    csvRows.push([`Teacher:`, `"${fac.name}"`, `Code:`, `"${fac.code}"`, `Workload:`, `"${facSched.totalHours} hrs/week (${facSched.theoryHours} TH, ${facSched.practicalHours} PR)"`]);
+    csvRows.push(['Day', ...periods.map(p => String(p).toUpperCase() === 'LB' ? 'LB' : `Period ${p}`)]);
+
+    weekdays.forEach(day => {
+      const row = [day];
+      periods.forEach(p => {
+        if (String(p).toUpperCase() === 'LB') {
+          row.push('Lunch Break');
+          return;
+        }
+        const assigned = facSched.slots[day] && facSched.slots[day][p];
+        if (assigned && assigned.length > 0) {
+          const text = assigned.map(a => `${a.courseAlias || a.courseCode} (Sem ${a.semester}, ${a.type})`).join(' / ');
+          row.push(`"${text}"`);
+        } else {
+          row.push('Free');
+        }
+      });
+      csvRows.push(row);
+    });
+    csvRows.push([]);
+  });
+
+  const csvString = csvRows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const filename = targetFacultyCode === 'ALL'
+    ? `${deptName}_All_Teachers_Timetable_${state.config.academicYear || '2026'}.csv`
+    : `${deptName}_Teacher_${targetFacultyCode}_Timetable_${state.config.academicYear || '2026'}.csv`;
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function bindTeacherTimetableEvents() {
+  const btnOpenToolbar = document.getElementById('btn-open-teacher-timetable');
+  if (btnOpenToolbar) {
+    btnOpenToolbar.addEventListener('click', () => {
+      openTeacherTimetableModal('ALL');
+    });
+  }
+
+  const btnCloseModal = document.getElementById('btn-close-teacher-modal');
+  if (btnCloseModal) {
+    btnCloseModal.addEventListener('click', () => {
+      const modal = document.getElementById('modal-teacher-timetable');
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  const modalSelectFac = document.getElementById('select-teacher-timetable-faculty');
+  const modalSelectMode = document.getElementById('select-teacher-timetable-mode');
+  const printArea = document.getElementById('teacher-print-area');
+
+  if (modalSelectFac && printArea) {
+    modalSelectFac.addEventListener('change', () => {
+      const mode = modalSelectMode ? modalSelectMode.value : 'medium';
+      renderTeacherTimetables(printArea, modalSelectFac.value, mode);
+    });
+  }
+
+  if (modalSelectMode && printArea) {
+    modalSelectMode.addEventListener('change', () => {
+      const facCode = modalSelectFac ? modalSelectFac.value : 'ALL';
+      renderTeacherTimetables(printArea, facCode, modalSelectMode.value);
+    });
+  }
+
+  const btnPrint = document.getElementById('btn-trigger-teacher-print');
+  if (btnPrint) {
+    btnPrint.addEventListener('click', () => {
+      window.print();
+    });
+  }
+
+  const btnExportCsv = document.getElementById('btn-export-teacher-csv');
+  if (btnExportCsv) {
+    btnExportCsv.addEventListener('click', () => {
+      const facCode = modalSelectFac ? modalSelectFac.value : 'ALL';
+      exportTeacherTimetableToCSV(facCode);
+    });
+  }
+
+  // Tab controls
+  const tabSelectFac = document.getElementById('tab-select-teacher-faculty');
+  const tabContainer = document.getElementById('tab-teacher-timetable-container');
+  if (tabSelectFac && tabContainer) {
+    tabSelectFac.addEventListener('change', () => {
+      renderTeacherTimetables(tabContainer, tabSelectFac.value, 'medium');
+    });
+  }
+
+  const tabBtnModal = document.getElementById('tab-btn-open-teacher-modal');
+  if (tabBtnModal) {
+    tabBtnModal.addEventListener('click', () => {
+      const facCode = tabSelectFac ? tabSelectFac.value : 'ALL';
+      openTeacherTimetableModal(facCode);
+    });
+  }
+
+  const tabBtnPrint = document.getElementById('tab-btn-print-teacher-pdf');
+  if (tabBtnPrint) {
+    tabBtnPrint.addEventListener('click', () => {
+      const facCode = tabSelectFac ? tabSelectFac.value : 'ALL';
+      openTeacherTimetableModal(facCode);
+      setTimeout(() => {
+        window.print();
+      }, 350);
+    });
+  }
+
+  const btnSwitchTeacher = document.getElementById('btn-switch-to-teacher-timetable');
+  if (btnSwitchTeacher) {
+    btnSwitchTeacher.addEventListener('click', () => {
+      const printModal = document.getElementById('modal-print-preview');
+      if (printModal) printModal.classList.add('hidden');
+      openTeacherTimetableModal('ALL');
+    });
+  }
+}
+
+
 // -------------------------------------------------------------
 // Department Group & Batch Assignment Modal Helpers
 // -------------------------------------------------------------
@@ -2242,6 +2962,7 @@ function renderAutoGeneratorBindings() {
   const container = document.getElementById('auto-gen-faculty-bindings-list');
   const countSpan = document.getElementById('auto-gen-courses-count');
   const semSelect = document.getElementById('auto-gen-sem-select');
+  const selectAllCb = document.getElementById('auto-gen-select-all-courses');
   if (!container) return;
 
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
@@ -2252,14 +2973,24 @@ function renderAutoGeneratorBindings() {
     deptCourses = deptCourses.filter(c => String(c.semester) === String(targetSem));
   }
 
-  if (countSpan) countSpan.textContent = deptCourses.length;
-
-  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  function updateSelectedCount() {
+    const allCbs = container.querySelectorAll('.auto-gen-course-cb');
+    const checkedCbs = container.querySelectorAll('.auto-gen-course-cb:checked');
+    if (countSpan) countSpan.textContent = `${checkedCbs.length} of ${allCbs.length}`;
+    if (selectAllCb) {
+      selectAllCb.checked = allCbs.length > 0 && checkedCbs.length === allCbs.length;
+      selectAllCb.indeterminate = checkedCbs.length > 0 && checkedCbs.length < allCbs.length;
+    }
+  }
 
   if (deptCourses.length === 0) {
     container.innerHTML = `<div class="text-muted text-sm text-center py-2">No courses found for selected semester.</div>`;
+    if (countSpan) countSpan.textContent = '0';
+    if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
     return;
   }
+
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
 
   let html = '';
   deptCourses.forEach(c => {
@@ -2278,10 +3009,13 @@ function renderAutoGeneratorBindings() {
       : `<span class="badge" style="background-color: var(--warning-light); color: var(--warning-dark); font-size: 10px;">TH</span>`;
 
     html += `
-      <div class="flex-row justify-between items-center py-1" style="border-bottom: 1px dashed var(--border); font-size: 12px;">
-        <div style="flex: 1; padding-right: 8px;">
-          <strong style="color: var(--text-main);">${c.code}</strong> ${typeBadge}
-          <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;">${c.name} (Sem ${c.semester})</div>
+      <div class="flex-row justify-between items-center py-1" style="border-bottom: 1px dashed var(--border); font-size: 12px; gap: 8px;">
+        <div class="flex-row items-center" style="gap: 8px; flex: 1; min-width: 0;">
+          <input type="checkbox" class="auto-gen-course-cb" value="${c.code}" checked style="accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer;">
+          <div style="flex: 1; min-width: 0;">
+            <strong style="color: var(--text-main);">${c.code}</strong> ${typeBadge}
+            <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">${c.name} (Sem ${c.semester})</div>
+          </div>
         </div>
         <div>
           <select class="auto-gen-fac-select form-control" data-course-code="${c.code}" style="font-size: 11px; padding: 2px 6px; height: 28px; width: 140px;">
@@ -2297,9 +3031,25 @@ function renderAutoGeneratorBindings() {
   });
 
   container.innerHTML = html;
+  updateSelectedCount();
+
+  // Attach checkbox change handlers
+  container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
+    cb.addEventListener('change', updateSelectedCount);
+  });
+
+  if (selectAllCb) {
+    selectAllCb.onchange = () => {
+      const isChecked = selectAllCb.checked;
+      container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
+        cb.checked = isChecked;
+      });
+      updateSelectedCount();
+    };
+  }
 }
 
-async function runAutoGeneration() {
+async function runAutoGeneration(forceRelaxed = false) {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const semSelect = document.getElementById('auto-gen-sem-select');
   const pinSlotsCheck = document.getElementById('auto-gen-pin-slots');
@@ -2307,10 +3057,23 @@ async function runAutoGeneration() {
   const btnApply = document.getElementById('btn-apply-auto-generate');
   const resultsCard = document.getElementById('auto-gen-results-card');
   const errBox = document.getElementById('auto-gen-error-alert');
+  const suggestionsBox = document.getElementById('auto-gen-suggestions-box');
 
   if (errBox) errBox.classList.add('hidden');
   if (resultsCard) resultsCard.classList.add('hidden');
   if (btnApply) btnApply.classList.add('hidden');
+  if (suggestionsBox) suggestionsBox.classList.add('hidden');
+
+  // Collect Selected Courses
+  const checkedBoxes = Array.from(document.querySelectorAll('.auto-gen-course-cb:checked'));
+  if (checkedBoxes.length === 0) {
+    if (errBox) {
+      errBox.textContent = 'Please select at least one course to generate schedule.';
+      errBox.classList.remove('hidden');
+    }
+    return;
+  }
+  const selectedCourseCodes = checkedBoxes.map(cb => cb.value);
 
   // Collect Course Faculty Map
   const courseFacultyMap = {};
@@ -2329,7 +3092,9 @@ async function runAutoGeneration() {
   }
 
   btnRun.disabled = true;
-  btnRun.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Solving Schedule...`;
+  btnRun.innerHTML = forceRelaxed 
+    ? `<i class="fa-solid fa-spinner fa-spin"></i> Solving with Smart Exceptions...` 
+    : `<i class="fa-solid fa-spinner fa-spin"></i> Solving Schedule...`;
 
   try {
     const res = await authFetch(`${API_BASE}/department/auto-generate`, {
@@ -2340,8 +3105,10 @@ async function runAutoGeneration() {
         semester: semSelect ? semSelect.value : '',
         courseFacultyMap,
         pinnedSlots,
+        selectedCourseCodes,
         maxConsecutiveHours: 2,
-        practicalBlockSize: 2
+        practicalBlockSize: 2,
+        forceRelaxed: !!forceRelaxed
       })
     });
 
@@ -2352,18 +3119,160 @@ async function runAutoGeneration() {
     if (res.ok && result.success) {
       tempGeneratedAllocations = result.allocations;
       
-      document.getElementById('auto-gen-results-msg').textContent = result.message;
+      const resultsMsg = document.getElementById('auto-gen-results-msg');
+      if (result.status === 'relaxed_with_exceptions') {
+        const excCount = result.exceptions ? result.exceptions.length : 0;
+        let exceptionsListHtml = '';
+        if (result.exceptions && result.exceptions.length > 0) {
+          exceptionsListHtml = `
+            <div style="margin-top: 6px; font-size: 11px; color: #92400e;">
+              <strong>Applied Smart Exceptions (${excCount}):</strong>
+              <ul style="margin: 2px 0 0 16px; padding: 0;">
+                ${result.exceptions.map(e => `<li>${e.reason}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        }
+        if (resultsMsg) {
+          resultsMsg.innerHTML = `
+            <span style="color: #b45309; font-weight: 700;"><i class="fa-solid fa-triangle-exclamation"></i> Feasible Schedule Generated via Smart Exceptions:</span>
+            ${result.message}
+            ${exceptionsListHtml}
+          `;
+        }
+      } else {
+        if (resultsMsg) resultsMsg.textContent = result.message;
+      }
+
       document.getElementById('audit-stat-slots').textContent = result.audit.totalAllocatedSlots;
       document.getElementById('audit-stat-clashes').textContent = result.audit.facultyClashes;
       document.getElementById('audit-stat-practicals').textContent = `${result.audit.practicalBlocksPlaced} Blocks`;
       document.getElementById('audit-stat-violations').textContent = result.audit.teacherConsecutiveViolations;
 
+      // Render suggestions if available
+      if (suggestionsBox) {
+        if (result.suggestions && result.suggestions.length > 0) {
+          suggestionsBox.innerHTML = `
+            <div style="font-weight: 600; color: #b45309; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <i class="fa-solid fa-lightbulb"></i> Constraint Insights & Optimizations:
+            </div>
+            <ul style="margin: 0; padding-left: 18px; color: #78350f; font-size: 11px; line-height: 1.5;">
+              ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+            </ul>
+          `;
+          suggestionsBox.classList.remove('hidden');
+        } else {
+          suggestionsBox.classList.add('hidden');
+        }
+      }
+
       if (resultsCard) resultsCard.classList.remove('hidden');
       if (btnApply) btnApply.classList.remove('hidden');
+
+      // If triggered by "Solve with Smart Exceptions", automatically apply to timetable workspace
+      if (forceRelaxed) {
+        await applyAutoGeneratedSchedule();
+      }
     } else {
       if (errBox) {
-        errBox.textContent = result.message || 'Auto-generation failed.';
+        let msgHtml = `<div><strong>${result.message || 'Auto-generation failed under strict constraints.'}</strong></div>`;
+        if (result.suggestions && result.suggestions.length > 0) {
+          msgHtml += `
+            <div style="margin-top: 8px; font-weight: 600;">Diagnosed Bottlenecks & Recommendations:</div>
+            <ul style="margin-top: 4px; margin-bottom: 8px; padding-left: 18px; font-size: 11px;">
+              ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+            </ul>
+          `;
+        }
+
+        // Add interactive Solve with Exceptions button
+        if (result.canAutoResolve || (result.suggestions && result.suggestions.length > 0)) {
+          msgHtml += `
+            <div class="mt-2 pt-2" style="border-top: 1px dashed rgba(220, 38, 38, 0.3); display: flex; justify-content: flex-end;">
+              <button type="button" id="btn-auto-resolve-exceptions" class="btn btn-sm" style="font-weight: 700; background: #f59e0b; color: #78350f; border: 1px solid #d97706; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 6px 12px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <i class="fa-solid fa-wrench"></i> Solve with Smart Exceptions
+              </button>
+            </div>
+          `;
+        }
+
+        errBox.innerHTML = msgHtml;
         errBox.classList.remove('hidden');
+
+        // Bind Solve with Exceptions button
+        const btnResolve = document.getElementById('btn-auto-resolve-exceptions');
+        if (btnResolve) {
+          btnResolve.addEventListener('click', () => {
+            // Build dynamic summary based on diagnosed bottlenecks
+            const diag = result.diagnostics || {};
+            const summaryItems = [];
+
+            const bottleneckFac = Object.keys(diag.bottleneckFaculty || {});
+            if (bottleneckFac.length > 0 || (diag.rejectionCounts && diag.rejectionCounts.TEACHER_FATIGUE > 0)) {
+              const facLabels = bottleneckFac.map(code => {
+                const fObj = state.faculty.find(f => f.code === code);
+                return fObj ? `${fObj.name} (${code})` : code;
+              });
+              summaryItems.push(`
+                <li><strong>Teacher Rest Limit Flexibility:</strong> Allows teachers to teach up to 3 or 4 consecutive hours where necessary to complete your timetable${facLabels.length > 0 ? ` (constrained faculty: <em>${facLabels.join(', ')}</em>)` : ''}.</li>
+              `);
+            }
+
+            if (diag.rejectionCounts && diag.rejectionCounts.TEACHER_UNAVAILABLE > 0) {
+              summaryItems.push(`
+                <li><strong>Teacher Blackout Flexibility:</strong> Relaxes teacher unwanted periods where strictly necessary to resolve timetable deadlocks.</li>
+              `);
+            }
+
+            if (diag.rejectionCounts && diag.rejectionCounts.SHIFT_BALANCE > 0) {
+              summaryItems.push(`
+                <li><strong>Shift Balancing Adaptation:</strong> Relaxes morning/afternoon shift division to place remaining course hours into available periods.</li>
+              `);
+            }
+
+            if (diag.rejectionCounts && diag.rejectionCounts.SAME_PERIOD_REPETITION > 0) {
+              summaryItems.push(`
+                <li><strong>Period Repetition Flexibility:</strong> Relaxes anti-mono-period rules when distinct periods are fully booked.</li>
+              `);
+            }
+
+            if (diag.rejectionCounts && diag.rejectionCounts.SAME_DAY_STACKING > 0) {
+              summaryItems.push(`
+                <li><strong>Daily Course Hour Cap:</strong> Permits up to 3 hours for multi-hour theory courses on a single day if needed.</li>
+              `);
+            }
+
+            if (summaryItems.length === 0) {
+              summaryItems.push(`
+                <li><strong>Continuous Rest & Shift Relaxation:</strong> Relaxes soft rest intervals and shift balancing to accommodate all required course hours.</li>
+              `);
+            }
+
+            const confirmMessage = `
+              <div style="text-align: left; font-size: 13px; line-height: 1.5; color: var(--text-main);">
+                <p>Generating with smart exceptions will resolve the diagnosed deadlocks by applying the following dynamic relaxations:</p>
+                <ul style="margin: 8px 0 12px 18px; padding: 0; color: #b45309;">
+                  ${summaryItems.join('')}
+                </ul>
+                <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 8px 10px; color: #166534; font-size: 12px; margin-top: 8px;">
+                  <i class="fa-solid fa-shield-halved"></i> <strong>Guaranteed Hard Invariants:</strong>
+                  <div style="margin-top: 2px;">• Zero teacher clashes across all departments</div>
+                  <div>• Zero student cohort clashes</div>
+                  <div>• Lunch break (LB) periods strictly protected</div>
+                </div>
+                <p style="margin-top: 10px; font-weight: 600;">Would you like to proceed and generate the schedule with these exceptions?</p>
+              </div>
+            `;
+
+            showModalConfirm(
+              'Solve Timetable with Smart Exceptions',
+              confirmMessage,
+              async () => {
+                await runAutoGeneration(true);
+              }
+            );
+          });
+        }
       }
     }
   } catch (err) {
@@ -2375,6 +3284,7 @@ async function runAutoGeneration() {
     }
   }
 }
+
 
 async function applyAutoGeneratedSchedule() {
   if (!tempGeneratedAllocations) return;
@@ -2394,7 +3304,9 @@ async function applyAutoGeneratedSchedule() {
       }
     });
   } else {
-    state.allocations = tempGeneratedAllocations;
+    Object.keys(tempGeneratedAllocations).forEach(cCode => {
+      state.allocations[cCode] = tempGeneratedAllocations[cCode];
+    });
   }
 
   renderAllocationMatrix();
@@ -2404,5 +3316,6 @@ async function applyAutoGeneratedSchedule() {
   closeAutoGeneratorDrawer();
   showModalAlert('Schedule Applied', 'The auto-generated schedule has been applied to your timetable workspace and saved as draft!', 'success');
 }
+
 
 
