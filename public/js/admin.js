@@ -1488,6 +1488,14 @@ function bindPrintEvents() {
   document.getElementById('btn-export-timetable-csv').addEventListener('click', () => {
     exportPrintTimetableToCSV();
   });
+
+  const btnSwitch = document.getElementById('btn-switch-to-teacher-timetable');
+  if (btnSwitch) {
+    btnSwitch.addEventListener('click', () => {
+      document.getElementById('modal-print-preview').classList.add('hidden');
+      openAdminTeacherTimetableModal(activePrintDept, 'ALL');
+    });
+  }
 }
 
 function openTimetablePrintModal(deptName) {
@@ -1765,6 +1773,353 @@ function exportPrintTimetableToCSV() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+// -------------------------------------------------------------
+// Admin Teacher-wise Timetable Engine & PDF Export
+// -------------------------------------------------------------
+let adminActiveTeacherDept = '';
+
+function bindAdminTeacherTimetableEvents() {
+  const btnClose = document.getElementById('btn-close-teacher-modal');
+  if (btnClose) {
+    btnClose.onclick = () => {
+      const modal = document.getElementById('modal-teacher-timetable');
+      if (modal) modal.classList.add('hidden');
+    };
+  }
+
+  const selectFac = document.getElementById('select-teacher-timetable-faculty');
+  const selectMode = document.getElementById('select-teacher-timetable-mode');
+  const printArea = document.getElementById('teacher-print-area');
+
+  if (selectFac && printArea) {
+    selectFac.onchange = async () => {
+      const mode = selectMode ? selectMode.value : 'medium';
+      await renderAdminTeacherTimetables(printArea, adminActiveTeacherDept, selectFac.value, mode);
+    };
+  }
+
+  if (selectMode && printArea) {
+    selectMode.onchange = async () => {
+      const facCode = selectFac ? selectFac.value : 'ALL';
+      await renderAdminTeacherTimetables(printArea, adminActiveTeacherDept, facCode, selectMode.value);
+    };
+  }
+
+  const btnPrint = document.getElementById('btn-trigger-teacher-print');
+  if (btnPrint) {
+    btnPrint.onclick = () => {
+      window.print();
+    };
+  }
+
+  const btnExportCsv = document.getElementById('btn-export-teacher-csv');
+  if (btnExportCsv) {
+    btnExportCsv.onclick = async () => {
+      const facCode = selectFac ? selectFac.value : 'ALL';
+      await exportAdminTeacherTimetableToCSV(adminActiveTeacherDept, facCode);
+    };
+  }
+}
+
+async function fetchDeptAllocations(deptName) {
+  try {
+    const res = await fetch(`${API_BASE}/allocations?department=${encodeURIComponent(deptName)}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  return {};
+}
+
+async function renderAdminTeacherTimetables(containerElement, deptName, targetFacultyCode = 'ALL', displayMode = 'medium') {
+  if (!containerElement) return;
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+  const deptAlloc = await fetchDeptAllocations(deptName);
+
+  const schedules = {};
+  deptFaculty.forEach(fac => {
+    schedules[fac.code] = {
+      info: fac,
+      totalHours: 0,
+      theoryHours: 0,
+      practicalHours: 0,
+      slots: {}
+    };
+    weekdays.forEach(d => {
+      schedules[fac.code].slots[d] = {};
+    });
+  });
+
+  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_C\d+-(T|P)$/, '').replace(/_C\d+$/, '').replace(/_G\d+$/, '');
+    const course = state.courses.find(c => c.code === cCode) || 
+                   state.courses.find(c => c.code === baseCode) || 
+                   { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
+
+    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
+
+    Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+      const dayUpper = day.toUpperCase();
+      Object.entries(periodObj || {}).forEach(([period, facList]) => {
+        if (Array.isArray(facList)) {
+          facList.forEach(facCode => {
+            if (schedules[facCode]) {
+              if (!schedules[facCode].slots[dayUpper]) {
+                schedules[facCode].slots[dayUpper] = {};
+              }
+              if (!schedules[facCode].slots[dayUpper][period]) {
+                schedules[facCode].slots[dayUpper][period] = [];
+              }
+              schedules[facCode].slots[dayUpper][period].push({
+                courseCode: cCode,
+                courseName: course.name,
+                courseAlias: course.alias || course.name,
+                semester: course.semester,
+                category: course.category,
+                type: isPrac ? 'P' : 'T'
+              });
+              schedules[facCode].totalHours++;
+              if (isPrac) schedules[facCode].practicalHours++;
+              else schedules[facCode].theoryHours++;
+            }
+          });
+        }
+      });
+    });
+  });
+
+  const facultyList = targetFacultyCode === 'ALL'
+    ? Object.values(schedules)
+    : [schedules[targetFacultyCode]].filter(Boolean);
+
+  if (facultyList.length === 0) {
+    containerElement.innerHTML = `
+      <div class="text-center text-muted" style="padding: 40px 20px;">
+        <i class="fa-solid fa-user-slash" style="font-size: 36px; margin-bottom: 12px; color: #cbd5e1;"></i>
+        <p>No faculty members found for ${deptName}.</p>
+      </div>
+    `;
+    return;
+  }
+
+  containerElement.innerHTML = facultyList.map(facSched => {
+    const fac = facSched.info;
+    let theadHtml = `
+      <tr>
+        <th class="teacher-day-th">Day</th>
+        ${periods.map(p => `<th>${String(p).toUpperCase() === 'LB' ? 'Lunch Break' : `Period ${p}`}</th>`).join('')}
+      </tr>
+    `;
+
+    let tbodyHtml = '';
+    weekdays.forEach(day => {
+      let cellsHtml = `<td class="teacher-day-cell"><strong>${day}</strong></td>`;
+      periods.forEach(p => {
+        const pUpper = String(p).toUpperCase();
+        if (pUpper === 'LB') {
+          cellsHtml += `<td class="teacher-slot-lb">LB</td>`;
+          return;
+        }
+
+        const assignedList = facSched.slots[day] && facSched.slots[day][p];
+        if (assignedList && assignedList.length > 0) {
+          const itemHtmls = assignedList.map(item => {
+            const isP = item.type === 'P';
+            const typeLabel = isP ? 'PR' : 'TH';
+            let dispText = item.courseAlias;
+            if (displayMode === 'short') dispText = item.courseCode;
+            else if (displayMode === 'full') dispText = `${item.courseName} (${item.courseCode})`;
+            else dispText = `${item.courseAlias || item.courseCode}`;
+
+            const semLabel = item.semester && item.semester !== '-' ? `Sem ${item.semester}` : '';
+
+            return `
+              <div class="teacher-slot-inner">
+                <span class="teacher-slot-course" title="${item.courseName} (${item.courseCode})">${dispText}</span>
+                <div style="display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 2px;">
+                  ${semLabel ? `<span class="teacher-slot-sem-pill">${semLabel}</span>` : ''}
+                  <span class="teacher-slot-type-badge">${typeLabel}</span>
+                </div>
+              </div>
+            `;
+          }).join('<div style="border-top: 1px dashed rgba(0,0,0,0.15); margin: 3px 0;"></div>');
+
+          const primaryTypeClass = assignedList.some(x => x.type === 'P') ? 'teacher-slot-pr' : 'teacher-slot-th';
+          cellsHtml += `<td class="${primaryTypeClass}">${itemHtmls}</td>`;
+        } else {
+          cellsHtml += `<td class="teacher-slot-free">—</td>`;
+        }
+      });
+
+      tbodyHtml += `<tr>${cellsHtml}</tr>`;
+    });
+
+    return `
+      <div class="teacher-sheet-page">
+        <div class="print-header text-center" style="margin-bottom: 12px;">
+          <h2 style="font-size: 16px; margin: 0; font-weight: 800; letter-spacing: 0.5px;">ST. THOMAS COLLEGE (AUTONOMOUS), THRISSUR</h2>
+          <h3 style="font-size: 14px; margin: 2px 0; color: #475569;">DEPARTMENT OF ${deptName}</h3>
+          <h4 style="font-size: 12px; margin: 0; color: #64748b; font-weight: 600;">TEACHER INDIVIDUAL TIMETABLE & WORKLOAD – <span class="uppercase">${state.config.semesterType || 'ODD'} SEMESTER</span> ${state.config.academicYear || ''}</h4>
+        </div>
+
+        <div class="teacher-meta-header">
+          <div class="teacher-meta-left">
+            <h3>
+              <i class="fa-solid fa-user-tie text-primary"></i> ${fac.name} 
+              <span class="teacher-code-pill">${fac.code}</span>
+            </h3>
+            <span class="text-muted text-sm">${fac.designation || 'Faculty Member'} | Department of ${deptName}</span>
+          </div>
+          <div class="teacher-meta-right">
+            <span class="teacher-stat-badge teacher-stat-total" title="Total teaching periods per week">
+              <i class="fa-solid fa-clock"></i> Total: <strong>${facSched.totalHours} hrs/week</strong>
+            </span>
+            <span class="teacher-stat-badge teacher-stat-th" title="Theory hours per week">
+              <i class="fa-solid fa-book-open"></i> Theory: <strong>${facSched.theoryHours} hrs</strong>
+            </span>
+            <span class="teacher-stat-badge teacher-stat-pr" title="Practical lab hours per week">
+              <i class="fa-solid fa-flask"></i> Practical: <strong>${facSched.practicalHours} hrs</strong>
+            </span>
+          </div>
+        </div>
+
+        <table class="teacher-grid-table">
+          <thead>${theadHtml}</thead>
+          <tbody>${tbodyHtml}</tbody>
+        </table>
+      </div>
+    `;
+  }).join('');
+}
+
+async function exportAdminTeacherTimetableToCSV(deptName, targetFacultyCode = 'ALL') {
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const deptAlloc = await fetchDeptAllocations(deptName);
+
+  const schedules = {};
+  deptFaculty.forEach(fac => {
+    schedules[fac.code] = {
+      info: fac,
+      totalHours: 0,
+      theoryHours: 0,
+      practicalHours: 0,
+      slots: {}
+    };
+    weekdays.forEach(d => {
+      schedules[fac.code].slots[d] = {};
+    });
+  });
+
+  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_C\d+-(T|P)$/, '').replace(/_C\d+$/, '').replace(/_G\d+$/, '');
+    const course = state.courses.find(c => c.code === cCode) || 
+                   state.courses.find(c => c.code === baseCode) || 
+                   { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
+    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
+
+    Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+      const dayUpper = day.toUpperCase();
+      Object.entries(periodObj || {}).forEach(([period, facList]) => {
+        if (Array.isArray(facList)) {
+          facList.forEach(facCode => {
+            if (schedules[facCode]) {
+              if (!schedules[facCode].slots[dayUpper]) schedules[facCode].slots[dayUpper] = {};
+              if (!schedules[facCode].slots[dayUpper][period]) schedules[facCode].slots[dayUpper][period] = [];
+              schedules[facCode].slots[dayUpper][period].push({
+                courseCode: cCode,
+                courseAlias: course.alias || course.name,
+                semester: course.semester,
+                type: isPrac ? 'P' : 'T'
+              });
+              schedules[facCode].totalHours++;
+              if (isPrac) schedules[facCode].practicalHours++;
+              else schedules[facCode].theoryHours++;
+            }
+          });
+        }
+      });
+    });
+  });
+
+  const facultyList = targetFacultyCode === 'ALL'
+    ? Object.values(schedules)
+    : [schedules[targetFacultyCode]].filter(Boolean);
+
+  let csvRows = [];
+  csvRows.push([`ST. THOMAS COLLEGE (AUTONOMOUS) - DEPARTMENT OF ${deptName}`]);
+  csvRows.push([`TEACHER TIMETABLE REPORT - ${state.config.semesterType || 'ODD'} SEMESTER ${state.config.academicYear || ''}`]);
+  csvRows.push([]);
+
+  facultyList.forEach(facSched => {
+    const fac = facSched.info;
+    csvRows.push([`Teacher:`, `"${fac.name}"`, `Code:`, `"${fac.code}"`, `Workload:`, `"${facSched.totalHours} hrs/week (${facSched.theoryHours} TH, ${facSched.practicalHours} PR)"`]);
+    csvRows.push(['Day', ...periods.map(p => String(p).toUpperCase() === 'LB' ? 'LB' : `Period ${p}`)]);
+
+    weekdays.forEach(day => {
+      const row = [day];
+      periods.forEach(p => {
+        if (String(p).toUpperCase() === 'LB') {
+          row.push('Lunch Break');
+          return;
+        }
+        const assigned = facSched.slots[day] && facSched.slots[day][p];
+        if (assigned && assigned.length > 0) {
+          const text = assigned.map(a => `${a.courseAlias || a.courseCode} (Sem ${a.semester}, ${a.type})`).join(' / ');
+          row.push(`"${text}"`);
+        } else {
+          row.push('Free');
+        }
+      });
+      csvRows.push(row);
+    });
+    csvRows.push([]);
+  });
+
+  const csvString = csvRows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const filename = targetFacultyCode === 'ALL'
+    ? `${deptName}_All_Teachers_Timetable_${state.config.academicYear || '2026'}.csv`
+    : `${deptName}_Teacher_${targetFacultyCode}_Timetable_${state.config.academicYear || '2026'}.csv`;
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+async function openAdminTeacherTimetableModal(deptName, selectedFacultyCode = 'ALL') {
+  adminActiveTeacherDept = deptName;
+  bindAdminTeacherTimetableEvents();
+
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const selectFac = document.getElementById('select-teacher-timetable-faculty');
+  if (selectFac) {
+    selectFac.innerHTML = `
+      <option value="ALL">All Teachers (${deptFaculty.length} Faculty Members)</option>
+      ${deptFaculty.map(f => `<option value="${f.code}">${f.name} (${f.code})</option>`).join('')}
+    `;
+    selectFac.value = selectedFacultyCode;
+  }
+
+  const modeSelect = document.getElementById('select-teacher-timetable-mode');
+  const mode = modeSelect ? modeSelect.value : 'medium';
+
+  const container = document.getElementById('teacher-print-area');
+  await renderAdminTeacherTimetables(container, deptName, selectedFacultyCode, mode);
+
+  const modal = document.getElementById('modal-teacher-timetable');
+  if (modal) modal.classList.remove('hidden');
 }
 
 function renderBatchDeptMappings() {
@@ -2558,21 +2913,42 @@ function renderGlobalLocksGrid() {
       if (pStr.toUpperCase() === 'LB') {
         bodyHtml += `<td style="background-color: var(--background); color: var(--text-muted); font-weight: 600; font-size: 11px;">LB</td>`;
       } else {
-        const isLocked = localGlobalLocks.some(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr);
-        const lockObj = localGlobalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr);
-        const label = lockObj && lockObj.label ? lockObj.label : '';
+        const matchingLocks = localGlobalLocks.filter(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr);
         
-        if (isLocked) {
+        if (matchingLocks.length > 0) {
+          const isAll = matchingLocks.some(l => !l.semester || l.semester === 'all');
+          let badgeContent = '';
+
+          if (isAll) {
+            const allLock = matchingLocks.find(l => !l.semester || l.semester === 'all');
+            const lbl = (allLock && allLock.label) ? allLock.label : 'LOCKED';
+            badgeContent = `
+              <span style="font-size: 11px; max-width: 95px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700;">${lbl}</span>
+              <span class="badge" style="font-size: 9px; padding: 1px 4px; background: #dc2626; color: white;">All Sems</span>
+            `;
+          } else {
+            badgeContent = `
+              <div style="display: flex; flex-direction: column; gap: 2px; width: 100%;">
+                ${matchingLocks.map(m => `
+                  <div style="font-size: 10px; background: #fee2e2; border: 1px solid #f87171; border-radius: 3px; padding: 1px 3px; display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+                    <span style="font-weight: 700; color: #991b1b; white-space: nowrap;">S${m.semester}:</span>
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65px; color: #7f1d1d;" title="${m.label || ''}">${m.label || 'Locked'}</span>
+                  </div>
+                `).join('')}
+              </div>
+            `;
+          }
+
           bodyHtml += `
-            <td class="global-lock-cell locked" data-day="${day}" data-period="${pStr}" title="Locked: ${label || 'College Common Period'}" style="cursor: pointer; background-color: #fee2e2; border: 1.5px solid #ef4444; color: #b91c1c; font-weight: 700; padding: 10px 4px; transition: all 0.2s;">
+            <td class="global-lock-cell locked" data-day="${day}" data-period="${pStr}" title="${matchingLocks.map(m => `${m.semester ? `Sem ${m.semester}` : 'All Sems'}: ${m.label}`).join(' | ')}" style="cursor: pointer; background-color: #fef2f2; border: 1.5px solid #ef4444; color: #b91c1c; padding: 6px 4px; transition: all 0.2s;">
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
-                <i class="fa-solid fa-lock" style="font-size: 14px;"></i>
-                <span style="font-size: 11px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${label || 'LOCKED'}</span>
+                <i class="fa-solid fa-lock" style="font-size: 12px;"></i>
+                ${badgeContent}
               </div>
             </td>`;
         } else {
           bodyHtml += `
-            <td class="global-lock-cell open" data-day="${day}" data-period="${pStr}" title="Click to lock this period college-wide" style="cursor: pointer; background-color: var(--surface); padding: 10px 4px; transition: all 0.2s;">
+            <td class="global-lock-cell open" data-day="${day}" data-period="${pStr}" title="Click to lock this period" style="cursor: pointer; background-color: var(--surface); padding: 10px 4px; transition: all 0.2s;">
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-muted); opacity: 0.6;">
                 <i class="fa-regular fa-circle" style="font-size: 14px;"></i>
                 <span style="font-size: 10px;">Available</span>
@@ -2595,33 +2971,114 @@ function renderGlobalLocksGrid() {
   });
 }
 
+function createLockSemRowHtml(semVal = 'all', labelVal = '') {
+  const sems = ['1', '2', '3', '4', '5', '6'];
+  return `
+    <div class="lock-sem-row flex-row items-center gap-2" style="background: var(--background); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+      <div style="flex: 0 0 150px;">
+        <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Select Sem</label>
+        <select class="form-control form-control-sm lock-row-sem-select" style="font-size: 12px; height: 32px;">
+          <option value="all" ${semVal === 'all' || !semVal ? 'selected' : ''}>All Semesters</option>
+          ${sems.map(s => `<option value="${s}" ${String(semVal) === s ? 'selected' : ''}>Semester ${s}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex: 1;">
+        <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Subject / Activity Name</label>
+        <input type="text" class="form-control form-control-sm lock-row-label-input" placeholder="e.g. Physical Education, Ethics" style="font-size: 12px; height: 32px;" value="${labelVal ? labelVal.replace(/"/g, '&quot;') : ''}" required>
+      </div>
+      <div style="flex: 0 0 32px; padding-top: 16px;">
+        <button type="button" class="btn btn-outline btn-xs btn-remove-lock-row" style="color: var(--danger); border-color: #fca5a5; height: 32px; width: 32px; display: flex; align-items: center; justify-content: center;" title="Remove this semester lock">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function updateAddOtherSemVisibility() {
+  const container = document.getElementById('modal-lock-rows-container');
+  const addWrapper = document.getElementById('wrapper-add-lock-sem-row');
+  if (!container || !addWrapper) return;
+  
+  const rows = container.querySelectorAll('.lock-sem-row');
+  let hasAll = false;
+  rows.forEach(r => {
+    const sel = r.querySelector('.lock-row-sem-select');
+    if (sel && sel.value === 'all') hasAll = true;
+  });
+
+  if (hasAll) {
+    addWrapper.style.display = 'none';
+  } else {
+    addWrapper.style.display = 'block';
+  }
+}
+
+function bindLockRowEvents(rowEl) {
+  const semSel = rowEl.querySelector('.lock-row-sem-select');
+  const removeBtn = rowEl.querySelector('.btn-remove-lock-row');
+  const container = document.getElementById('modal-lock-rows-container');
+
+  if (semSel) {
+    semSel.addEventListener('change', () => {
+      updateAddOtherSemVisibility();
+    });
+  }
+
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      const allRows = container.querySelectorAll('.lock-sem-row');
+      if (allRows.length <= 1) {
+        // Reset last row to 'all' with empty subject
+        semSel.value = 'all';
+        const labelInput = rowEl.querySelector('.lock-row-label-input');
+        if (labelInput) labelInput.value = '';
+      } else {
+        rowEl.remove();
+      }
+      updateAddOtherSemVisibility();
+    });
+  }
+}
+
 function openGlobalLockModal(day, period) {
   const modal = document.getElementById('modal-edit-global-lock');
   const dayPeriodSpan = document.getElementById('modal-lock-day-period');
   const dayInput = document.getElementById('modal-lock-target-day');
   const periodInput = document.getElementById('modal-lock-target-period');
-  const labelInput = document.getElementById('modal-lock-label-input');
+  const container = document.getElementById('modal-lock-rows-container');
   const unlockBtn = document.getElementById('btn-modal-unlock-period');
   const defaultGlobalLabel = (document.getElementById('global-lock-default-label') && document.getElementById('global-lock-default-label').value.trim()) || 'College Assembly / Mentor Hour';
 
-  if (!modal) return;
+  if (!modal || !container) return;
 
   dayInput.value = day;
   periodInput.value = period;
   if (dayPeriodSpan) dayPeriodSpan.textContent = `${day} Period ${period}`;
 
-  // Check if currently locked
-  const existing = localGlobalLocks.find(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
-  if (existing) {
-    labelInput.value = existing.label || defaultGlobalLabel;
+  const matchingLocks = localGlobalLocks.filter(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
+
+  container.innerHTML = '';
+  if (matchingLocks.length > 0) {
+    matchingLocks.forEach(l => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = createLockSemRowHtml(l.semester || 'all', l.label || '');
+      const el = wrapper.firstElementChild;
+      container.appendChild(el);
+      bindLockRowEvents(el);
+    });
     if (unlockBtn) unlockBtn.classList.remove('hidden');
   } else {
-    labelInput.value = defaultGlobalLabel;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = createLockSemRowHtml('all', defaultGlobalLabel);
+    const el = wrapper.firstElementChild;
+    container.appendChild(el);
+    bindLockRowEvents(el);
     if (unlockBtn) unlockBtn.classList.add('hidden');
   }
 
+  updateAddOtherSemVisibility();
   modal.classList.remove('hidden');
-  labelInput.focus();
 }
 
 function closeGlobalLockModal() {
@@ -2639,55 +3096,116 @@ function bindGlobalLocksEvents() {
   const btnCancelModal = document.getElementById('btn-modal-cancel-lock');
   const btnSaveModal = document.getElementById('btn-modal-save-lock');
   const btnUnlockModal = document.getElementById('btn-modal-unlock-period');
-  const labelInput = document.getElementById('modal-lock-label-input');
+  const btnAddRow = document.getElementById('btn-add-lock-sem-row');
+  const container = document.getElementById('modal-lock-rows-container');
 
   if (btnCloseModal) btnCloseModal.addEventListener('click', closeGlobalLockModal);
   if (btnCancelModal) btnCancelModal.addEventListener('click', closeGlobalLockModal);
 
-  // Preset buttons in modal
-  document.querySelectorAll('.preset-lock-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const val = btn.getAttribute('data-val');
-      if (labelInput && val) {
-        labelInput.value = val;
-      }
+  // Add Other Sem button
+  if (btnAddRow) {
+    btnAddRow.addEventListener('click', () => {
+      if (!container) return;
+
+      // Find used semesters
+      const usedSems = new Set();
+      container.querySelectorAll('.lock-row-sem-select').forEach(s => usedSems.add(s.value));
+
+      // Pick next unused semester
+      const allSems = ['1', '2', '3', '4', '5', '6'];
+      const nextSem = allSems.find(s => !usedSems.has(s)) || '1';
+
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = createLockSemRowHtml(nextSem, '');
+      const el = wrapper.firstElementChild;
+      container.appendChild(el);
+      bindLockRowEvents(el);
+
+      updateAddOtherSemVisibility();
+      const input = el.querySelector('.lock-row-label-input');
+      if (input) input.focus();
     });
-  });
+  }
 
   // Modal Save Lock button
   if (btnSaveModal) {
-    btnSaveModal.addEventListener('click', () => {
+    btnSaveModal.addEventListener('click', async () => {
       const day = document.getElementById('modal-lock-target-day').value;
       const period = document.getElementById('modal-lock-target-period').value;
-      const label = (labelInput && labelInput.value.trim()) || 'College Common Hour';
+      if (!container) return;
 
-      const existingIdx = localGlobalLocks.findIndex(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
-      if (existingIdx >= 0) {
-        localGlobalLocks[existingIdx].label = label;
+      const rows = container.querySelectorAll('.lock-sem-row');
+      const newLocks = [];
+
+      rows.forEach(r => {
+        const sem = r.querySelector('.lock-row-sem-select').value;
+        const label = r.querySelector('.lock-row-label-input').value.trim() || 'College Activity';
+        newLocks.push({ day, period, label, semester: sem });
+      });
+
+      if (newLocks.length === 0) {
+        closeGlobalLockModal();
+        return;
+      }
+
+      // Remove existing locks for this day and period
+      localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
+
+      // If any row is 'all', only keep the 'all' lock
+      const allLock = newLocks.find(l => l.semester === 'all');
+      if (allLock) {
+        localGlobalLocks.push(allLock);
       } else {
-        localGlobalLocks.push({ day, period, label });
+        // Prevent duplicate semester entries
+        const addedSems = new Set();
+        newLocks.forEach(l => {
+          if (!addedSems.has(l.semester)) {
+            addedSems.add(l.semester);
+            localGlobalLocks.push(l);
+          }
+        });
       }
 
       closeGlobalLockModal();
       renderGlobalLocksGrid();
+
+      // Immediately persist to server so department view sees it instantly
+      try {
+        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+      } catch (e) {
+        console.error('Failed to autosave global locks:', e);
+      }
     });
   }
 
   // Modal Unlock button
   if (btnUnlockModal) {
-    btnUnlockModal.addEventListener('click', () => {
+    btnUnlockModal.addEventListener('click', async () => {
       const day = document.getElementById('modal-lock-target-day').value;
       const period = document.getElementById('modal-lock-target-period').value;
 
-      const existingIdx = localGlobalLocks.findIndex(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
-      if (existingIdx >= 0) {
-        localGlobalLocks.splice(existingIdx, 1);
-      }
+      localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
 
       closeGlobalLockModal();
       renderGlobalLocksGrid();
+
+      // Immediately persist to server
+      try {
+        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+      } catch (e) {
+        console.error('Failed to autosave global locks on unlock:', e);
+      }
     });
   }
+
 
   if (btnSave) {
     btnSave.addEventListener('click', async () => {
@@ -2724,3 +3242,4 @@ function bindGlobalLocksEvents() {
     });
   }
 }
+
