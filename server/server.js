@@ -21,6 +21,20 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Health check / ping endpoints for uptime bots & monitors (keeps Render from sleeping)
+app.get(['/health', '/api/health', '/ping'], (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    message: 'Timetable server is active and running'
+  });
+});
+
+app.head(['/', '/health', '/api/health', '/ping'], (req, res) => {
+  res.status(200).end();
+});
+
 // Configure Multer for in-memory uploads
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -2435,6 +2449,23 @@ try {
 initDb().then(() => {
   app.listen(PORT, () => {
     console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
+
+    // Automatic Keep-Alive Self-Ping for Render (Render free services sleep after 15m inactivity)
+    // Note: Render automatically sets process.env.RENDER_EXTERNAL_URL on deployed web services
+    const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+    if (keepAliveUrl) {
+      const pingInterval = 10 * 60 * 1000; // Ping every 10 minutes (before 15m idle timeout)
+      const targetUrl = keepAliveUrl.endsWith('/health') ? keepAliveUrl : `${keepAliveUrl.replace(/\/$/, '')}/health`;
+      console.log(`[Keep-Alive] Initialized self-ping service targeting ${targetUrl} every 10 minutes`);
+      setInterval(async () => {
+        try {
+          const res = await fetch(targetUrl);
+          console.log(`[Keep-Alive] Pinged ${targetUrl} - HTTP ${res.status}`);
+        } catch (e) {
+          console.warn(`[Keep-Alive] Ping to ${targetUrl} failed:`, e.message);
+        }
+      }, pingInterval);
+    }
   });
 }).catch(err => {
   console.error("Critical database initialization error:", err);
