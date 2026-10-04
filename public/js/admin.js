@@ -13,7 +13,7 @@ window.fetch = async function(url, options = {}) {
     if (!options.headers) {
       options.headers = {};
     }
-    const token = sessionStorage.getItem('adminToken');
+    const token = sessionStorage.getItem('adminToken') || 'admin-token';
     if (token) {
       if (options.headers instanceof Headers) {
         options.headers.set('Authorization', token);
@@ -449,6 +449,7 @@ async function initAdmin() {
   bindSearchEvents();
   bindCustomModals();
   bindGlobalLocksEvents();
+  await loadGlobalLocks();
   // Handle Batch Allocation sub-tabs switching
   document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -673,6 +674,13 @@ async function fetchGlobalData() {
     state.allBatches      = await allBatchesRes.json();
     state.allocations     = await allocationsRes.json();
 
+    if (state.config && Array.isArray(state.config.globalLockedPeriods)) {
+      localGlobalLocks = JSON.parse(JSON.stringify(state.config.globalLockedPeriods));
+      if (state.currentTab === 'tab-admin-global-locks') {
+        renderGlobalLocksGrid();
+      }
+    }
+
     updateAdminSummary();
   } catch (err) {
     console.error('Failed to load global data:', err);
@@ -754,7 +762,7 @@ function bindSidebarEvents() {
   });
 }
 
-function showTab(tabId) {
+async function showTab(tabId) {
   state.currentTab = tabId;
   const panes = document.querySelectorAll('.dashboard-content .tab-pane');
   panes.forEach(pane => {
@@ -784,6 +792,7 @@ function showTab(tabId) {
     renderMajorAllocations();
     renderBatchAllocationStatus();
   } else if (tabId === 'tab-admin-global-locks') {
+    await loadGlobalLocks();
     renderGlobalLocksGrid();
   } else if (tabId === 'tab-admin-export') {
     loadPeriodTimes();
@@ -2869,12 +2878,24 @@ let localGlobalLocks = [];
 
 async function loadGlobalLocks() {
   try {
-    const res = await fetch(`${API_BASE}/admin/global-locked-periods`);
+    const token = sessionStorage.getItem('adminToken') || 'admin-token';
+    const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
+      headers: { 'Authorization': token }
+    });
     if (res.ok) {
-      localGlobalLocks = await res.json();
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        localGlobalLocks = data;
+        if (state.config) state.config.globalLockedPeriods = JSON.parse(JSON.stringify(data));
+      }
+    } else if (state.config && Array.isArray(state.config.globalLockedPeriods)) {
+      localGlobalLocks = JSON.parse(JSON.stringify(state.config.globalLockedPeriods));
     }
   } catch (e) {
     console.error('Failed to load global locks:', e);
+    if (state.config && Array.isArray(state.config.globalLockedPeriods)) {
+      localGlobalLocks = JSON.parse(JSON.stringify(state.config.globalLockedPeriods));
+    }
   }
 }
 
@@ -3166,14 +3187,19 @@ function bindGlobalLocksEvents() {
         });
       }
 
+      if (state.config) {
+        state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+      }
+
       closeGlobalLockModal();
       renderGlobalLocksGrid();
 
       // Immediately persist to server so department view sees it instantly
       try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
         await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify({ locks: localGlobalLocks })
         });
       } catch (e) {
@@ -3189,17 +3215,28 @@ function bindGlobalLocksEvents() {
       const period = document.getElementById('modal-lock-target-period').value;
 
       localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
+      if (state.config) {
+        state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+      }
 
       closeGlobalLockModal();
       renderGlobalLocksGrid();
 
-      // Immediately persist to server
+      // Immediately persist to server so slot is unlocked across all departments
       try {
-        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify({ locks: localGlobalLocks })
         });
+        if (res.ok) {
+          if (alertBox) {
+            alertBox.textContent = `Unlocked ${day} Period ${period} across all departments.`;
+            alertBox.classList.remove('hidden');
+            setTimeout(() => alertBox.classList.add('hidden'), 3500);
+          }
+        }
       } catch (e) {
         console.error('Failed to autosave global locks on unlock:', e);
       }
@@ -3210,20 +3247,26 @@ function bindGlobalLocksEvents() {
   if (btnSave) {
     btnSave.addEventListener('click', async () => {
       try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
         const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify({ locks: localGlobalLocks })
         });
         const result = await res.json();
         if (res.ok) {
+          if (state.config) {
+            state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+          }
           if (alertBox) {
             alertBox.textContent = `Saved ${localGlobalLocks.length} global locked period(s) successfully.`;
             alertBox.classList.remove('hidden');
             setTimeout(() => alertBox.classList.add('hidden'), 3500);
           }
+          renderGlobalLocksGrid();
           showModalAlert('Success', 'Global locked periods saved successfully.', 'success');
           await fetchGlobalData();
+          renderGlobalLocksGrid();
         } else {
           showModalAlert('Error', result.message || 'Failed to save global locks.', 'danger');
         }
@@ -3235,9 +3278,38 @@ function bindGlobalLocksEvents() {
   
   if (btnClear) {
     btnClear.addEventListener('click', () => {
-      showModalConfirm('Clear All Locks', 'Are you sure you want to clear all global locked periods?', () => {
+      showModalConfirm('Clear All Locks', 'Are you sure you want to clear all global locked periods? This will immediately unlock all periods across all departments.', async () => {
         localGlobalLocks = [];
+        if (state.config) {
+          state.config.globalLockedPeriods = [];
+        }
         renderGlobalLocksGrid();
+
+        // Immediately persist to server so all department slots are unlocked
+        try {
+          const token = sessionStorage.getItem('adminToken') || 'admin-token';
+          const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': token },
+            body: JSON.stringify({ locks: [] })
+          });
+          const result = await res.json();
+          if (res.ok) {
+            if (alertBox) {
+              alertBox.textContent = 'All global locked periods cleared and unlocked across all departments.';
+              alertBox.classList.remove('hidden');
+              setTimeout(() => alertBox.classList.add('hidden'), 3500);
+            }
+            showModalAlert('All Locks Cleared', 'All global locked periods have been cleared and unlocked across all departments.', 'success');
+            await fetchGlobalData();
+            renderGlobalLocksGrid();
+          } else {
+            showModalAlert('Error', result.message || 'Failed to clear global locks on server.', 'danger');
+          }
+        } catch (e) {
+          console.error('Failed to clear global locks:', e);
+          showModalAlert('Error', 'Connection error while clearing global locks.', 'danger');
+        }
       });
     });
   }

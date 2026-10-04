@@ -296,6 +296,33 @@ async function initApp() {
   bindFacultySelectEvents();
   bindAutoGeneratorEvents();
   
+  // Auto-refresh config when window regains focus or visibility to reflect admin lock/unlock changes
+  window.syncGlobalConfigWithAdmin = async function() {
+    if (!state.currentUser || !state.currentUser.departmentName) return;
+    try {
+      const res = await fetch(`${API_BASE}/config`);
+      if (res.ok) {
+        const freshConfig = await res.json();
+        const oldLocks = JSON.stringify((state.config && state.config.globalLockedPeriods) || []);
+        const newLocks = JSON.stringify(freshConfig.globalLockedPeriods || []);
+        if (oldLocks !== newLocks) {
+          state.config = freshConfig;
+          renderAllocationMatrix();
+          const locksBadge = document.getElementById('auto-gen-global-locks-badge');
+          if (locksBadge) {
+            locksBadge.textContent = `${(freshConfig.globalLockedPeriods || []).length} Locked`;
+          }
+        }
+      }
+    } catch (e) {}
+  };
+
+  window.addEventListener('focus', window.syncGlobalConfigWithAdmin);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) window.syncGlobalConfigWithAdmin();
+  });
+  setInterval(window.syncGlobalConfigWithAdmin, 4000);
+  
   // Restore session
   const savedUser = sessionStorage.getItem('currentUser');
   if (savedUser) {
@@ -2958,6 +2985,9 @@ function closeAutoGeneratorDrawer() {
   if (drawer) drawer.classList.remove('active');
 }
 
+let autoGenCourseFacultyBindings = {};
+let autoGenCourseFacultyConfig = {};
+
 function renderAutoGeneratorBindings() {
   const container = document.getElementById('auto-gen-faculty-bindings-list');
   const countSpan = document.getElementById('auto-gen-courses-count');
@@ -2994,14 +3024,28 @@ function renderAutoGeneratorBindings() {
 
   let html = '';
   deptCourses.forEach(c => {
-    // Check existing allocated faculty
-    const existingAlloc = state.allocations[c.code] || {};
-    const assignedSet = new Set();
-    Object.values(existingAlloc).forEach(dayObj => {
-      Object.values(dayObj).forEach(facArr => {
-        if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
+    // Check existing allocated faculty if not already bound
+    if (autoGenCourseFacultyBindings[c.code] === undefined) {
+      const existingAlloc = state.allocations[c.code] || {};
+      const assignedSet = new Set();
+      Object.values(existingAlloc).forEach(dayObj => {
+        Object.values(dayObj).forEach(facArr => {
+          if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
+        });
       });
-    });
+      autoGenCourseFacultyBindings[c.code] = Array.from(assignedSet);
+      autoGenCourseFacultyConfig[c.code] = { distribute: true };
+    }
+
+    const selectedFacs = autoGenCourseFacultyBindings[c.code] || [];
+    const isDistribute = (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
+
+    let summaryText = 'Auto-Assign';
+    if (selectedFacs.length === 1) {
+      summaryText = `${selectedFacs[0]} (1 Teacher)`;
+    } else if (selectedFacs.length > 1) {
+      summaryText = `${selectedFacs.join(', ')} (${selectedFacs.length} Teachers)`;
+    }
 
     const isPrac = (c.courseType === 'P' || c.code.endsWith('-P'));
     const typeBadge = isPrac
@@ -3009,22 +3053,77 @@ function renderAutoGeneratorBindings() {
       : `<span class="badge" style="background-color: var(--warning-light); color: var(--warning-dark); font-size: 10px;">TH</span>`;
 
     html += `
-      <div class="flex-row justify-between items-center py-1" style="border-bottom: 1px dashed var(--border); font-size: 12px; gap: 8px;">
-        <div class="flex-row items-center" style="gap: 8px; flex: 1; min-width: 0;">
-          <input type="checkbox" class="auto-gen-course-cb" value="${c.code}" checked style="accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer;">
-          <div style="flex: 1; min-width: 0;">
-            <strong style="color: var(--text-main);">${c.code}</strong> ${typeBadge}
-            <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">${c.name} (Sem ${c.semester})</div>
+      <div class="auto-gen-course-item" data-course-code="${c.code}" style="border-bottom: 1px dashed var(--border); padding: 8px 4px;">
+        <div class="flex-row justify-between items-center" style="gap: 8px;">
+          <!-- Course Checkbox & Name -->
+          <div class="flex-row items-center" style="gap: 8px; flex: 1; min-width: 0;">
+            <input type="checkbox" class="auto-gen-course-cb" value="${c.code}" checked style="accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer;">
+            <div style="flex: 1; min-width: 0;">
+              <div class="flex-row items-center gap-1">
+                <strong style="color: var(--text-main); font-size: 13px;">${c.code}</strong> ${typeBadge}
+              </div>
+              <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;" title="${c.name}">${c.name} (Sem ${c.semester})</div>
+            </div>
+          </div>
+
+          <!-- Multi-Teacher Dropdown Trigger -->
+          <div>
+            <button type="button" class="btn btn-outline btn-xs btn-toggle-fac-dropdown" data-course-code="${c.code}" style="font-size: 11px; padding: 4px 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; border-color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--border)'}; background: ${selectedFacs.length > 0 ? 'var(--primary-light)' : '#ffffff'}; color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--text-main)'}; border-radius: 4px;">
+              <i class="fa-solid fa-user-group text-primary"></i>
+              <span class="fac-btn-label">${summaryText}</span>
+              <i class="fa-solid fa-chevron-down" style="font-size: 9px; opacity: 0.7;"></i>
+            </button>
           </div>
         </div>
-        <div>
-          <select class="auto-gen-fac-select form-control" data-course-code="${c.code}" style="font-size: 11px; padding: 2px 6px; height: 28px; width: 140px;">
-            <option value="">Auto-Assign</option>
+
+        <!-- Selected Faculty Badges & Distribution indicator -->
+        <div class="fac-selected-pills-row" id="fac-pills-${c.code}" style="display: ${selectedFacs.length > 0 ? 'flex' : 'none'}; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 4px; padding-left: 23px;">
+          ${selectedFacs.map(fCode => `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; padding: 2px 6px; font-weight: 700;">${fCode}</span>`).join('')}
+          ${selectedFacs.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${c.code}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDistribute ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed by Availability</span>` : ''}
+        </div>
+
+        <!-- Popover Checklist with Checkboxes for Multiple Teachers -->
+        <div class="fac-checklist-popover hidden" id="fac-popover-${c.code}" style="margin-top: 8px; margin-left: 23px; background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); font-size: 11px;">
+          <div style="font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fa-solid fa-users text-primary"></i> Select Teachers for ${c.code}:</span>
+            <span class="text-muted" style="font-size: 10px; font-weight: normal;">(Check multiple to share)</span>
+          </div>
+
+          <!-- Quick filter input if faculty count > 5 -->
+          ${deptFaculty.length > 5 ? `
+            <input type="text" class="form-control form-control-sm fac-search-filter mb-2" data-course-code="${c.code}" placeholder="Filter teachers by name or code..." style="font-size: 11px; padding: 3px 6px; height: 26px;">
+          ` : ''}
+
+          <!-- Checklist of Teachers -->
+          <div class="fac-checkbox-list" data-course-code="${c.code}" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--border); border-radius: 4px; padding: 6px; background: var(--surface);">
             ${deptFaculty.map(f => {
-              const isSelected = assignedSet.has(f.code);
-              return `<option value="${f.code}" ${isSelected ? 'selected' : ''}>${f.code} - ${f.name}</option>`;
+              const isChecked = selectedFacs.includes(f.code);
+              return `
+                <label class="fac-cb-item" style="display: flex; align-items: center; gap: 7px; padding: 3px 5px; cursor: pointer; border-radius: 3px; user-select: none;">
+                  <input type="checkbox" class="auto-gen-fac-cb" data-course-code="${c.code}" data-fac-code="${f.code}" ${isChecked ? 'checked' : ''} style="accent-color: var(--primary); width: 14px; height: 14px; cursor: pointer;">
+                  <span style="font-weight: 700; color: var(--primary); min-width: 32px;">${f.code}</span>
+                  <span style="color: var(--text-main); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${f.name}</span>
+                </label>
+              `;
             }).join('')}
-          </select>
+          </div>
+
+          <!-- Multi-Teacher Distribution Mode Settings (visible when 2+ teachers checked) -->
+          <div class="fac-distribute-box" id="distribute-box-${c.code}" style="display: ${selectedFacs.length > 1 ? 'block' : 'none'}; margin-top: 8px; padding: 6px 8px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px;">
+            <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer; margin: 0; color: #166534; font-weight: 600; font-size: 11px;">
+              <input type="checkbox" class="auto-gen-distribute-cb" data-course-code="${c.code}" ${isDistribute ? 'checked' : ''} style="accent-color: #16a34a; width: 14px; height: 14px; margin-top: 2px;">
+              <span>Distribute periods across selected teachers according to availability</span>
+            </label>
+            <div style="font-size: 10px; color: #15803d; margin-left: 20px; margin-top: 2px;">
+              The timetable engine divides this subject's hours among the selected teachers, automatically matching each teacher's free periods and blackout days.
+            </div>
+          </div>
+
+          <!-- Actions: Clear & Done -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border);">
+            <button type="button" class="btn btn-outline btn-xs btn-clear-course-fac" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 8px;">Clear Selection</button>
+            <button type="button" class="btn btn-primary btn-xs btn-close-fac-popover" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 12px;">Done</button>
+          </div>
         </div>
       </div>
     `;
@@ -3033,10 +3132,124 @@ function renderAutoGeneratorBindings() {
   container.innerHTML = html;
   updateSelectedCount();
 
-  // Attach checkbox change handlers
+  // Attach course checkbox change handlers
   container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
     cb.addEventListener('change', updateSelectedCount);
   });
+
+  // Attach popover toggle handlers
+  container.querySelectorAll('.btn-toggle-fac-dropdown').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (!popover) return;
+
+      const isOpening = popover.classList.contains('hidden');
+      // Close any other open popovers
+      container.querySelectorAll('.fac-checklist-popover').forEach(p => p.classList.add('hidden'));
+
+      if (isOpening) {
+        popover.classList.remove('hidden');
+      }
+    });
+  });
+
+  // Attach Done buttons
+  container.querySelectorAll('.btn-close-fac-popover').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (popover) popover.classList.add('hidden');
+    });
+  });
+
+  // Attach Clear Selection buttons
+  container.querySelectorAll('.btn-clear-course-fac').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      autoGenCourseFacultyBindings[cCode] = [];
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (popover) {
+        popover.querySelectorAll('.auto-gen-fac-cb').forEach(cb => { cb.checked = false; });
+      }
+      updateCourseFacultyUI(cCode);
+    });
+  });
+
+  // Attach teacher checkbox change handlers
+  container.querySelectorAll('.auto-gen-fac-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      const checkedCbs = container.querySelectorAll(`.auto-gen-fac-cb[data-course-code="${cCode}"]:checked`);
+      autoGenCourseFacultyBindings[cCode] = Array.from(checkedCbs).map(c => c.getAttribute('data-fac-code'));
+      updateCourseFacultyUI(cCode);
+    });
+  });
+
+  // Attach distribute toggle checkbox
+  container.querySelectorAll('.auto-gen-distribute-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      if (!autoGenCourseFacultyConfig[cCode]) autoGenCourseFacultyConfig[cCode] = {};
+      autoGenCourseFacultyConfig[cCode].distribute = cb.checked;
+      const distBadge = document.getElementById(`dist-badge-${cCode}`);
+      if (distBadge) {
+        distBadge.style.display = cb.checked ? 'inline-flex' : 'none';
+      }
+    });
+  });
+
+  // Quick search filter inside popover
+  container.querySelectorAll('.fac-search-filter').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const cCode = input.getAttribute('data-course-code');
+      const q = e.target.value.toLowerCase().trim();
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (!popover) return;
+      popover.querySelectorAll('.fac-cb-item').forEach(item => {
+        const text = item.innerText.toLowerCase();
+        item.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    });
+  });
+
+  function updateCourseFacultyUI(cCode) {
+    const selected = autoGenCourseFacultyBindings[cCode] || [];
+    const btn = container.querySelector(`.btn-toggle-fac-dropdown[data-course-code="${cCode}"]`);
+    const label = btn ? btn.querySelector('.fac-btn-label') : null;
+    const pillsRow = document.getElementById(`fac-pills-${cCode}`);
+    const distBox = document.getElementById(`distribute-box-${cCode}`);
+
+    let text = 'Auto-Assign';
+    if (selected.length === 1) {
+      text = `${selected[0]} (1 Teacher)`;
+    } else if (selected.length > 1) {
+      text = `${selected.join(', ')} (${selected.length} Teachers)`;
+    }
+    if (label) label.textContent = text;
+
+    if (btn) {
+      btn.style.borderColor = selected.length > 0 ? 'var(--primary)' : 'var(--border)';
+      btn.style.background = selected.length > 0 ? 'var(--primary-light)' : '#ffffff';
+      btn.style.color = selected.length > 0 ? 'var(--primary)' : 'var(--text-main)';
+    }
+
+    if (pillsRow) {
+      pillsRow.style.display = selected.length > 0 ? 'flex' : 'none';
+      const isDist = (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false);
+      pillsRow.innerHTML = `
+        ${selected.map(fCode => `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; padding: 2px 6px; font-weight: 700;">${fCode}</span>`).join('')}
+        ${selected.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${cCode}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDist ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed by Availability</span>` : ''}
+      `;
+    }
+
+    if (distBox) {
+      distBox.style.display = selected.length > 1 ? 'block' : 'none';
+    }
+  }
 
   if (selectAllCb) {
     selectAllCb.onchange = () => {
@@ -3075,13 +3288,18 @@ async function runAutoGeneration(forceRelaxed = false) {
   }
   const selectedCourseCodes = checkedBoxes.map(cb => cb.value);
 
-  // Collect Course Faculty Map
+  // Collect Course Faculty Map & Config (Supporting Multi-Teacher Selection)
   const courseFacultyMap = {};
-  document.querySelectorAll('.auto-gen-fac-select').forEach(sel => {
-    const cCode = sel.getAttribute('data-course-code');
-    const fCode = sel.value.trim();
-    if (fCode) {
-      courseFacultyMap[cCode] = [fCode];
+  const courseFacultyConfig = {};
+
+  Object.entries(autoGenCourseFacultyBindings).forEach(([cCode, facList]) => {
+    if (Array.isArray(facList) && facList.length > 0) {
+      courseFacultyMap[cCode] = facList;
+      const isDistribute = (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false);
+      courseFacultyConfig[cCode] = {
+        teachers: facList,
+        distribute: isDistribute && facList.length > 1
+      };
     }
   });
 
@@ -3104,6 +3322,7 @@ async function runAutoGeneration(forceRelaxed = false) {
         departmentName: deptName,
         semester: semSelect ? semSelect.value : '',
         courseFacultyMap,
+        courseFacultyConfig,
         pinnedSlots,
         selectedCourseCodes,
         maxConsecutiveHours: 2,

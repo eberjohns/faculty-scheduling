@@ -1502,7 +1502,7 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
 
 // Auto-generate Timetable Endpoint
 app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
-  const { departmentName, semester, selectedCourseCodes, courseFacultyMap, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
+  const { departmentName, semester, selectedCourseCodes, courseFacultyMap, courseFacultyConfig, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
   const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
   const db = readDb();
 
@@ -1520,6 +1520,7 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       semester: semester || '',
       selectedCourseCodes: selectedCourseCodes || [],
       courseFacultyMap: courseFacultyMap || {},
+      courseFacultyConfig: courseFacultyConfig || {},
       pinnedSlots: pinnedSlots || {},
       maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
       practicalBlockSize: parseInt(practicalBlockSize) || 2,

@@ -218,4 +218,133 @@ if (relaxedResult.success) {
   console.log("Phase 2 Fallback Generation: PASSED");
 }
 
+// --- Testing Multi-Teacher Assignment & Availability Distribution ---
+console.log("\n--- Testing Multi-Teacher Assignment & Availability Distribution ---");
+const multiTeacherDb = {
+  periods: ["1", "2", "3", "LB", "4", "5", "6"],
+  days: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
+  config: { globalLockedPeriods: [] },
+  courses: [
+    { code: "CS501", name: "Cloud Computing", department: "CSE", semester: "5", courseType: "T", hours: 4, hoursPerWeek: 4 }
+  ],
+  faculty: [
+    { staffId: "F1", name: "Alice", code: "AL", department: "CSE", weeklyLoadLimit: 16, dailyMaxHours: 4 },
+    { staffId: "F2", name: "Bob", code: "BO", department: "CSE", weeklyLoadLimit: 16, dailyMaxHours: 4 }
+  ],
+  teacherUnavailability: {
+    "AL": [{ day: "MONDAY", period: "all" }],  // Alice unavailable Monday
+    "BO": [{ day: "TUESDAY", period: "all" }]  // Bob unavailable Tuesday
+  },
+  allocations: {}
+};
 
+const multiResult = generateDepartmentSchedule({
+  db: multiTeacherDb,
+  departmentName: "CSE",
+  semester: "5",
+  courseFacultyMap: { "CS501": ["AL", "BO"] },
+  courseFacultyConfig: { "CS501": { distribute: true } }
+});
+
+console.log("Multi-Teacher Run Success:", multiResult.success);
+if (multiResult.success && multiResult.allocations["CS501"]) {
+  const cAlloc = multiResult.allocations["CS501"];
+  const tCounts = { AL: 0, BO: 0 };
+  let aliceOnMonday = false;
+  let bobOnTuesday = false;
+
+  Object.entries(cAlloc).forEach(([day, periods]) => {
+    Object.entries(periods).forEach(([p, facs]) => {
+      facs.forEach(f => {
+        tCounts[f] = (tCounts[f] || 0) + 1;
+        if (f === "AL" && day === "MONDAY") aliceOnMonday = true;
+        if (f === "BO" && day === "TUESDAY") bobOnTuesday = true;
+      });
+    });
+  });
+
+  console.log("Multi-Teacher Period Distribution:", tCounts);
+  console.log("Alice assigned on Monday:", aliceOnMonday ? "FAILED" : "PASSED (0 slots, respected blackout)");
+  console.log("Bob assigned on Tuesday:", bobOnTuesday ? "FAILED" : "PASSED (0 slots, respected blackout)");
+  console.log("Fair distribution (both AL & BO have >= 1 slot):", (tCounts.AL > 0 && tCounts.BO > 0) ? "PASSED" : "FAILED");
+}
+
+// --- Testing Curriculum Recommendation Priority & Mandatory 1 hr/day Spread ---
+console.log("\n--- Testing Recommendation Priority & Mandatory 1 hr/day Spread ---");
+const recSpreadDb = {
+  periods: ["1", "2", "3", "LB", "4", "5", "6"],
+  days: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"],
+  config: { globalLockedPeriods: [] },
+  courses: [
+    {
+      code: "ENG101",
+      name: "English Literature",
+      department: "HUMANITIES",
+      semester: "1",
+      courseType: "T",
+      hours: 4,
+      hoursPerWeek: 4,
+      recommendations: {
+        "MONDAY": { "1": "T" },
+        "TUESDAY": { "2": "T" },
+        "WEDNESDAY": { "3": "T" },
+        "THURSDAY": { "4": "T" },
+        "FRIDAY": {}
+      }
+    },
+    {
+      code: "ENG102-P",
+      name: "Language Lab",
+      department: "HUMANITIES",
+      semester: "1",
+      courseType: "P",
+      hours: 2,
+      hoursPerWeek: 2,
+      recommendations: {
+        "FRIDAY": { "4": "P", "5": "P" }
+      }
+    }
+  ],
+  faculty: [
+    { staffId: "H1", name: "Prof. Wordsworth", code: "WW", department: "HUMANITIES", weeklyLoadLimit: 16, dailyMaxHours: 4 }
+  ],
+  teacherUnavailability: {},
+  allocations: {}
+};
+
+const recSpreadResult = generateDepartmentSchedule({
+  db: recSpreadDb,
+  departmentName: "HUMANITIES",
+  semester: "1",
+  courseFacultyMap: { "ENG101": ["WW"], "ENG102-P": ["WW"] }
+});
+
+console.log("Recommendation & Spread Run Success:", recSpreadResult.success);
+if (recSpreadResult.success) {
+  const eng101 = recSpreadResult.allocations["ENG101"];
+  let eng101Days = 0;
+  let eng101MaxDay = 0;
+  let matchesRecCount = 0;
+
+  Object.entries(eng101).forEach(([d, pObj]) => {
+    const pKeys = Object.keys(pObj);
+    if (pKeys.length > 0) {
+      eng101Days++;
+      if (pKeys.length > eng101MaxDay) eng101MaxDay = pKeys.length;
+      pKeys.forEach(p => {
+        if (recSpreadDb.courses[0].recommendations[d] && recSpreadDb.courses[0].recommendations[d][p] === "T") {
+          matchesRecCount++;
+        }
+      });
+    }
+  });
+
+  console.log("ENG101 Theory Distinct Days (Expected 4):", eng101Days === 4 ? "PASSED (4 distinct days)" : "FAILED (" + eng101Days + ")");
+  console.log("ENG101 Max Hours Per Day (Expected 1):", eng101MaxDay === 1 ? "PASSED (Max 1 hr/day)" : "FAILED (" + eng101MaxDay + ")");
+  console.log("ENG101 Recommended Slots Matched (Expected 4/4):", matchesRecCount === 4 ? "PASSED (100% matched)" : "FAILED (" + matchesRecCount + "/4)");
+
+  const eng102 = recSpreadResult.allocations["ENG102-P"];
+  const friPeriods = Object.keys((eng102 && eng102.FRIDAY) || {});
+  const pracMatched = friPeriods.includes("4") && friPeriods.includes("5");
+  console.log("ENG102-P Practical Block Placed on Friday P4-P5:", pracMatched ? "PASSED" : "FAILED (" + friPeriods + ")");
+}

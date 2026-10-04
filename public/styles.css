@@ -1613,4 +1613,41 @@ input:checked + .slider:before {
   animation: fadeIn 0.3s ease-in-out;
 }
 
+/* Multi-Teacher Assignment Popover & Checklist */
+.btn-toggle-fac-dropdown {
+  transition: all 0.2s ease;
+}
+
+.btn-toggle-fac-dropdown:hover {
+  filter: brightness(0.96);
+  border-color: var(--primary) !important;
+}
+
+.fac-checklist-popover {
+  animation: fadeIn 0.15s ease-out;
+  position: relative;
+  z-index: 10;
+}
+
+.fac-cb-item {
+  transition: background-color 0.15s ease;
+}
+
+.fac-cb-item:hover {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+}
+
+.fac-checkbox-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.fac-checkbox-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.fac-selected-pills-row {
+  animation: fadeIn 0.2s ease;
+}
+
 
