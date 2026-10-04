@@ -101,6 +101,7 @@ function parseDbData(rawData) {
     batchDeptMappings: rawData.batchDeptMappings || [],
     groupMappings: rawData.groupMappings || {},
     teacherUnavailability: rawData.teacherUnavailability || {},
+    subjectTeacherMapping: rawData.subjectTeacherMapping || {},
     batchConfig: rawData.batchConfig || {
       programTypes: { "U": "UG", "P": "PG" },
       fundingTypes:  { "1": "Aided", "2": "Self Finance" },
@@ -111,6 +112,7 @@ function parseDbData(rawData) {
 
   // Ensure default structures are present
   if (!db.teacherUnavailability) db.teacherUnavailability = {};
+  if (!db.subjectTeacherMapping) db.subjectTeacherMapping = {};
   if (!db.config.excludedBatches) db.config.excludedBatches = [];
   if (!db.config.globalLockedPeriods) db.config.globalLockedPeriods = [];
   if (!db.batchConfig.programTypes) {

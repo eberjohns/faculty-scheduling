@@ -91,9 +91,7 @@
             <div class="legend-row"><span class="legend-box lb-box">LB</span> <span class="bold text-sm">Lunch Break</span></div>
           </div>
           <div class="view-toggle-actions flex-row gap-2">
-            <button id="btn-open-auto-gen" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto Generate</button>
-            <button id="btn-open-teacher-availability" class="btn btn-outline" style="border-color: #f59e0b; color: #b45309;"><i class="fa-solid fa-calendar-xmark text-warning"></i> Teacher Availability</button>
-            <button id="btn-open-teacher-timetable" class="btn btn-outline" style="border-color: #6366f1; color: #4338ca; font-weight: 600;"><i class="fa-solid fa-chalkboard-user text-primary"></i> Teacher Timetable</button>
+            <button id="btn-open-advanced-features" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Advanced Feature</button>
             <button id="btn-dept-format-excel" class="btn btn-outline"><i class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
             <button id="btn-dept-import-excel" class="btn btn-outline"><i class="fa-solid fa-file-import text-primary"></i> Import Timetable</button>
             <input type="file" id="import-dept-timetable-file" class="hidden" accept=".xlsx, .xls">
@@ -187,14 +185,12 @@
       <!-- Inline Editors Section -->
       <div class="card mt-4" style="margin-bottom: 40px;">
         <div class="card-header">
-          <h2><i class="fa-solid fa-pen-to-square text-primary"></i> Edit Course Aliases, Faculty Visual Codes & Availability</h2>
+          <h2><i class="fa-solid fa-pen-to-square text-primary"></i> Edit Course Aliases & Faculty Visual Codes</h2>
         </div>
         <div class="card-body">
           <div class="tab-sub-nav">
             <button class="tab-sub-item active" data-subtab="subtab-dept-courses">My Courses (<span id="count-dept-courses">0</span>)</button>
             <button class="tab-sub-item" data-subtab="subtab-dept-faculty">My Faculty (<span id="count-dept-faculty">0</span>)</button>
-            <button class="tab-sub-item" data-subtab="subtab-dept-availability"><i class="fa-solid fa-calendar-xmark text-warning"></i> Teacher Availability</button>
-            <button class="tab-sub-item" data-subtab="subtab-dept-teacher-timetable"><i class="fa-solid fa-chalkboard-user text-primary"></i> Teacher Timetable</button>
           </div>
           
           <!-- Course Editor with Save All Courses button -->
@@ -243,64 +239,6 @@
                   <!-- Filled dynamically -->
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          <!-- Teacher Availability / Unwanted Days Editor -->
-          <div id="subtab-dept-availability" class="subtab-pane hidden mt-3">
-            <div class="flex-row justify-between items-center mb-3">
-              <div>
-                <span class="text-sm bold" style="color: var(--text-main);">Configure Teacher Unwanted Days & Blackout Periods</span>
-                <p class="text-muted text-sm mb-0" style="margin-top: 2px;">Marked periods are strictly blocked from both automatic generation and manual allocation.</p>
-              </div>
-              <button id="btn-save-teacher-unavailability" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Availability</button>
-            </div>
-
-            <div class="card bg-slate-50 mb-3" style="padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
-              <div class="flex-row items-center gap-3 wrap-gap">
-                <div style="flex: 1; min-width: 200px;">
-                  <label for="select-avail-teacher" class="text-sm bold" style="display:block; margin-bottom: 4px;">Select Teacher</label>
-                  <select id="select-avail-teacher" class="form-control">
-                    <!-- Populated dynamically -->
-                  </select>
-                </div>
-                <div style="display: flex; gap: 8px; align-items: flex-end; padding-top: 20px;">
-                  <button type="button" id="btn-clear-teacher-unavail" class="btn btn-outline btn-sm">Clear All Days</button>
-                  <span id="teacher-unavail-status-badge" class="badge badge-info" style="align-self: center;">0 Blackout Periods</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="table-responsive">
-              <table class="table table-bordered text-center" id="table-teacher-unavail-matrix" style="table-layout: fixed; font-size: 12px;">
-                <thead>
-                  <!-- Populated dynamically -->
-                </thead>
-                <tbody>
-                  <!-- Populated dynamically -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- SUBTAB: Teacher Timetable View -->
-          <div id="subtab-dept-teacher-timetable" class="subtab-pane hidden mt-3">
-            <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2" style="background-color: var(--background); padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
-              <div>
-                <h3 style="margin-bottom: 2px; font-size: 16px;"><i class="fa-solid fa-chalkboard-user text-primary"></i> Faculty Teaching Timetables</h3>
-                <span class="text-muted text-sm">View and export individual weekly schedules for each faculty member.</span>
-              </div>
-              <div class="actions flex-row items-center gap-2 flex-wrap">
-                <label for="tab-select-teacher-faculty" class="bold text-sm" style="white-space: nowrap;"><i class="fa-solid fa-user-tie text-primary"></i> Select Teacher:</label>
-                <select id="tab-select-teacher-faculty" class="form-control" style="width: auto; min-width: 220px; font-weight: 600;">
-                  <option value="ALL">All Teachers (Entire Department)</option>
-                </select>
-                <button id="tab-btn-open-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-expand"></i> Full Screen View</button>
-                <button id="tab-btn-print-teacher-pdf" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
-              </div>
-            </div>
-            <div id="tab-teacher-timetable-container" style="min-height: 200px;">
-              <!-- Dynamically populated teacher schedule grids -->
             </div>
           </div>
         </div>
@@ -593,125 +531,286 @@
       </div>
     </div>
 
-    <!-- SIDE DRAWER: AUTOMATIC TIMETABLE GENERATOR -->
-    <div id="side-drawer-overlay" class="side-drawer-overlay no-print"></div>
-    <aside id="side-drawer-auto-gen" class="side-drawer no-print">
-      <div class="side-drawer-header">
-        <h2><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Auto Timetable Generator</h2>
-        <button id="btn-close-auto-gen-drawer" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+    <!-- ADVANCED FEATURES FULL MODAL WORKSPACE -->
+    <div id="modal-advanced-features" class="modal hidden no-print">
+      <div class="adv-features-modal-content">
+        <!-- Header -->
+        <div class="adv-features-header">
+          <div class="flex-row items-center gap-2">
+            <i class="fa-solid fa-wand-magic-sparkles text-primary" style="font-size: 18px;"></i>
+            <h2 style="font-size: 16px; margin: 0; font-weight: 700;">Advanced Features</h2>
+            <span class="badge badge-info" style="font-size: 11px;">Department Suite</span>
+          </div>
+          <button id="btn-close-advanced-features" class="btn btn-outline btn-xs" style="padding: 4px 8px; font-size: 13px;" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Body with Sidebar and Content Panes -->
+        <div class="adv-features-body">
+          <!-- Sidebar Navigation -->
+          <aside class="adv-sidebar">
+            <button type="button" class="adv-tab-btn active" data-pane="adv-pane-teacher-unavail">
+              <i class="fa-solid fa-calendar-xmark text-warning"></i>
+              <span>Teacher Availability</span>
+            </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-subject-mapping">
+              <i class="fa-solid fa-diagram-project text-primary"></i>
+              <span>Subject Teacher Mapping</span>
+            </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-auto-generate">
+              <i class="fa-solid fa-wand-magic-sparkles text-primary"></i>
+              <span>Auto Generate</span>
+            </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-teacher-timetable">
+              <i class="fa-solid fa-chalkboard-user text-primary"></i>
+              <span>Teacher Timetable</span>
+            </button>
+          </aside>
+
+          <!-- Main Content Area -->
+          <div class="adv-content">
+            <!-- TAB 1: TEACHER AVAILABILITY -->
+            <div id="adv-pane-teacher-unavail" class="adv-pane">
+              <div class="flex-row justify-between items-center mb-3">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-calendar-xmark text-warning"></i> Teacher Availability & Blackout Periods</h3>
+                  <p class="text-muted text-sm mb-0">Marked periods are strictly blocked from both automatic generation and manual allocation.</p>
+                </div>
+                <button id="btn-save-teacher-unavailability" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Availability</button>
+              </div>
+
+              <div class="card bg-slate-50 mb-3" style="padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+                <div class="flex-row items-center gap-3 wrap-gap">
+                  <div style="flex: 1; min-width: 200px;">
+                    <label for="select-avail-teacher" class="text-sm bold" style="display:block; margin-bottom: 4px;">Select Teacher</label>
+                    <select id="select-avail-teacher" class="form-control">
+                      <!-- Populated dynamically -->
+                    </select>
+                  </div>
+                  <div style="display: flex; gap: 8px; align-items: flex-end; padding-top: 20px;">
+                    <button type="button" id="btn-clear-teacher-unavail" class="btn btn-outline btn-sm">Clear All Days</button>
+                    <span id="teacher-unavail-status-badge" class="badge badge-info" style="align-self: center;">0 Blackout Periods</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-bordered text-center" id="table-teacher-unavail-matrix" style="table-layout: fixed; font-size: 12px;">
+                  <thead>
+                    <!-- Populated dynamically -->
+                  </thead>
+                  <tbody>
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- TAB 2: SUBJECT TEACHER MAPPING -->
+            <div id="adv-pane-subject-mapping" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-diagram-project text-primary"></i> Subject Teacher Mapping</h3>
+                  <p class="text-muted text-sm mb-0">Map faculty members, configure weekly teaching hours, multi-teacher divisions, and practical/theory distributions.</p>
+                </div>
+                <div class="flex-row gap-2">
+                  <button id="btn-save-subject-mapping" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Subject Mappings</button>
+                </div>
+              </div>
+
+              <!-- Filter and Sort Bar -->
+              <div class="adv-search-bar">
+                <div style="flex: 1; min-width: 220px;">
+                  <input type="text" id="subject-mapping-search" class="form-control" placeholder="Search subjects by code or name...">
+                </div>
+                <div style="width: 180px;">
+                  <select id="subject-mapping-sem-filter" class="form-control">
+                    <option value="">All Semesters</option>
+                  </select>
+                </div>
+                <div style="width: 200px;">
+                  <select id="subject-mapping-sort" class="form-control">
+                    <option value="code-asc">Sort: Course Code (A-Z)</option>
+                    <option value="name-asc">Sort: Subject Name (A-Z)</option>
+                    <option value="sem-asc">Sort: Semester (Ascending)</option>
+                    <option value="hours-desc">Sort: Weekly Hours (High to Low)</option>
+                    <option value="type">Sort: Type (Theory / Practical)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Subject Tiles Grid -->
+              <div id="subject-mapping-grid" class="subject-mapping-grid">
+                <!-- Dynamically populated subject tiles -->
+              </div>
+            </div>
+
+            <!-- TAB 3: AUTO GENERATE -->
+            <div id="adv-pane-auto-generate" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Automatic Timetable Generator</h3>
+                  <p class="text-muted text-sm mb-0">Generate conflict-free schedules respecting continuous practical blocks and teacher availability.</p>
+                </div>
+                <div class="flex-row gap-2">
+                  <button id="btn-run-auto-generate" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Timetable</button>
+                  <button id="btn-apply-auto-generate" class="btn btn-success hidden" style="background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i> Apply to Timetable</button>
+                </div>
+              </div>
+
+              <!-- Grid Layout for Generator Settings -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <!-- Left: Scope & Rules -->
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                  <!-- Scope -->
+                  <div class="auto-gen-card">
+                    <h3><span class="step-num-badge">1</span> Scope & Semester Selection</h3>
+                    <div class="form-group mt-2">
+                      <label for="auto-gen-sem-select" class="text-sm bold">Target Semester</label>
+                      <select id="auto-gen-sem-select" class="form-control mt-1">
+                        <option value="">All Semesters in Department</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- Constraints & Workload Rules -->
+                  <div class="auto-gen-card">
+                    <h3><span class="step-num-badge">2</span> Constraints & Workload Rules</h3>
+                    
+                    <div class="toggle-switch-row">
+                      <div>
+                        <strong class="text-sm" style="display:block;">Preserve / Pin Existing Slots</strong>
+                        <span class="text-muted text-sm">Keep currently allocated slots and generate around them.</span>
+                      </div>
+                      <label class="switch">
+                        <input type="checkbox" id="auto-gen-pin-slots">
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+
+                    <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+                      <div>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-flask text-success"></i> Continuous Practicals</strong>
+                        <span class="text-muted text-sm">2-hour unbroken lab blocks (no lunch break split).</span>
+                      </div>
+                      <span class="badge badge-success" style="font-size: 11px;">Enforced</span>
+                    </div>
+
+                    <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+                      <div>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-mug-hot text-warning"></i> Teacher Rest Interval</strong>
+                        <span class="text-muted text-sm">Max 2 continuous teaching hours before a rest break.</span>
+                      </div>
+                      <span class="badge badge-warning" style="font-size: 11px;">Max 2h</span>
+                    </div>
+
+                    <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
+                      <div>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-lock text-danger"></i> Admin Global Locks</strong>
+                        <span class="text-muted text-sm">College-wide locked periods strictly excluded.</span>
+                      </div>
+                      <span class="badge badge-danger" style="font-size: 11px;" id="auto-gen-global-locks-badge">Active</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Right: Courses selection -->
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                  <div class="auto-gen-card" style="height: 100%;">
+                    <div class="flex-row justify-between items-center mb-1">
+                      <h3 style="margin-bottom: 0;"><span class="step-num-badge">3</span> Course & Teacher Bindings (<span id="auto-gen-courses-count">0</span>)</h3>
+                      <label class="text-sm bold" style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary);">
+                        <input type="checkbox" id="auto-gen-select-all-courses" checked> Select All
+                      </label>
+                    </div>
+                    <p class="text-muted text-sm mb-2">Individual subjects selected for automatic schedule generation:</p>
+                    
+                    <!-- Search & Sort Controls Toolbar -->
+                    <div class="flex-row gap-2 mb-2" style="align-items: center;">
+                      <div style="flex: 1; position: relative;">
+                        <input type="text" id="auto-gen-courses-search" class="form-control" placeholder="Search code or subject..." style="font-size: 11px; padding: 4px 8px 4px 26px; height: 30px;">
+                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 9px; font-size: 11px; color: var(--text-muted);"></i>
+                      </div>
+                      <div style="width: 175px;">
+                        <select id="auto-gen-courses-sort" class="form-control" style="font-size: 11px; padding: 3px 6px; height: 30px;">
+                          <option value="code-asc">Sort: Course Code (A-Z)</option>
+                          <option value="code-desc">Sort: Course Code (Z-A)</option>
+                          <option value="name-asc">Sort: Subject Name (A-Z)</option>
+                          <option value="sem-asc">Sort: Semester (Ascending)</option>
+                          <option value="hours-desc">Sort: Weekly Hours (High to Low)</option>
+                          <option value="type">Sort: Type (Theory / Practical)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div id="auto-gen-faculty-bindings-list" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background-color: var(--surface);">
+                      <!-- Populated dynamically -->
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- IN-SECTION PROBLEM STATEMENT & SOLVER (No pop-up!) -->
+              <div id="auto-gen-insection-solver" class="insection-solver-box hidden">
+                <!-- Dynamically populated problem statement, bottlenecks and Solve with Smart Exceptions button -->
+              </div>
+
+              <!-- RESULTS / AUDIT CARD -->
+              <div id="auto-gen-results-card" class="auto-gen-card hidden mt-3" style="background-color: var(--success-light); border-color: var(--success);">
+                <h3 id="auto-gen-results-heading" style="color: var(--success-dark);"><i class="fa-solid fa-circle-check"></i> Generation Successful!</h3>
+                <p class="text-sm" id="auto-gen-results-msg" style="color: var(--success-dark); font-weight: 500;"></p>
+                
+                <div class="audit-metrics-grid">
+                  <div class="audit-metric-box">
+                    <div class="metric-val text-success" id="audit-stat-slots">0</div>
+                    <div class="metric-lbl">Slots Scheduled</div>
+                  </div>
+                  <div class="audit-metric-box">
+                    <div class="metric-val text-success" id="audit-stat-clashes">0</div>
+                    <div class="metric-lbl">Faculty Clashes</div>
+                  </div>
+                  <div class="audit-metric-box">
+                    <div class="metric-val text-success" id="audit-stat-practicals">100%</div>
+                    <div class="metric-lbl">Continuous Practicals</div>
+                  </div>
+                  <div class="audit-metric-box">
+                    <div class="metric-val text-success" id="audit-stat-violations">0</div>
+                    <div class="metric-lbl">Rest Rule Violations</div>
+                  </div>
+                </div>
+
+                <div id="auto-gen-suggestions-box" class="mt-3 hidden" style="background: rgba(255, 255, 255, 0.85); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 12px;">
+                  <div style="font-weight: 700; color: var(--primary); margin-bottom: 4px;"><i class="fa-solid fa-lightbulb text-warning"></i> Analysis & Suggestions:</div>
+                  <ul id="auto-gen-suggestions-list" style="padding-left: 18px; margin: 0; color: var(--text-main);"></ul>
+                </div>
+              </div>
+
+              <div id="auto-gen-error-alert" class="alert alert-danger hidden mt-2"></div>
+            </div>
+
+            <!-- TAB 4: TEACHER TIMETABLE -->
+            <div id="adv-pane-teacher-timetable" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2" style="background-color: var(--background); padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-chalkboard-user text-primary"></i> Faculty Teaching Timetables</h3>
+                  <span class="text-muted text-sm">View and export individual weekly schedules for each faculty member.</span>
+                </div>
+                <div class="actions flex-row items-center gap-2 flex-wrap">
+                  <label for="tab-select-teacher-faculty" class="bold text-sm" style="white-space: nowrap;"><i class="fa-solid fa-user-tie text-primary"></i> Select Teacher:</label>
+                  <select id="tab-select-teacher-faculty" class="form-control" style="width: auto; min-width: 220px; font-weight: 600;">
+                    <option value="ALL">All Teachers (Entire Department)</option>
+                  </select>
+                  <button id="tab-btn-open-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-expand"></i> Full Screen View</button>
+                  <button id="tab-btn-print-teacher-pdf" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
+                </div>
+              </div>
+              <div id="tab-teacher-timetable-container" style="min-height: 200px;">
+                <!-- Dynamically populated teacher schedule grids -->
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-
-      <div class="side-drawer-body">
-        <p class="text-muted text-sm mb-3">
-          Automatically place all department courses into conflict-free timetable slots respecting continuous practical blocks and teacher rest limits.
-        </p>
-
-        <!-- STEP 1: Select Scope -->
-        <div class="auto-gen-card">
-          <h3><span class="step-num-badge">1</span> Scope & Semester Selection</h3>
-          <div class="form-group mt-2">
-            <label for="auto-gen-sem-select" class="text-sm bold">Target Semester</label>
-            <select id="auto-gen-sem-select" class="form-control mt-1">
-              <option value="">All Semesters in Department</option>
-              <!-- Populated dynamically -->
-            </select>
-            <span class="text-muted text-sm mt-1" style="display:block;">Choose whether to generate for all courses or a specific semester.</span>
-          </div>
-        </div>
-
-        <!-- STEP 2: Constraints & Rules -->
-        <div class="auto-gen-card">
-          <h3><span class="step-num-badge">2</span> Constraints & Workload Rules</h3>
-          
-          <div class="toggle-switch-row">
-            <div>
-              <strong class="text-sm" style="display:block;">Preserve / Pin Existing Slots</strong>
-              <span class="text-muted text-sm">Keep currently allocated slots and generate around them.</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="auto-gen-pin-slots">
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
-            <div>
-              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-flask text-success"></i> Continuous Practicals</strong>
-              <span class="text-muted text-sm">2-hour unbroken lab blocks (no lunch break split).</span>
-            </div>
-            <span class="badge badge-success" style="font-size: 11px;">Enforced</span>
-          </div>
-
-          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
-            <div>
-              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-mug-hot text-warning"></i> Teacher Rest Interval</strong>
-              <span class="text-muted text-sm">Max 2 continuous teaching hours before a rest break.</span>
-            </div>
-            <span class="badge badge-warning" style="font-size: 11px;">Max 2h</span>
-          </div>
-
-          <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
-            <div>
-              <strong class="text-sm" style="display:block;"><i class="fa-solid fa-lock text-danger"></i> Admin Global Locks</strong>
-              <span class="text-muted text-sm">College-wide locked periods strictly excluded.</span>
-            </div>
-            <span class="badge badge-danger" style="font-size: 11px;" id="auto-gen-global-locks-badge">Active</span>
-          </div>
-        </div>
-
-        <!-- STEP 3: Course Faculty Bindings -->
-        <div class="auto-gen-card">
-          <div class="flex-row justify-between items-center mb-1">
-            <h3 style="margin-bottom: 0;"><span class="step-num-badge">3</span> Course & Teacher Bindings (<span id="auto-gen-courses-count">0</span>)</h3>
-            <label class="text-sm bold" style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary);">
-              <input type="checkbox" id="auto-gen-select-all-courses" checked> Select All
-            </label>
-          </div>
-          <p class="text-muted text-sm mb-2">Choose individual subjects to schedule and configure teacher bindings:</p>
-          <div id="auto-gen-faculty-bindings-list" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background-color: var(--surface);">
-            <!-- Populated dynamically -->
-          </div>
-        </div>
-
-        <!-- RESULTS / AUDIT CARD (Initially Hidden) -->
-        <div id="auto-gen-results-card" class="auto-gen-card hidden" style="background-color: var(--success-light); border-color: var(--success);">
-          <h3 id="auto-gen-results-heading" style="color: var(--success-dark);"><i class="fa-solid fa-circle-check"></i> Generation Successful!</h3>
-          <p class="text-sm" id="auto-gen-results-msg" style="color: var(--success-dark); font-weight: 500;"></p>
-          
-          <div class="audit-metrics-grid">
-            <div class="audit-metric-box">
-              <div class="metric-val text-success" id="audit-stat-slots">0</div>
-              <div class="metric-lbl">Slots Scheduled</div>
-            </div>
-            <div class="audit-metric-box">
-              <div class="metric-val text-success" id="audit-stat-clashes">0</div>
-              <div class="metric-lbl">Faculty Clashes</div>
-            </div>
-            <div class="audit-metric-box">
-              <div class="metric-val text-success" id="audit-stat-practicals">100%</div>
-              <div class="metric-lbl">Continuous Practicals</div>
-            </div>
-            <div class="audit-metric-box">
-              <div class="metric-val text-success" id="audit-stat-violations">0</div>
-              <div class="metric-lbl">Rest Rule Violations</div>
-            </div>
-          </div>
-
-          <!-- Diagnostics & Suggestions Box -->
-          <div id="auto-gen-suggestions-box" class="mt-3 hidden" style="background: rgba(255, 255, 255, 0.85); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 12px;">
-            <div style="font-weight: 700; color: var(--primary); margin-bottom: 4px;"><i class="fa-solid fa-lightbulb text-warning"></i> Analysis & Suggestions:</div>
-            <ul id="auto-gen-suggestions-list" style="padding-left: 18px; margin: 0; color: var(--text-main);"></ul>
-          </div>
-        </div>
-
-        <div id="auto-gen-error-alert" class="alert alert-danger hidden mt-2"></div>
-      </div>
-
-      <div class="side-drawer-footer">
-        <button id="btn-run-auto-generate" class="btn btn-primary" style="flex: 1;"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Timetable</button>
-        <button id="btn-apply-auto-generate" class="btn btn-success hidden" style="flex: 1; background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i> Apply to Timetable</button>
-      </div>
-    </aside>
+    </div>
 
   </div>
 
