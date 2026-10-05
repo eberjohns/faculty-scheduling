@@ -30,7 +30,8 @@ let state = {
   },
   allBatches: [],
   groupMappings: {},
-  teacherUnavailability: {}
+  teacherUnavailability: {},
+  subjectTeacherMapping: {}
 };
 
 let autosaveTimer = null;
@@ -296,6 +297,33 @@ async function initApp() {
   bindFacultySelectEvents();
   bindAutoGeneratorEvents();
   
+  // Auto-refresh config when window regains focus or visibility to reflect admin lock/unlock changes
+  window.syncGlobalConfigWithAdmin = async function() {
+    if (!state.currentUser || !state.currentUser.departmentName) return;
+    try {
+      const res = await fetch(`${API_BASE}/config`);
+      if (res.ok) {
+        const freshConfig = await res.json();
+        const oldLocks = JSON.stringify((state.config && state.config.globalLockedPeriods) || []);
+        const newLocks = JSON.stringify(freshConfig.globalLockedPeriods || []);
+        if (oldLocks !== newLocks) {
+          state.config = freshConfig;
+          renderAllocationMatrix();
+          const locksBadge = document.getElementById('auto-gen-global-locks-badge');
+          if (locksBadge) {
+            locksBadge.textContent = `${(freshConfig.globalLockedPeriods || []).length} Locked`;
+          }
+        }
+      }
+    } catch (e) {}
+  };
+
+  window.addEventListener('focus', window.syncGlobalConfigWithAdmin);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) window.syncGlobalConfigWithAdmin();
+  });
+  setInterval(window.syncGlobalConfigWithAdmin, 4000);
+  
   // Restore session
   const savedUser = sessionStorage.getItem('currentUser');
   if (savedUser) {
@@ -351,14 +379,15 @@ async function loadLoginDepartments() {
 
 async function fetchGlobalData() {
   try {
-    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes, mappingRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
       authFetch(`${API_BASE}/courses`),
       authFetch(`${API_BASE}/faculty`),
       authFetch(`${API_BASE}/batches`),
       authFetch(`${API_BASE}/admin/group-mappings`),
-      authFetch(`${API_BASE}/department/teacher-unavailability`)
+      authFetch(`${API_BASE}/department/teacher-unavailability`),
+      authFetch(`${API_BASE}/department/subject-mapping`)
     ]);
     
     state.config = await configRes.json();
@@ -369,6 +398,9 @@ async function fetchGlobalData() {
     state.groupMappings = await groupRes.json();
     if (unavailRes && unavailRes.ok) {
       state.teacherUnavailability = await unavailRes.json();
+    }
+    if (mappingRes && mappingRes.ok) {
+      state.subjectTeacherMapping = await mappingRes.json();
     }
   } catch (err) {
     console.error(err);
@@ -758,23 +790,11 @@ function bindDeptEvents() {
     });
   }
 
-  // Quick-access button at top of workspace
-  const btnTopAvail = document.getElementById('btn-open-teacher-availability');
-  if (btnTopAvail) {
-    btnTopAvail.addEventListener('click', () => {
-      document.querySelectorAll('.tab-sub-item').forEach(b => {
-        if (b.getAttribute('data-subtab') === 'subtab-dept-availability') b.classList.add('active');
-        else b.classList.remove('active');
-      });
-      document.querySelectorAll('.subtab-pane').forEach(p => {
-        if (p.id === 'subtab-dept-availability') p.classList.remove('hidden');
-        else p.classList.add('hidden');
-      });
-      renderTeacherAvailabilityEditor();
-      const targetCard = document.getElementById('subtab-dept-availability');
-      if (targetCard) {
-        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+  // Advanced Features Modal opening button at top of workspace
+  const btnAdvFeatures = document.getElementById('btn-open-advanced-features');
+  if (btnAdvFeatures) {
+    btnAdvFeatures.addEventListener('click', () => {
+      openAdvancedFeaturesModal();
     });
   }
 
@@ -2855,72 +2875,769 @@ function renderDeptGroupSelects(course, defaultBatchId) {
 }
 
 // ==========================================================================
-// Automatic Timetable Generator Side Drawer Controller
+// Advanced Features Suite Modal Controller
 // ==========================================================================
 let tempGeneratedAllocations = null;
+let activeAdvancedFeaturesTab = 'adv-pane-teacher-unavail';
+let localSubjectMappings = {};
+let autoGenCourseFacultyBindings = {};
+let autoGenCourseFacultyConfig = {};
 
 function bindAutoGeneratorEvents() {
-  const btnOpen = document.getElementById('btn-open-auto-gen');
-  const btnClose = document.getElementById('btn-close-auto-gen-drawer');
-  const overlay = document.getElementById('side-drawer-overlay');
-  const drawer = document.getElementById('side-drawer-auto-gen');
-  const semSelect = document.getElementById('auto-gen-sem-select');
-  const btnRun = document.getElementById('btn-run-auto-generate');
-  const btnApply = document.getElementById('btn-apply-auto-generate');
+  bindAdvancedFeaturesModalEvents();
+}
+
+function bindAdvancedFeaturesModalEvents() {
+  const btnOpen = document.getElementById('btn-open-advanced-features');
+  const btnClose = document.getElementById('btn-close-advanced-features');
+  const modal = document.getElementById('modal-advanced-features');
 
   if (btnOpen) {
     btnOpen.addEventListener('click', () => {
-      if (isTimetableLocked()) {
-        const deptName = state.currentUser ? state.currentUser.departmentName : '';
-        const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
-        showModalAlert(
-          'Timetable Locked',
-          `Your timetable is currently ${deptInfo.status}. You cannot generate or alter allocations while it is locked.`,
-          'info'
-        );
-        return;
-      }
-      openAutoGeneratorDrawer();
+      openAdvancedFeaturesModal('adv-pane-teacher-unavail');
     });
   }
 
   if (btnClose) {
-    btnClose.addEventListener('click', closeAutoGeneratorDrawer);
-  }
-  if (overlay) {
-    overlay.addEventListener('click', closeAutoGeneratorDrawer);
+    btnClose.addEventListener('click', closeAdvancedFeaturesModal);
   }
 
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeAdvancedFeaturesModal();
+      }
+    });
+  }
+
+  // Sidebar Tab Switching
+  document.querySelectorAll('.adv-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const paneId = btn.getAttribute('data-pane');
+      if (paneId) {
+        switchAdvancedFeaturesTab(paneId);
+      }
+    });
+  });
+
+  // Subject Teacher Mapping Controls
+  const searchInput = document.getElementById('subject-mapping-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      renderSubjectMappingTiles();
+    });
+  }
+
+  const semFilter = document.getElementById('subject-mapping-sem-filter');
+  if (semFilter) {
+    semFilter.addEventListener('change', () => {
+      renderSubjectMappingTiles();
+    });
+  }
+
+  const sortSelect = document.getElementById('subject-mapping-sort');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => {
+      renderSubjectMappingTiles();
+    });
+  }
+
+  const btnSaveMapping = document.getElementById('btn-save-subject-mapping');
+  if (btnSaveMapping) {
+    btnSaveMapping.addEventListener('click', async () => {
+      await saveAllSubjectMappings();
+    });
+  }
+
+  // Auto Generator Controls
+  const semSelect = document.getElementById('auto-gen-sem-select');
   if (semSelect) {
     semSelect.addEventListener('change', () => {
       renderAutoGeneratorBindings();
     });
   }
 
+  const coursesSort = document.getElementById('auto-gen-courses-sort');
+  if (coursesSort) {
+    coursesSort.addEventListener('change', () => {
+      renderAutoGeneratorBindings();
+    });
+  }
+
+  const coursesSearch = document.getElementById('auto-gen-courses-search');
+  if (coursesSearch) {
+    coursesSearch.addEventListener('input', () => {
+      renderAutoGeneratorBindings();
+    });
+  }
+
+  const btnRun = document.getElementById('btn-run-auto-generate');
   if (btnRun) {
     btnRun.addEventListener('click', async () => {
       await runAutoGeneration();
     });
   }
 
+  const btnApply = document.getElementById('btn-apply-auto-generate');
   if (btnApply) {
     btnApply.addEventListener('click', async () => {
       await applyAutoGeneratedSchedule();
     });
   }
+
+  // Teacher Timetable Tab Controls
+  const tabSelectFac = document.getElementById('tab-select-teacher-faculty');
+  const tabContainer = document.getElementById('tab-teacher-timetable-container');
+  if (tabSelectFac && tabContainer) {
+    tabSelectFac.addEventListener('change', () => {
+      renderTeacherTimetables(tabContainer, tabSelectFac.value, 'medium');
+    });
+  }
+
+  const tabBtnModal = document.getElementById('tab-btn-open-teacher-modal');
+  if (tabBtnModal) {
+    tabBtnModal.addEventListener('click', () => {
+      const facCode = tabSelectFac ? tabSelectFac.value : 'ALL';
+      openTeacherTimetableModal(facCode);
+    });
+  }
+
+  const tabBtnPrint = document.getElementById('tab-btn-print-teacher-pdf');
+  if (tabBtnPrint) {
+    tabBtnPrint.addEventListener('click', () => {
+      const facCode = tabSelectFac ? tabSelectFac.value : 'ALL';
+      openTeacherTimetableModal(facCode);
+      setTimeout(() => {
+        window.print();
+      }, 350);
+    });
+  }
 }
 
-function openAutoGeneratorDrawer() {
-  const overlay = document.getElementById('side-drawer-overlay');
-  const drawer = document.getElementById('side-drawer-auto-gen');
+function openAdvancedFeaturesModal(initialPaneId = 'adv-pane-teacher-unavail') {
+  if (isTimetableLocked()) {
+    const deptName = state.currentUser ? state.currentUser.departmentName : '';
+    const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
+    showModalAlert(
+      'Timetable Locked',
+      `Your timetable is currently ${deptInfo.status}. You cannot alter settings or generate allocations while it is locked.`,
+      'info'
+    );
+    return;
+  }
+
+  const modal = document.getElementById('modal-advanced-features');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  switchAdvancedFeaturesTab(initialPaneId);
+}
+
+function closeAdvancedFeaturesModal() {
+  const modal = document.getElementById('modal-advanced-features');
+  if (modal) modal.classList.add('hidden');
+}
+
+function switchAdvancedFeaturesTab(paneId) {
+  activeAdvancedFeaturesTab = paneId;
+
+  // Toggle active sidebar tab button
+  document.querySelectorAll('.adv-tab-btn').forEach(btn => {
+    if (btn.getAttribute('data-pane') === paneId) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  // Toggle pane visibility
+  document.querySelectorAll('.adv-pane').forEach(pane => {
+    if (pane.id === paneId) {
+      pane.classList.remove('hidden');
+    } else {
+      pane.classList.add('hidden');
+    }
+  });
+
+  // Trigger pane renderers
+  if (paneId === 'adv-pane-teacher-unavail') {
+    renderTeacherAvailabilityEditor();
+  } else if (paneId === 'adv-pane-subject-mapping') {
+    renderSubjectMappingTiles();
+  } else if (paneId === 'adv-pane-auto-generate') {
+    initAutoGeneratorPane();
+  } else if (paneId === 'adv-pane-teacher-timetable') {
+    renderTeacherTimetablesTab();
+  }
+}
+
+// -------------------------------------------------------------
+// TAB 2: Subject Teacher Mapping Renderer & State Logic
+// -------------------------------------------------------------
+function initLocalSubjectMappings() {
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptUpper = deptName.toUpperCase();
+  const deptCourses = state.courses.filter(c => c.department === deptName);
+  const savedMappings = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper]) || {};
+
+  deptCourses.forEach(c => {
+    if (!localSubjectMappings[c.code]) {
+      const saved = savedMappings[c.code] || {};
+      const courseHours = parseInt(saved.hours || c.hours) || 4;
+      const isPrac = (saved.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
+      const courseType = isPrac ? 'P' : 'T';
+
+      let assignedTeachers = [];
+      if (Array.isArray(saved.teachers) && saved.teachers.length > 0) {
+        assignedTeachers = saved.teachers;
+      } else if (Array.isArray(c.teachers) && c.teachers.length > 0) {
+        assignedTeachers = c.teachers;
+      } else if (autoGenCourseFacultyBindings[c.code] && autoGenCourseFacultyBindings[c.code].length > 0) {
+        assignedTeachers = autoGenCourseFacultyBindings[c.code];
+      } else {
+        // Fallback from allocations
+        const existingAlloc = state.allocations[c.code] || {};
+        const assignedSet = new Set();
+        Object.values(existingAlloc).forEach(dayObj => {
+          Object.values(dayObj).forEach(facArr => {
+            if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
+          });
+        });
+        assignedTeachers = Array.from(assignedSet);
+      }
+
+      // Teacher hour divisions
+      let teacherHours = saved.teacherHours || c.teacherHours || {};
+      if (assignedTeachers.length > 0 && Object.keys(teacherHours).length === 0) {
+        const perTeacher = Math.floor(courseHours / assignedTeachers.length);
+        let rem = courseHours % assignedTeachers.length;
+        teacherHours = {};
+        assignedTeachers.forEach(fCode => {
+          teacherHours[fCode] = perTeacher + (rem > 0 ? 1 : 0);
+          if (rem > 0) rem--;
+        });
+      }
+
+      const pracHours = saved.practicalHours !== undefined ? parseInt(saved.practicalHours) : (c.practicalHours !== undefined ? parseInt(c.practicalHours) : 2);
+      const theoryHours = saved.theoryHours !== undefined ? parseInt(saved.theoryHours) : (c.theoryHours !== undefined ? parseInt(c.theoryHours) : Math.max(0, courseHours - pracHours));
+
+      localSubjectMappings[c.code] = {
+        teachers: assignedTeachers,
+        hours: courseHours,
+        teacherHours: teacherHours,
+        courseType: courseType,
+        practicalHours: pracHours,
+        theoryHours: theoryHours
+      };
+    }
+  });
+}
+
+function renderSubjectMappingTiles() {
+  const container = document.getElementById('subject-mapping-grid');
+  const semFilter = document.getElementById('subject-mapping-sem-filter');
+  const searchInput = document.getElementById('subject-mapping-search');
+  const sortSelect = document.getElementById('subject-mapping-sort');
+  if (!container) return;
+
+  initLocalSubjectMappings();
+
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  let deptCourses = state.courses.filter(c => c.department === deptName);
+  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+
+  // Populate semester filter dropdown if needed
+  if (semFilter && semFilter.options.length <= 1) {
+    const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
+    const curVal = semFilter.value;
+    semFilter.innerHTML = '<option value="">All Semesters</option>';
+    sems.forEach(s => {
+      const label = (state.config && state.config.semesterLabels && state.config.semesterLabels[s]) || `Semester ${s}`;
+      semFilter.innerHTML += `<option value="${s}">${label}</option>`;
+    });
+    if (curVal) semFilter.value = curVal;
+  }
+
+  // Filter by semester
+  const selectedSem = semFilter ? semFilter.value : '';
+  if (selectedSem) {
+    deptCourses = deptCourses.filter(c => String(c.semester) === String(selectedSem));
+  }
+
+  // Filter by search query
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  if (query) {
+    deptCourses = deptCourses.filter(c => 
+      c.code.toLowerCase().includes(query) || 
+      c.name.toLowerCase().includes(query) ||
+      (c.alias && c.alias.toLowerCase().includes(query))
+    );
+  }
+
+  // Sort courses
+  const sortMode = sortSelect ? sortSelect.value : 'code-asc';
+  deptCourses.sort((a, b) => {
+    const mapA = localSubjectMappings[a.code] || { hours: 4, courseType: 'T' };
+    const mapB = localSubjectMappings[b.code] || { hours: 4, courseType: 'T' };
+    if (sortMode === 'code-asc') return a.code.localeCompare(b.code);
+    if (sortMode === 'name-asc') return a.name.localeCompare(b.name);
+    if (sortMode === 'sem-asc') return parseInt(a.semester) - parseInt(b.semester);
+    if (sortMode === 'hours-desc') return (mapB.hours || 0) - (mapA.hours || 0);
+    if (sortMode === 'type') return mapA.courseType.localeCompare(mapB.courseType);
+    return 0;
+  });
+
+  if (deptCourses.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--text-muted);">
+        <i class="fa-solid fa-magnifying-glass" style="font-size: 32px; margin-bottom: 10px; color: #cbd5e1;"></i>
+        <p>No subjects found matching your search or semester filter.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  deptCourses.forEach(c => {
+    const mapping = localSubjectMappings[c.code] || {
+      teachers: [],
+      hours: parseInt(c.hours) || 4,
+      teacherHours: {},
+      courseType: (c.courseType === 'P' || c.code.endsWith('-P')) ? 'P' : 'T',
+      practicalHours: 2,
+      theoryHours: 2
+    };
+
+    const isPrac = mapping.courseType === 'P';
+    const selectedTeachers = mapping.teachers || [];
+    const teacherHours = mapping.teacherHours || {};
+
+    // Teacher pills summary
+    const teacherPillsHtml = selectedTeachers.length > 0
+      ? selectedTeachers.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
+      : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+
+    html += `
+      <div class="subject-tile-card" data-course-code="${c.code}" id="subject-card-${c.code}">
+        <!-- Tile Header -->
+        <div class="subject-tile-header">
+          <div>
+            <div class="subject-tile-title">${c.code} <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span></div>
+            <div class="subject-tile-name" title="${c.name}">${c.name}</div>
+          </div>
+          <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'}" style="font-size: 11px; font-weight: 700;">
+            ${isPrac ? 'Practical (PR)' : 'Theory (TH)'}
+          </span>
+        </div>
+
+        <!-- Section 1: Teacher Selection -->
+        <div class="subject-tile-section">
+          <div class="flex-row justify-between items-center">
+            <span class="subject-tile-label"><i class="fa-solid fa-user-group text-primary"></i> Assigned Teachers</span>
+            <button type="button" class="btn btn-outline btn-xs btn-open-fac-picker" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 8px;">
+              <i class="fa-solid fa-user-plus"></i> Select Teachers
+            </button>
+          </div>
+          <div class="flex-row gap-1 flex-wrap mt-1" id="tile-fac-pills-${c.code}">
+            ${teacherPillsHtml}
+          </div>
+
+          <!-- Dropdown Popover Checklist for Selecting Teachers -->
+          <div class="fac-checklist-popover hidden mt-2" id="tile-popover-${c.code}" style="background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);">
+            <div style="font-weight: 700; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between;">
+              <span>Select Faculty (${deptFaculty.length}):</span>
+              <span class="text-muted" style="font-weight: normal; font-size: 10px;">Check 1 or more</span>
+            </div>
+            ${deptFaculty.length > 5 ? `
+              <input type="text" class="form-control form-control-sm tile-fac-filter mb-2" data-course-code="${c.code}" placeholder="Filter teachers..." style="font-size: 11px; height: 24px; padding: 2px 6px;">
+            ` : ''}
+            <div class="tile-fac-checklist" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+              ${deptFaculty.map(f => {
+                const isChecked = selectedTeachers.includes(f.code);
+                return `
+                  <label class="tile-fac-item" style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; padding: 2px 4px; border-radius: 3px;">
+                    <input type="checkbox" class="tile-teacher-cb" data-course-code="${c.code}" data-fac-code="${f.code}" ${isChecked ? 'checked' : ''} style="accent-color: var(--primary);">
+                    <strong style="color: var(--primary); min-width: 30px;">${f.code}</strong>
+                    <span style="color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${f.name}</span>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+              <button type="button" class="btn btn-primary btn-xs btn-close-tile-popover" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 10px;">Done</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Subject Hour Setting -->
+        <div class="subject-tile-section">
+          <label class="subject-tile-label"><i class="fa-solid fa-clock text-primary"></i> Subject Total Weekly Hours</label>
+          <div class="flex-row items-center gap-2">
+            <input type="number" min="1" max="15" class="form-control form-control-sm input-course-total-hours" data-course-code="${c.code}" value="${mapping.hours}" style="font-weight: 700; width: 70px; text-align: center;">
+            <span class="text-muted text-sm" style="font-size: 11px;">Hours / Week</span>
+          </div>
+        </div>
+
+        <!-- Section 3: If More Than 1 Teacher, Division of Hours -->
+        <div class="subject-tile-section tile-teacher-split-container" id="tile-split-${c.code}" style="display: ${selectedTeachers.length > 1 ? 'flex' : 'none'};">
+          <label class="subject-tile-label"><i class="fa-solid fa-sliders text-success"></i> Hours Division Per Teacher</label>
+          <div class="flex-row flex-column gap-1 mt-1" id="tile-split-rows-${c.code}">
+            ${selectedTeachers.map(fc => {
+              const fObj = deptFaculty.find(f => f.code === fc);
+              const fName = fObj ? fObj.name : fc;
+              const curHrs = teacherHours[fc] !== undefined ? teacherHours[fc] : Math.floor(mapping.hours / selectedTeachers.length);
+              return `
+                <div class="teacher-split-row">
+                  <span><strong>${fc}</strong> - ${fName}</span>
+                  <div class="flex-row items-center gap-1">
+                    <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm teacher-split-input" data-course-code="${c.code}" data-fac-code="${fc}" value="${curHrs}">
+                    <span style="font-weight: 600;">hrs</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Section 4: Theory and Practical Selection -->
+        <div class="subject-tile-section">
+          <label class="subject-tile-label"><i class="fa-solid fa-book-open text-primary"></i> Teaching Category</label>
+          <div class="flex-row items-center gap-4 mt-1">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              <input type="radio" name="tile-type-${c.code}" class="tile-type-radio" data-course-code="${c.code}" value="T" ${!isPrac ? 'checked' : ''} style="accent-color: var(--primary);">
+              <span>Theory</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              <input type="radio" name="tile-type-${c.code}" class="tile-type-radio" data-course-code="${c.code}" value="P" ${isPrac ? 'checked' : ''} style="accent-color: #16a34a;">
+              <span>Practical</span>
+            </label>
+          </div>
+
+          <!-- If Practical: Breakdown of practical hours and theory section -->
+          <div class="practical-breakdown-box mt-2" id="tile-prac-box-${c.code}" style="display: ${isPrac ? 'block' : 'none'};">
+            <div style="font-weight: 700; color: #166534; font-size: 11px; margin-bottom: 6px;">
+              <i class="fa-solid fa-flask"></i> Practical & Theory Hours Breakdown:
+            </div>
+            <div class="flex-row items-center gap-3">
+              <div>
+                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">Practical Hours</label>
+                <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm tile-input-prac-hours" data-course-code="${c.code}" value="${mapping.practicalHours || 2}" style="width: 70px; text-align: center; font-weight: 700;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">Theory Hours</label>
+                <input type="number" min="0" max="${mapping.hours}" class="form-control form-control-sm tile-input-theory-hours" data-course-code="${c.code}" value="${mapping.theoryHours || Math.max(0, mapping.hours - (mapping.practicalHours || 2))}" style="width: 70px; text-align: center; font-weight: 700;">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+  bindSubjectMappingTileEvents(container, deptFaculty);
+}
+
+function bindSubjectMappingTileEvents(container, deptFaculty) {
+  // Toggle Faculty Picker Popover
+  container.querySelectorAll('.btn-open-fac-picker').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-popover-${cCode}`);
+      if (!popover) return;
+      const isHidden = popover.classList.contains('hidden');
+      container.querySelectorAll('.fac-checklist-popover').forEach(p => p.classList.add('hidden'));
+      if (isHidden) popover.classList.remove('hidden');
+    });
+  });
+
+  // Close Popover
+  container.querySelectorAll('.btn-close-tile-popover').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-popover-${cCode}`);
+      if (popover) popover.classList.add('hidden');
+    });
+  });
+
+  // Filter teachers inside popover
+  container.querySelectorAll('.tile-fac-filter').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const cCode = input.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-popover-${cCode}`);
+      if (!popover) return;
+      popover.querySelectorAll('.tile-fac-item').forEach(item => {
+        const text = item.innerText.toLowerCase();
+        item.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    });
+  });
+
+  // Faculty Checkbox Changes
+  container.querySelectorAll('.tile-teacher-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-popover-${cCode}`);
+      const checkedBoxes = Array.from(popover.querySelectorAll('.tile-teacher-cb:checked'));
+      const selected = checkedBoxes.map(b => b.getAttribute('data-fac-code'));
+
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].teachers = selected;
+
+      // Update pills
+      const pillsContainer = document.getElementById(`tile-fac-pills-${cCode}`);
+      if (pillsContainer) {
+        pillsContainer.innerHTML = selected.length > 0
+          ? selected.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
+          : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+      }
+
+      // Update hour division section
+      const splitContainer = document.getElementById(`tile-split-${cCode}`);
+      const splitRows = document.getElementById(`tile-split-rows-${cCode}`);
+      if (splitContainer && splitRows) {
+        if (selected.length > 1) {
+          splitContainer.style.display = 'flex';
+          const courseHours = localSubjectMappings[cCode].hours || 4;
+          const perTeacher = Math.floor(courseHours / selected.length);
+          let rem = courseHours % selected.length;
+          
+          if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
+          
+          let rowsHtml = '';
+          selected.forEach(fc => {
+            const fObj = deptFaculty.find(f => f.code === fc);
+            const fName = fObj ? fObj.name : fc;
+            if (localSubjectMappings[cCode].teacherHours[fc] === undefined) {
+              localSubjectMappings[cCode].teacherHours[fc] = perTeacher + (rem > 0 ? 1 : 0);
+              if (rem > 0) rem--;
+            }
+            const curHrs = localSubjectMappings[cCode].teacherHours[fc];
+            rowsHtml += `
+              <div class="teacher-split-row">
+                <span><strong>${fc}</strong> - ${fName}</span>
+                <div class="flex-row items-center gap-1">
+                  <input type="number" min="1" max="${courseHours}" class="form-control form-control-sm teacher-split-input" data-course-code="${cCode}" data-fac-code="${fc}" value="${curHrs}">
+                  <span style="font-weight: 600;">hrs</span>
+                </div>
+              </div>
+            `;
+          });
+          splitRows.innerHTML = rowsHtml;
+          bindSplitInputListeners(splitRows, cCode);
+        } else {
+          splitContainer.style.display = 'none';
+          if (selected.length === 1) {
+            localSubjectMappings[cCode].teacherHours = { [selected[0]]: localSubjectMappings[cCode].hours };
+          } else {
+            localSubjectMappings[cCode].teacherHours = {};
+          }
+        }
+      }
+
+      // Also sync immediately to autoGen bindings
+      autoGenCourseFacultyBindings[cCode] = selected;
+      if (!autoGenCourseFacultyConfig[cCode]) autoGenCourseFacultyConfig[cCode] = {};
+      autoGenCourseFacultyConfig[cCode].teachers = selected;
+      autoGenCourseFacultyConfig[cCode].distribute = selected.length > 1;
+      autoGenCourseFacultyConfig[cCode].teacherHours = localSubjectMappings[cCode].teacherHours;
+    });
+  });
+
+  // Total Hours Input Change
+  container.querySelectorAll('.input-course-total-hours').forEach(input => {
+    input.addEventListener('change', () => {
+      const cCode = input.getAttribute('data-course-code');
+      const val = Math.max(1, parseInt(input.value) || 4);
+      input.value = val;
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].hours = val;
+
+      // Adjust practical breakdown if practical
+      if (localSubjectMappings[cCode].courseType === 'P') {
+        const pracInput = container.querySelector(`.tile-input-prac-hours[data-course-code="${cCode}"]`);
+        const theoryInput = container.querySelector(`.tile-input-theory-hours[data-course-code="${cCode}"]`);
+        if (pracInput && theoryInput) {
+          const pVal = Math.min(val, parseInt(pracInput.value) || 2);
+          const tVal = Math.max(0, val - pVal);
+          pracInput.value = pVal;
+          theoryInput.value = tVal;
+          localSubjectMappings[cCode].practicalHours = pVal;
+          localSubjectMappings[cCode].theoryHours = tVal;
+        }
+      }
+    });
+  });
+
+  // Theory vs Practical Radio Change
+  container.querySelectorAll('.tile-type-radio').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      const cCode = radio.getAttribute('data-course-code');
+      const isPractical = radio.value === 'P';
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].courseType = isPractical ? 'P' : 'T';
+
+      const pracBox = document.getElementById(`tile-prac-box-${cCode}`);
+      if (pracBox) {
+        pracBox.style.display = isPractical ? 'block' : 'none';
+      }
+
+      const card = document.getElementById(`subject-card-${cCode}`);
+      const typeBadge = card ? card.querySelector('.subject-tile-header .badge:last-child') : null;
+      if (typeBadge) {
+        if (isPractical) {
+          typeBadge.className = 'badge badge-success';
+          typeBadge.textContent = 'Practical (PR)';
+        } else {
+          typeBadge.className = 'badge badge-warning';
+          typeBadge.textContent = 'Theory (TH)';
+        }
+      }
+    });
+  });
+
+  // Practical breakdown hours inputs
+  container.querySelectorAll('.tile-input-prac-hours').forEach(input => {
+    input.addEventListener('change', () => {
+      const cCode = input.getAttribute('data-course-code');
+      const totalHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
+      const pVal = Math.min(totalHrs, Math.max(1, parseInt(input.value) || 2));
+      input.value = pVal;
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].practicalHours = pVal;
+
+      const theoryInput = container.querySelector(`.tile-input-theory-hours[data-course-code="${cCode}"]`);
+      if (theoryInput) {
+        const tVal = Math.max(0, totalHrs - pVal);
+        theoryInput.value = tVal;
+        localSubjectMappings[cCode].theoryHours = tVal;
+      }
+    });
+  });
+
+  container.querySelectorAll('.tile-input-theory-hours').forEach(input => {
+    input.addEventListener('change', () => {
+      const cCode = input.getAttribute('data-course-code');
+      const totalHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
+      const tVal = Math.max(0, parseInt(input.value) || 0);
+      input.value = tVal;
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].theoryHours = tVal;
+    });
+  });
+
+  // Bind initial split inputs
+  container.querySelectorAll('.tile-teacher-split-container').forEach(splitContainer => {
+    const cCode = splitContainer.id.replace('tile-split-', '');
+    bindSplitInputListeners(splitContainer, cCode);
+  });
+}
+
+function bindSplitInputListeners(container, cCode) {
+  container.querySelectorAll('.teacher-split-input').forEach(input => {
+    input.addEventListener('change', () => {
+      const facCode = input.getAttribute('data-fac-code');
+      const val = Math.max(1, parseInt(input.value) || 1);
+      input.value = val;
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
+      localSubjectMappings[cCode].teacherHours[facCode] = val;
+
+      if (autoGenCourseFacultyConfig[cCode]) {
+        autoGenCourseFacultyConfig[cCode].teacherHours = localSubjectMappings[cCode].teacherHours;
+      }
+    });
+  });
+}
+
+async function saveAllSubjectMappings() {
+  if (isTimetableLocked()) {
+    showModalAlert('Timetable Locked', 'Modifications to subject mappings are disabled while timetable is locked.', 'warning');
+    return;
+  }
+
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const btnSave = document.getElementById('btn-save-subject-mapping');
+  if (btnSave) {
+    btnSave.disabled = true;
+    btnSave.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving Mappings...`;
+  }
+
+  try {
+    const res = await authFetch(`${API_BASE}/department/subject-mapping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        departmentName: deptName,
+        mappings: localSubjectMappings
+      })
+    });
+
+    const result = await res.json();
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.innerHTML = `<i class="fa-solid fa-save"></i> Save All Subject Mappings`;
+    }
+
+    if (res.ok && result.success) {
+      if (!state.subjectTeacherMapping) state.subjectTeacherMapping = {};
+      state.subjectTeacherMapping[deptName.toUpperCase()] = JSON.parse(JSON.stringify(localSubjectMappings));
+
+      // Sync local courses state
+      Object.entries(localSubjectMappings).forEach(([cCode, mData]) => {
+        const course = state.courses.find(c => c.code === cCode);
+        if (course) {
+          course.hours = mData.hours;
+          course.courseType = mData.courseType;
+          course.practicalHours = mData.practicalHours;
+          course.theoryHours = mData.theoryHours;
+          course.teachers = mData.teachers;
+          course.teacherHours = mData.teacherHours;
+        }
+
+        // Sync to auto-gen structures
+        autoGenCourseFacultyBindings[cCode] = mData.teachers;
+        autoGenCourseFacultyConfig[cCode] = {
+          teachers: mData.teachers,
+          distribute: mData.teachers.length > 1,
+          teacherHours: mData.teacherHours
+        };
+      });
+
+      showModalAlert('Saved', 'Subject teacher mappings, weekly hours, and course types saved successfully!', 'success');
+      renderAllocationMatrix();
+      updateDeptLiveWorkloadTracker();
+    } else {
+      showModalAlert('Error', result.message || 'Failed to save subject mappings.', 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.innerHTML = `<i class="fa-solid fa-save"></i> Save All Subject Mappings`;
+    }
+    showModalAlert('Error', 'Connection error while saving subject mappings.', 'danger');
+  }
+}
+
+// -------------------------------------------------------------
+// TAB 3: Auto Timetable Generator Pane Controller
+// -------------------------------------------------------------
+function initAutoGeneratorPane() {
   const semSelect = document.getElementById('auto-gen-sem-select');
   const resultsCard = document.getElementById('auto-gen-results-card');
   const btnApply = document.getElementById('btn-apply-auto-generate');
   const errBox = document.getElementById('auto-gen-error-alert');
+  const insectionSolver = document.getElementById('auto-gen-insection-solver');
 
   if (resultsCard) resultsCard.classList.add('hidden');
   if (btnApply) btnApply.classList.add('hidden');
   if (errBox) errBox.classList.add('hidden');
+  if (insectionSolver) insectionSolver.classList.add('hidden');
   tempGeneratedAllocations = null;
 
   // Populate semester dropdown
@@ -2932,7 +3649,7 @@ function openAutoGeneratorDrawer() {
     const currentSem = semSelect.value;
     semSelect.innerHTML = '<option value="">All Semesters in Department</option>';
     sems.forEach(s => {
-      const label = state.config.semesterLabels[s] || `Semester ${s}`;
+      const label = (state.config && state.config.semesterLabels && state.config.semesterLabels[s]) || `Semester ${s}`;
       semSelect.innerHTML += `<option value="${s}">${label}</option>`;
     });
     if (sems.includes(currentSem)) semSelect.value = currentSem;
@@ -2946,16 +3663,6 @@ function openAutoGeneratorDrawer() {
   }
 
   renderAutoGeneratorBindings();
-
-  if (overlay) overlay.classList.add('active');
-  if (drawer) drawer.classList.add('active');
-}
-
-function closeAutoGeneratorDrawer() {
-  const overlay = document.getElementById('side-drawer-overlay');
-  const drawer = document.getElementById('side-drawer-auto-gen');
-  if (overlay) overlay.classList.remove('active');
-  if (drawer) drawer.classList.remove('active');
 }
 
 function renderAutoGeneratorBindings() {
@@ -2963,6 +3670,8 @@ function renderAutoGeneratorBindings() {
   const countSpan = document.getElementById('auto-gen-courses-count');
   const semSelect = document.getElementById('auto-gen-sem-select');
   const selectAllCb = document.getElementById('auto-gen-select-all-courses');
+  const sortSelect = document.getElementById('auto-gen-courses-sort');
+  const searchInput = document.getElementById('auto-gen-courses-search');
   if (!container) return;
 
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
@@ -2971,6 +3680,42 @@ function renderAutoGeneratorBindings() {
 
   if (targetSem) {
     deptCourses = deptCourses.filter(c => String(c.semester) === String(targetSem));
+  }
+
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  if (query) {
+    deptCourses = deptCourses.filter(c => 
+      c.code.toLowerCase().includes(query) || 
+      c.name.toLowerCase().includes(query)
+    );
+  }
+
+  const sortMode = sortSelect ? sortSelect.value : 'code-asc';
+  deptCourses.sort((a, b) => {
+    const mapA = localSubjectMappings[a.code] || a;
+    const mapB = localSubjectMappings[b.code] || b;
+    if (sortMode === 'code-asc') return a.code.localeCompare(b.code);
+    if (sortMode === 'code-desc') return b.code.localeCompare(a.code);
+    if (sortMode === 'name-asc') return a.name.localeCompare(b.name);
+    if (sortMode === 'sem-asc') return parseInt(a.semester || 0) - parseInt(b.semester || 0);
+    if (sortMode === 'hours-desc') return (parseInt(mapB.hours) || 0) - (parseInt(mapA.hours) || 0);
+    if (sortMode === 'type') {
+      const typeA = (mapA.courseType === 'P' || a.code.endsWith('-P')) ? 'P' : 'T';
+      const typeB = (mapB.courseType === 'P' || b.code.endsWith('-P')) ? 'P' : 'T';
+      return typeA.localeCompare(typeB);
+    }
+    return 0;
+  });
+
+  // Preserve checked state across re-renders
+  const currentChecked = new Set();
+  const existingCbs = container.querySelectorAll('.auto-gen-course-cb');
+  if (existingCbs.length > 0) {
+    existingCbs.forEach(cb => {
+      if (cb.checked) currentChecked.add(cb.value);
+    });
+  } else {
+    deptCourses.forEach(c => currentChecked.add(c.code));
   }
 
   function updateSelectedCount() {
@@ -2984,7 +3729,7 @@ function renderAutoGeneratorBindings() {
   }
 
   if (deptCourses.length === 0) {
-    container.innerHTML = `<div class="text-muted text-sm text-center py-2">No courses found for selected semester.</div>`;
+    container.innerHTML = `<div class="text-muted text-sm text-center py-3"><i class="fa-solid fa-magnifying-glass mb-1"></i><br>No courses found matching filter.</div>`;
     if (countSpan) countSpan.textContent = '0';
     if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
     return;
@@ -2994,14 +3739,35 @@ function renderAutoGeneratorBindings() {
 
   let html = '';
   deptCourses.forEach(c => {
-    // Check existing allocated faculty
-    const existingAlloc = state.allocations[c.code] || {};
-    const assignedSet = new Set();
-    Object.values(existingAlloc).forEach(dayObj => {
-      Object.values(dayObj).forEach(facArr => {
-        if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
+    // Sync with localSubjectMappings if present
+    if (localSubjectMappings[c.code] && localSubjectMappings[c.code].teachers) {
+      autoGenCourseFacultyBindings[c.code] = localSubjectMappings[c.code].teachers;
+      autoGenCourseFacultyConfig[c.code] = {
+        teachers: localSubjectMappings[c.code].teachers,
+        distribute: localSubjectMappings[c.code].teachers.length > 1,
+        teacherHours: localSubjectMappings[c.code].teacherHours
+      };
+    } else if (autoGenCourseFacultyBindings[c.code] === undefined) {
+      const existingAlloc = state.allocations[c.code] || {};
+      const assignedSet = new Set();
+      Object.values(existingAlloc).forEach(dayObj => {
+        Object.values(dayObj).forEach(facArr => {
+          if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
+        });
       });
-    });
+      autoGenCourseFacultyBindings[c.code] = Array.from(assignedSet);
+      autoGenCourseFacultyConfig[c.code] = { distribute: true };
+    }
+
+    const selectedFacs = autoGenCourseFacultyBindings[c.code] || [];
+    const isDistribute = (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
+
+    let summaryText = 'Auto-Assign';
+    if (selectedFacs.length === 1) {
+      summaryText = `${selectedFacs[0]} (1 Teacher)`;
+    } else if (selectedFacs.length > 1) {
+      summaryText = `${selectedFacs.join(', ')} (${selectedFacs.length} Teachers)`;
+    }
 
     const isPrac = (c.courseType === 'P' || c.code.endsWith('-P'));
     const typeBadge = isPrac
@@ -3009,22 +3775,70 @@ function renderAutoGeneratorBindings() {
       : `<span class="badge" style="background-color: var(--warning-light); color: var(--warning-dark); font-size: 10px;">TH</span>`;
 
     html += `
-      <div class="flex-row justify-between items-center py-1" style="border-bottom: 1px dashed var(--border); font-size: 12px; gap: 8px;">
-        <div class="flex-row items-center" style="gap: 8px; flex: 1; min-width: 0;">
-          <input type="checkbox" class="auto-gen-course-cb" value="${c.code}" checked style="accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer;">
-          <div style="flex: 1; min-width: 0;">
-            <strong style="color: var(--text-main);">${c.code}</strong> ${typeBadge}
-            <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;">${c.name} (Sem ${c.semester})</div>
+      <div class="auto-gen-course-item" data-course-code="${c.code}" style="border-bottom: 1px dashed var(--border); padding: 8px 4px;">
+        <div class="flex-row justify-between items-center" style="gap: 8px;">
+          <!-- Course Checkbox & Name -->
+          <div class="flex-row items-center" style="gap: 8px; flex: 1; min-width: 0;">
+            <input type="checkbox" class="auto-gen-course-cb" value="${c.code}" ${currentChecked.has(c.code) ? 'checked' : ''} style="accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer;">
+            <div style="flex: 1; min-width: 0;">
+              <div class="flex-row items-center gap-1">
+                <strong style="color: var(--text-main); font-size: 13px;">${c.code}</strong> ${typeBadge}
+              </div>
+              <div class="text-muted" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;" title="${c.name}">${c.name} (Sem ${c.semester})</div>
+            </div>
+          </div>
+
+          <!-- Multi-Teacher Dropdown Trigger -->
+          <div>
+            <button type="button" class="btn btn-outline btn-xs btn-toggle-fac-dropdown" data-course-code="${c.code}" style="font-size: 11px; padding: 4px 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; border-color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--border)'}; background: ${selectedFacs.length > 0 ? 'var(--primary-light)' : '#ffffff'}; color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--text-main)'}; border-radius: 4px;">
+              <i class="fa-solid fa-user-group text-primary"></i>
+              <span class="fac-btn-label">${summaryText}</span>
+              <i class="fa-solid fa-chevron-down" style="font-size: 9px; opacity: 0.7;"></i>
+            </button>
           </div>
         </div>
-        <div>
-          <select class="auto-gen-fac-select form-control" data-course-code="${c.code}" style="font-size: 11px; padding: 2px 6px; height: 28px; width: 140px;">
-            <option value="">Auto-Assign</option>
+
+        <!-- Selected Faculty Badges & Distribution indicator -->
+        <div class="fac-selected-pills-row" id="fac-pills-${c.code}" style="display: ${selectedFacs.length > 0 ? 'flex' : 'none'}; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 4px; padding-left: 23px;">
+          ${selectedFacs.map(fCode => `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; padding: 2px 6px; font-weight: 700;">${fCode}</span>`).join('')}
+          ${selectedFacs.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${c.code}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDistribute ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed</span>` : ''}
+        </div>
+
+        <!-- Popover Checklist with Checkboxes for Multiple Teachers -->
+        <div class="fac-checklist-popover hidden" id="fac-popover-${c.code}" style="margin-top: 8px; margin-left: 23px; background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); font-size: 11px;">
+          <div style="font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fa-solid fa-users text-primary"></i> Select Teachers for ${c.code}:</span>
+            <span class="text-muted" style="font-size: 10px; font-weight: normal;">(Check multiple to share)</span>
+          </div>
+
+          ${deptFaculty.length > 5 ? `
+            <input type="text" class="form-control form-control-sm fac-search-filter mb-2" data-course-code="${c.code}" placeholder="Filter teachers by name or code..." style="font-size: 11px; padding: 3px 6px; height: 26px;">
+          ` : ''}
+
+          <div class="fac-checkbox-list" data-course-code="${c.code}" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--border); border-radius: 4px; padding: 6px; background: var(--surface);">
             ${deptFaculty.map(f => {
-              const isSelected = assignedSet.has(f.code);
-              return `<option value="${f.code}" ${isSelected ? 'selected' : ''}>${f.code} - ${f.name}</option>`;
+              const isChecked = selectedFacs.includes(f.code);
+              return `
+                <label class="fac-cb-item" style="display: flex; align-items: center; gap: 7px; padding: 3px 5px; cursor: pointer; border-radius: 3px; user-select: none;">
+                  <input type="checkbox" class="auto-gen-fac-cb" data-course-code="${c.code}" data-fac-code="${f.code}" ${isChecked ? 'checked' : ''} style="accent-color: var(--primary); width: 14px; height: 14px; cursor: pointer;">
+                  <span style="font-weight: 700; color: var(--primary); min-width: 32px;">${f.code}</span>
+                  <span style="color: var(--text-main); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${f.name}</span>
+                </label>
+              `;
             }).join('')}
-          </select>
+          </div>
+
+          <div class="fac-distribute-box" id="distribute-box-${c.code}" style="display: ${selectedFacs.length > 1 ? 'block' : 'none'}; margin-top: 8px; padding: 6px 8px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px;">
+            <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer; margin: 0; color: #166534; font-weight: 600; font-size: 11px;">
+              <input type="checkbox" class="auto-gen-distribute-cb" data-course-code="${c.code}" ${isDistribute ? 'checked' : ''} style="accent-color: #16a34a; width: 14px; height: 14px; margin-top: 2px;">
+              <span>Distribute periods across selected teachers according to availability</span>
+            </label>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border);">
+            <button type="button" class="btn btn-outline btn-xs btn-clear-course-fac" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 8px;">Clear Selection</button>
+            <button type="button" class="btn btn-primary btn-xs btn-close-fac-popover" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 12px;">Done</button>
+          </div>
         </div>
       </div>
     `;
@@ -3033,10 +3847,110 @@ function renderAutoGeneratorBindings() {
   container.innerHTML = html;
   updateSelectedCount();
 
-  // Attach checkbox change handlers
   container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
     cb.addEventListener('change', updateSelectedCount);
   });
+
+  container.querySelectorAll('.btn-toggle-fac-dropdown').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (!popover) return;
+      const isOpening = popover.classList.contains('hidden');
+      container.querySelectorAll('.fac-checklist-popover').forEach(p => p.classList.add('hidden'));
+      if (isOpening) popover.classList.remove('hidden');
+    });
+  });
+
+  container.querySelectorAll('.btn-close-fac-popover').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (popover) popover.classList.add('hidden');
+    });
+  });
+
+  container.querySelectorAll('.btn-clear-course-fac').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      autoGenCourseFacultyBindings[cCode] = [];
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (popover) {
+        popover.querySelectorAll('.auto-gen-fac-cb').forEach(cb => { cb.checked = false; });
+      }
+      updateCourseFacultyUI(cCode);
+    });
+  });
+
+  container.querySelectorAll('.auto-gen-fac-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      const checkedCbs = container.querySelectorAll(`.auto-gen-fac-cb[data-course-code="${cCode}"]:checked`);
+      autoGenCourseFacultyBindings[cCode] = Array.from(checkedCbs).map(c => c.getAttribute('data-fac-code'));
+      updateCourseFacultyUI(cCode);
+    });
+  });
+
+  container.querySelectorAll('.auto-gen-distribute-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      if (!autoGenCourseFacultyConfig[cCode]) autoGenCourseFacultyConfig[cCode] = {};
+      autoGenCourseFacultyConfig[cCode].distribute = cb.checked;
+      const distBadge = document.getElementById(`dist-badge-${cCode}`);
+      if (distBadge) distBadge.style.display = cb.checked ? 'inline-flex' : 'none';
+    });
+  });
+
+  container.querySelectorAll('.fac-search-filter').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const cCode = input.getAttribute('data-course-code');
+      const q = e.target.value.toLowerCase().trim();
+      const popover = document.getElementById(`fac-popover-${cCode}`);
+      if (!popover) return;
+      popover.querySelectorAll('.fac-cb-item').forEach(item => {
+        const text = item.innerText.toLowerCase();
+        item.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    });
+  });
+
+  function updateCourseFacultyUI(cCode) {
+    const selected = autoGenCourseFacultyBindings[cCode] || [];
+    const btn = container.querySelector(`.btn-toggle-fac-dropdown[data-course-code="${cCode}"]`);
+    const label = btn ? btn.querySelector('.fac-btn-label') : null;
+    const pillsRow = document.getElementById(`fac-pills-${cCode}`);
+    const distBox = document.getElementById(`distribute-box-${cCode}`);
+
+    let text = 'Auto-Assign';
+    if (selected.length === 1) {
+      text = `${selected[0]} (1 Teacher)`;
+    } else if (selected.length > 1) {
+      text = `${selected.join(', ')} (${selected.length} Teachers)`;
+    }
+    if (label) label.textContent = text;
+
+    if (btn) {
+      btn.style.borderColor = selected.length > 0 ? 'var(--primary)' : 'var(--border)';
+      btn.style.background = selected.length > 0 ? 'var(--primary-light)' : '#ffffff';
+      btn.style.color = selected.length > 0 ? 'var(--primary)' : 'var(--text-main)';
+    }
+
+    if (pillsRow) {
+      pillsRow.style.display = selected.length > 0 ? 'flex' : 'none';
+      const isDist = (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false);
+      pillsRow.innerHTML = `
+        ${selected.map(fCode => `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; padding: 2px 6px; font-weight: 700;">${fCode}</span>`).join('')}
+        ${selected.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${cCode}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDist ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed</span>` : ''}
+      `;
+    }
+
+    if (distBox) {
+      distBox.style.display = selected.length > 1 ? 'block' : 'none';
+    }
+  }
 
   if (selectAllCb) {
     selectAllCb.onchange = () => {
@@ -3049,6 +3963,9 @@ function renderAutoGeneratorBindings() {
   }
 }
 
+// -------------------------------------------------------------
+// Auto Generation Engine Trigger & In-Section Solver (No Pop-up!)
+// -------------------------------------------------------------
 async function runAutoGeneration(forceRelaxed = false) {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const semSelect = document.getElementById('auto-gen-sem-select');
@@ -3058,11 +3975,13 @@ async function runAutoGeneration(forceRelaxed = false) {
   const resultsCard = document.getElementById('auto-gen-results-card');
   const errBox = document.getElementById('auto-gen-error-alert');
   const suggestionsBox = document.getElementById('auto-gen-suggestions-box');
+  const insectionSolver = document.getElementById('auto-gen-insection-solver');
 
   if (errBox) errBox.classList.add('hidden');
   if (resultsCard) resultsCard.classList.add('hidden');
   if (btnApply) btnApply.classList.add('hidden');
   if (suggestionsBox) suggestionsBox.classList.add('hidden');
+  if (insectionSolver) insectionSolver.classList.add('hidden');
 
   // Collect Selected Courses
   const checkedBoxes = Array.from(document.querySelectorAll('.auto-gen-course-cb:checked'));
@@ -3075,13 +3994,20 @@ async function runAutoGeneration(forceRelaxed = false) {
   }
   const selectedCourseCodes = checkedBoxes.map(cb => cb.value);
 
-  // Collect Course Faculty Map
+  // Collect Course Faculty Map & Config (With Teacher Hours Split)
   const courseFacultyMap = {};
-  document.querySelectorAll('.auto-gen-fac-select').forEach(sel => {
-    const cCode = sel.getAttribute('data-course-code');
-    const fCode = sel.value.trim();
-    if (fCode) {
-      courseFacultyMap[cCode] = [fCode];
+  const courseFacultyConfig = {};
+
+  Object.entries(autoGenCourseFacultyBindings).forEach(([cCode, facList]) => {
+    if (Array.isArray(facList) && facList.length > 0) {
+      courseFacultyMap[cCode] = facList;
+      const mapping = localSubjectMappings[cCode] || {};
+      const isDistribute = (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false);
+      courseFacultyConfig[cCode] = {
+        teachers: facList,
+        teacherHours: mapping.teacherHours || (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].teacherHours) || null,
+        distribute: isDistribute && facList.length > 1
+      };
     }
   });
 
@@ -3104,6 +4030,7 @@ async function runAutoGeneration(forceRelaxed = false) {
         departmentName: deptName,
         semester: semSelect ? semSelect.value : '',
         courseFacultyMap,
+        courseFacultyConfig,
         pinnedSlots,
         selectedCourseCodes,
         maxConsecutiveHours: 2,
@@ -3174,105 +4101,84 @@ async function runAutoGeneration(forceRelaxed = false) {
         await applyAutoGeneratedSchedule();
       }
     } else {
-      if (errBox) {
-        let msgHtml = `<div><strong>${result.message || 'Auto-generation failed under strict constraints.'}</strong></div>`;
-        if (result.suggestions && result.suggestions.length > 0) {
-          msgHtml += `
-            <div style="margin-top: 8px; font-weight: 600;">Diagnosed Bottlenecks & Recommendations:</div>
-            <ul style="margin-top: 4px; margin-bottom: 8px; padding-left: 18px; font-size: 11px;">
-              ${result.suggestions.map(s => `<li>${s}</li>`).join('')}
+      // In-Section Problem Statement & Bottlenecks (NO POP-UP!)
+      if (insectionSolver) {
+        const diag = result.diagnostics || {};
+        const bottleneckFac = Object.keys(diag.bottleneckFaculty || {});
+        const problemItems = [];
+
+        if (bottleneckFac.length > 0 || (diag.rejectionCounts && diag.rejectionCounts.TEACHER_FATIGUE > 0)) {
+          const facLabels = bottleneckFac.map(code => {
+            const fObj = state.faculty.find(f => f.code === code);
+            return fObj ? `${fObj.name} (${code})` : code;
+          });
+          problemItems.push(`
+            <li><strong>Teacher Rest Constraints:</strong> Max 2 continuous hours limit restricted scheduling${facLabels.length > 0 ? ` for <em>${facLabels.join(', ')}</em>` : ''}.</li>
+          `);
+        }
+
+        if (diag.rejectionCounts && diag.rejectionCounts.TEACHER_UNAVAILABLE > 0) {
+          problemItems.push(`
+            <li><strong>Teacher Blackout Periods:</strong> Blocked unwanted periods limited available free periods for assigned faculty.</li>
+          `);
+        }
+
+        if (diag.rejectionCounts && diag.rejectionCounts.SHIFT_BALANCE > 0) {
+          problemItems.push(`
+            <li><strong>Morning/Afternoon Shift Balance:</strong> Anti-concentration shift rules prevented placing multi-hour sessions.</li>
+          `);
+        }
+
+        if (diag.rejectionCounts && diag.rejectionCounts.SAME_PERIOD_REPETITION > 0) {
+          problemItems.push(`
+            <li><strong>Period Spread Rules:</strong> Repeated period slot exclusions constrained placement.</li>
+          `);
+        }
+
+        if (diag.rejectionCounts && diag.rejectionCounts.SAME_DAY_STACKING > 0) {
+          problemItems.push(`
+            <li><strong>Daily Course Hour Cap:</strong> Limit of 1-2 hours per course per day reached capacity.</li>
+          `);
+        }
+
+        if (problemItems.length === 0) {
+          problemItems.push(`
+            <li><strong>High Workload Density:</strong> Simultaneous demand for recommended slots and continuous practical blocks caused deadlocks.</li>
+          `);
+        }
+
+        insectionSolver.innerHTML = `
+          <div class="insection-solver-title">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>Scheduling Bottleneck & Problem Statement</span>
+          </div>
+          <div class="insection-solver-body">
+            <p style="margin-bottom: 6px; font-weight: 600;">The strict timetable constraints could not be satisfied simultaneously:</p>
+            <ul class="insection-solver-list">
+              ${problemItems.join('')}
             </ul>
-          `;
-        }
-
-        // Add interactive Solve with Exceptions button
-        if (result.canAutoResolve || (result.suggestions && result.suggestions.length > 0)) {
-          msgHtml += `
-            <div class="mt-2 pt-2" style="border-top: 1px dashed rgba(220, 38, 38, 0.3); display: flex; justify-content: flex-end;">
-              <button type="button" id="btn-auto-resolve-exceptions" class="btn btn-sm" style="font-weight: 700; background: #f59e0b; color: #78350f; border: 1px solid #d97706; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 6px 12px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <i class="fa-solid fa-wrench"></i> Solve with Smart Exceptions
-              </button>
+            <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 6px 10px; color: #166534; font-size: 11px; margin-top: 8px;">
+              <i class="fa-solid fa-shield-halved"></i> <strong>Hard Invariants Guaranteed:</strong> Zero teacher clashes across all departments, zero student batch clashes, lunch break strictly protected.
             </div>
-          `;
-        }
+          </div>
+          <div class="insection-solver-actions">
+            <button type="button" id="btn-insection-solve-exceptions" class="btn btn-warning btn-sm" style="font-weight: 700; background: #f59e0b; color: #78350f; border-color: #d97706; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 6px 14px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Solve with Smart Exceptions
+            </button>
+          </div>
+        `;
+        insectionSolver.classList.remove('hidden');
 
-        errBox.innerHTML = msgHtml;
-        errBox.classList.remove('hidden');
-
-        // Bind Solve with Exceptions button
-        const btnResolve = document.getElementById('btn-auto-resolve-exceptions');
-        if (btnResolve) {
-          btnResolve.addEventListener('click', () => {
-            // Build dynamic summary based on diagnosed bottlenecks
-            const diag = result.diagnostics || {};
-            const summaryItems = [];
-
-            const bottleneckFac = Object.keys(diag.bottleneckFaculty || {});
-            if (bottleneckFac.length > 0 || (diag.rejectionCounts && diag.rejectionCounts.TEACHER_FATIGUE > 0)) {
-              const facLabels = bottleneckFac.map(code => {
-                const fObj = state.faculty.find(f => f.code === code);
-                return fObj ? `${fObj.name} (${code})` : code;
-              });
-              summaryItems.push(`
-                <li><strong>Teacher Rest Limit Flexibility:</strong> Allows teachers to teach up to 3 or 4 consecutive hours where necessary to complete your timetable${facLabels.length > 0 ? ` (constrained faculty: <em>${facLabels.join(', ')}</em>)` : ''}.</li>
-              `);
-            }
-
-            if (diag.rejectionCounts && diag.rejectionCounts.TEACHER_UNAVAILABLE > 0) {
-              summaryItems.push(`
-                <li><strong>Teacher Blackout Flexibility:</strong> Relaxes teacher unwanted periods where strictly necessary to resolve timetable deadlocks.</li>
-              `);
-            }
-
-            if (diag.rejectionCounts && diag.rejectionCounts.SHIFT_BALANCE > 0) {
-              summaryItems.push(`
-                <li><strong>Shift Balancing Adaptation:</strong> Relaxes morning/afternoon shift division to place remaining course hours into available periods.</li>
-              `);
-            }
-
-            if (diag.rejectionCounts && diag.rejectionCounts.SAME_PERIOD_REPETITION > 0) {
-              summaryItems.push(`
-                <li><strong>Period Repetition Flexibility:</strong> Relaxes anti-mono-period rules when distinct periods are fully booked.</li>
-              `);
-            }
-
-            if (diag.rejectionCounts && diag.rejectionCounts.SAME_DAY_STACKING > 0) {
-              summaryItems.push(`
-                <li><strong>Daily Course Hour Cap:</strong> Permits up to 3 hours for multi-hour theory courses on a single day if needed.</li>
-              `);
-            }
-
-            if (summaryItems.length === 0) {
-              summaryItems.push(`
-                <li><strong>Continuous Rest & Shift Relaxation:</strong> Relaxes soft rest intervals and shift balancing to accommodate all required course hours.</li>
-              `);
-            }
-
-            const confirmMessage = `
-              <div style="text-align: left; font-size: 13px; line-height: 1.5; color: var(--text-main);">
-                <p>Generating with smart exceptions will resolve the diagnosed deadlocks by applying the following dynamic relaxations:</p>
-                <ul style="margin: 8px 0 12px 18px; padding: 0; color: #b45309;">
-                  ${summaryItems.join('')}
-                </ul>
-                <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 8px 10px; color: #166534; font-size: 12px; margin-top: 8px;">
-                  <i class="fa-solid fa-shield-halved"></i> <strong>Guaranteed Hard Invariants:</strong>
-                  <div style="margin-top: 2px;">• Zero teacher clashes across all departments</div>
-                  <div>• Zero student cohort clashes</div>
-                  <div>• Lunch break (LB) periods strictly protected</div>
-                </div>
-                <p style="margin-top: 10px; font-weight: 600;">Would you like to proceed and generate the schedule with these exceptions?</p>
-              </div>
-            `;
-
-            showModalConfirm(
-              'Solve Timetable with Smart Exceptions',
-              confirmMessage,
-              async () => {
-                await runAutoGeneration(true);
-              }
-            );
+        // Bind in-section solve button (NO POPUP!)
+        const btnInsection = document.getElementById('btn-insection-solve-exceptions');
+        if (btnInsection) {
+          btnInsection.addEventListener('click', async () => {
+            await runAutoGeneration(true);
           });
         }
+      } else if (errBox) {
+        errBox.textContent = result.message || 'Auto-generation failed under strict constraints.';
+        errBox.classList.remove('hidden');
       }
     }
   } catch (err) {
@@ -3284,7 +4190,6 @@ async function runAutoGeneration(forceRelaxed = false) {
     }
   }
 }
-
 
 async function applyAutoGeneratedSchedule() {
   if (!tempGeneratedAllocations) return;
@@ -3313,9 +4218,10 @@ async function applyAutoGeneratedSchedule() {
   updateDeptLiveWorkloadTracker();
   await saveDepartmentAllocations(false);
 
-  closeAutoGeneratorDrawer();
+  closeAdvancedFeaturesModal();
   showModalAlert('Schedule Applied', 'The auto-generated schedule has been applied to your timetable workspace and saved as draft!', 'success');
 }
+
 
 
 

@@ -1462,6 +1462,66 @@ app.post('/api/department/teacher-unavailability', requireUser, (req, res) => {
   res.json({ success: true, message: 'Teacher availability updated successfully.' });
 });
 
+// Subject Teacher Mapping Endpoints
+app.get('/api/department/subject-mapping', requireUser, (req, res) => {
+  const { departmentName } = req.query;
+  const db = readDb();
+  if (!db.subjectTeacherMapping) db.subjectTeacherMapping = {};
+  if (departmentName) {
+    const deptUpper = departmentName.toUpperCase();
+    return res.json(db.subjectTeacherMapping[deptUpper] || {});
+  }
+  res.json(db.subjectTeacherMapping || {});
+});
+
+app.post('/api/department/subject-mapping', requireDepartment, (req, res) => {
+  const { departmentName, mappings } = req.body;
+  const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
+  if (!mappings || typeof mappings !== 'object') {
+    return res.status(400).json({ success: false, message: 'mappings object is required.' });
+  }
+
+  const db = readDb();
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  if (!db.subjectTeacherMapping) db.subjectTeacherMapping = {};
+  db.subjectTeacherMapping[deptUpper] = mappings;
+
+  // Sync course definitions with mapping properties
+  Object.entries(mappings).forEach(([courseCode, mapData]) => {
+    const course = db.courses.find(c => c.code === courseCode && c.department.toUpperCase() === deptUpper);
+    if (course) {
+      if (mapData.hours !== undefined && !isNaN(parseInt(mapData.hours))) {
+        course.hours = parseInt(mapData.hours);
+      }
+      if (mapData.courseType && (mapData.courseType === 'T' || mapData.courseType === 'P')) {
+        course.courseType = mapData.courseType;
+      }
+      if (mapData.theoryHours !== undefined) {
+        course.theoryHours = parseInt(mapData.theoryHours) || 0;
+      }
+      if (mapData.practicalHours !== undefined) {
+        course.practicalHours = parseInt(mapData.practicalHours) || 0;
+      }
+      if (Array.isArray(mapData.teachers)) {
+        course.teachers = mapData.teachers;
+      }
+      if (mapData.teacherHours && typeof mapData.teacherHours === 'object') {
+        course.teacherHours = mapData.teacherHours;
+      }
+    }
+  });
+
+  writeDb(db);
+  res.json({ success: true, message: 'Subject teacher mappings updated successfully.' });
+});
+
+
 // Clear Semester Timetable Endpoint
 app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
   const { departmentName, semester } = req.body;
@@ -1502,7 +1562,7 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
 
 // Auto-generate Timetable Endpoint
 app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
-  const { departmentName, semester, selectedCourseCodes, courseFacultyMap, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
+  const { departmentName, semester, selectedCourseCodes, courseFacultyMap, courseFacultyConfig, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
   const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
   const db = readDb();
 
@@ -1520,6 +1580,7 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       semester: semester || '',
       selectedCourseCodes: selectedCourseCodes || [],
       courseFacultyMap: courseFacultyMap || {},
+      courseFacultyConfig: courseFacultyConfig || {},
       pinnedSlots: pinnedSlots || {},
       maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
       practicalBlockSize: parseInt(practicalBlockSize) || 2,
