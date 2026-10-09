@@ -402,6 +402,8 @@ async function fetchGlobalData() {
     if (mappingRes && mappingRes.ok) {
       state.subjectTeacherMapping = await mappingRes.json();
     }
+    // Initialize local subject mappings immediately on startup
+    initLocalSubjectMappings();
   } catch (err) {
     console.error(err);
   }
@@ -1281,6 +1283,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   // Check if period is flagged by Admin for this course's semester
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
   const courseSem = String((courseT && courseT.semester) || (courseP && courseP.semester) || '').replace(/^Sem(ester)?\s*/i, '').trim();
+  const courseSemNum = parseInt(courseSem.replace(/\D+/g, ''), 10) || 0;
   const matchingLocks = globalLocks.filter(l => {
     if (l.day.toUpperCase() !== day.toUpperCase()) return false;
     if (String(l.period).trim() !== String(period).trim()) return false;
@@ -1299,7 +1302,8 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   
   const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M');
   
-  let highlightClass = 'slot-recommend-none';
+  // Non-recommended slots are only locked in the first 4 semesters (Sem 1 - 4). Sem 5+ are open.
+  let highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
   let slotLabel = '';
   
   // Calculate keys for lookup based on class index if provided
@@ -1333,6 +1337,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     activeCourseCode = coursePCode;
   } else {
     activeCourseCode = courseTCode || coursePCode;
+    highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
   }
 
   // Load active assigned codes for this slot (merging allocations from both suffixes if any)
@@ -1411,6 +1416,7 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
   const course = state.courses.find(c => c.code === activeCourseCode) || state.courses.find(c => c.code === baseCode);
   const courseSem = course ? String(course.semester).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+  const courseSemNum = course ? (parseInt(String(course.semester).replace(/\D+/g, ''), 10) || 0) : 0;
   const matchingLocks = globalLocks.filter(l => {
     if (l.day.toUpperCase() !== day.toUpperCase() || String(l.period).trim() !== String(period).trim()) return false;
     const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
@@ -1433,7 +1439,8 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
     return;
   }
 
-  if (cell.classList.contains('slot-recommend-none')) {
+  // Unrecommended slot lock only exists in the first 4 semesters (Sem 1 - 4)
+  if (cell.classList.contains('slot-recommend-none') && courseSemNum < 5) {
     if (!cell.classList.contains('slot-active')) {
       showModalConfirm(
         'Unlock Slot?', 
@@ -1454,15 +1461,31 @@ let activeSlotContext = null;
 window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
   
-  const course = state.courses.find(c => c.code === courseCode);
+  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
+  const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCode) || state.courses.find(c => c.code === baseCodeForRec);
   const group = course ? course.group : 0;
   const mappedBatches = course ? course.mappedBatches : [];
   const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
   
-  // Set details text
-  const typeText = courseCode.endsWith('-P') ? 'Practical' : 'Theory';
-  document.getElementById('fac-select-details').innerHTML = 
-    `Course: ${formattedCode} (${typeText}) | Day: ${day} | Period: ${period}`;
+  const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCode] || localSubjectMappings[baseCodeForRec] || {};
+  const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+  const typeText = isPrac ? 'Practical' : 'Theory';
+
+  const pracTeachers = (mData.practicalTeachers && mData.practicalTeachers.length > 0)
+    ? mData.practicalTeachers
+    : ((course && course.practicalTeachers && course.practicalTeachers.length > 0) ? course.practicalTeachers : []);
+
+  let detailsHtml = `
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+      <div>Course: <strong>${formattedCode}</strong> <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'}">${typeText}</span> | Day: <strong>${day}</strong> | Period: <strong>${period}</strong></div>
+      ${(isPrac && pracTeachers.length > 1) ? `
+        <button type="button" class="btn btn-success btn-xs" onclick="assignAllPracticalCoTeachers('${courseCode}', '${day}', '${period}')" style="font-weight: 700; padding: 3px 8px;">
+          <i class="fa-solid fa-users"></i> Assign All Co-Teachers (${pracTeachers.join(' + ')})
+        </button>
+      ` : ''}
+    </div>
+  `;
+  document.getElementById('fac-select-details').innerHTML = detailsHtml;
   
   // Reset search input
   const searchInput = document.getElementById('fac-search-input');
@@ -1473,6 +1496,45 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   
   // Show modal
   document.getElementById('modal-faculty-select').classList.remove('hidden');
+};
+
+window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
+  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
+  const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCodeForRec);
+  const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
+  const pracTeachers = (mData.practicalTeachers && mData.practicalTeachers.length > 0)
+    ? mData.practicalTeachers
+    : ((course && course.practicalTeachers && course.practicalTeachers.length > 0) ? course.practicalTeachers : []);
+  if (pracTeachers.length === 0) return;
+
+  const deptName = state.currentUser.departmentName;
+  for (const facCode of pracTeachers) {
+    const res = await authFetch(`${API_BASE}/allocations/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        departmentName: deptName,
+        courseCode,
+        weekday: day,
+        period,
+        facultyCodes: [facCode]
+      })
+    });
+    const validation = await res.json();
+    if (!validation.valid) {
+      showModalAlert('Booking Conflict', `Faculty '${facCode}' is already allocated elsewhere during ${day} Period ${period}.`, 'danger');
+      return;
+    }
+  }
+
+  if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+  if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
+  state.allocations[courseCode][day][period] = Array.from(new Set([...pracTeachers]));
+
+  renderFacultySelectList();
+  renderAllocationMatrix();
+  updateDeptLiveWorkloadTracker();
+  triggerAutosave();
 };
 
 function renderFacultySelectList() {
@@ -1492,7 +1554,8 @@ function renderFacultySelectList() {
   
   const assignedT = (state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period]) || [];
   const assignedP = (state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period]) || [];
-  const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
+  const assignedDirect = (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) || [];
+  const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP, ...assignedDirect]));
   
   deptFaculty.forEach(f => {
     const isAssigned = mergedAssigned.includes(f.code);
@@ -1504,7 +1567,8 @@ function renderFacultySelectList() {
     // Check which actual course holds this allocation (T or P)
     let assignedCourseCode = courseCode;
     if (isAssigned) {
-      if (assignedT.includes(f.code)) assignedCourseCode = courseTCode;
+      if (assignedDirect.includes(f.code)) assignedCourseCode = courseCode;
+      else if (assignedT.includes(f.code)) assignedCourseCode = courseTCode;
       else if (assignedP.includes(f.code)) assignedCourseCode = coursePCode;
     }
     
@@ -1567,23 +1631,34 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
     if (!state.allocations[courseCode][day][period]) state.allocations[courseCode][day][period] = [];
     
-    state.allocations[courseCode][day][period].push(facultyCode);
+    if (!state.allocations[courseCode][day][period].includes(facultyCode)) {
+      state.allocations[courseCode][day][period].push(facultyCode);
+    }
     
-    // Close faculty selector modal first
-    document.getElementById('modal-faculty-select').classList.add('hidden');
-    
-    // Auto-fill triggers — resolve base course for recommendations (handles _C1/_C2 suffixed codes)
-    const baseCodeForRec = courseCode.replace(/_C\d+/, '');
-    const course = state.courses.find(c => c.code === courseCode) 
-               || state.courses.find(c => c.code === baseCodeForRec);
-    const recType = (course && course.recommendations[day] && course.recommendations[day][period]) || '';
-    if (recType === 'T' || recType === 'P') {
-      showAutoFillPrompt(courseCode, recType, facultyCode);
-    } else {
+    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
+    const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCodeForRec);
+    const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
+    const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+
+    // For practical slots: keep modal open so helpers can be assigned to the same period, with real-time update
+    if (isPrac) {
+      renderFacultySelectList();
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
-      activeSlotContext = null;
       triggerAutosave();
+    } else {
+      // Close faculty selector modal for single-teacher theory slots
+      document.getElementById('modal-faculty-select').classList.add('hidden');
+      
+      const recType = (course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) || '';
+      if (recType === 'T' || recType === 'P') {
+        showAutoFillPrompt(courseCode, recType, facultyCode);
+      } else {
+        renderAllocationMatrix();
+        updateDeptLiveWorkloadTracker();
+        activeSlotContext = null;
+        triggerAutosave();
+      }
     }
   } catch (err) {
     console.error(err);
@@ -1624,10 +1699,15 @@ function showAutoFillPrompt(courseCode, type, facultyCode) {
 document.getElementById('btn-autofill-all').addEventListener('click', () => {
   if (autoFillContext) {
     const { courseCode, type, facultyCode } = autoFillContext;
-    // Resolve base course for recommendations (handles _C1/_C2 class-suffixed codes)
-    const baseCodeForRec = courseCode.replace(/_C\d+/, '');
+    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
     const course = state.courses.find(c => c.code === courseCode)
                || state.courses.find(c => c.code === baseCodeForRec);
+    const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
+    const teachersToAssign = (type === 'P' && mData.practicalTeachers && mData.practicalTeachers.length > 0)
+      ? mData.practicalTeachers
+      : ((type === 'P' && course && course.practicalTeachers && course.practicalTeachers.length > 0)
+          ? course.practicalTeachers
+          : [facultyCode]);
     const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
     
     if (course) {
@@ -1635,16 +1715,16 @@ document.getElementById('btn-autofill-all').addEventListener('click', () => {
         const recs = course.recommendations[d] || {};
         Object.keys(recs).forEach(p => {
           if (recs[p] === type) {
-            const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
-            if (!hasClash) {
-              if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-              if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
-              if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
-              
-              if (!state.allocations[courseCode][d][p].includes(facultyCode)) {
-                state.allocations[courseCode][d][p].push(facultyCode);
+            if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+            if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
+            if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
+            
+            teachersToAssign.forEach(fc => {
+              const hasClash = checkLocalClash(fc, d, p, courseCode);
+              if (!hasClash && !state.allocations[courseCode][d][p].includes(fc)) {
+                state.allocations[courseCode][d][p].push(fc);
               }
-            }
+            });
           }
         });
       });
@@ -2113,15 +2193,19 @@ function bindPrintEvents() {
 function bindFacultySelectEvents() {
   const modal = document.getElementById('modal-faculty-select');
   const btnClose = document.getElementById('btn-close-fac-select');
+  const btnDone = document.getElementById('btn-done-fac-select');
   const searchInput = document.getElementById('fac-search-input');
   
-  btnClose.addEventListener('click', () => {
+  const closeModal = () => {
     modal.classList.add('hidden');
     if (activeSlotContext && activeSlotContext.cell) {
       activeSlotContext.cell.closest('td').classList.remove('slot-active');
     }
     activeSlotContext = null;
-  });
+  };
+
+  if (btnClose) btnClose.addEventListener('click', closeModal);
+  if (btnDone) btnDone.addEventListener('click', closeModal);
   
   searchInput.addEventListener('input', (e) => {
     const query = e.target.value.toLowerCase().trim();
@@ -2928,6 +3012,14 @@ function bindAdvancedFeaturesModalEvents() {
     });
   }
 
+  const mappingProgFilter = document.getElementById('subject-mapping-program-filter');
+  if (mappingProgFilter) {
+    mappingProgFilter.addEventListener('change', () => {
+      populateSubjectMappingSemFilter();
+      renderSubjectMappingTiles();
+    });
+  }
+
   const semFilter = document.getElementById('subject-mapping-sem-filter');
   if (semFilter) {
     semFilter.addEventListener('change', () => {
@@ -2950,6 +3042,25 @@ function bindAdvancedFeaturesModalEvents() {
   }
 
   // Auto Generator Controls
+  const autoGenProgSelect = document.getElementById('auto-gen-program-select');
+  const autoGenCoursesProg = document.getElementById('auto-gen-courses-program');
+
+  if (autoGenProgSelect) {
+    autoGenProgSelect.addEventListener('change', () => {
+      if (autoGenCoursesProg) autoGenCoursesProg.value = autoGenProgSelect.value;
+      populateAutoGenSemFilter();
+      renderAutoGeneratorBindings();
+    });
+  }
+
+  if (autoGenCoursesProg) {
+    autoGenCoursesProg.addEventListener('change', () => {
+      if (autoGenProgSelect) autoGenProgSelect.value = autoGenCoursesProg.value;
+      populateAutoGenSemFilter();
+      renderAutoGeneratorBindings();
+    });
+  }
+
   const semSelect = document.getElementById('auto-gen-sem-select');
   if (semSelect) {
     semSelect.addEventListener('change', () => {
@@ -3074,6 +3185,66 @@ function switchAdvancedFeaturesTab(paneId) {
 // -------------------------------------------------------------
 // TAB 2: Subject Teacher Mapping Renderer & State Logic
 // -------------------------------------------------------------
+function calculateDefaultPracticalSplit(totalHours) {
+  totalHours = Math.max(1, parseInt(totalHours) || 4);
+  if (totalHours <= 1) return { practical: 0, theory: totalHours };
+  let half = Math.floor(totalHours / 2);
+  let prac = half - (half % 2);
+  if (prac < 2 && totalHours >= 2) prac = 2;
+  if (prac > totalHours) prac = totalHours - (totalHours % 2);
+  const theory = Math.max(0, totalHours - prac);
+  return { practical: prac, theory: theory };
+}
+
+function calculateDefaultTeacherSplit(totalHours, teachers) {
+  totalHours = Math.max(0, parseInt(totalHours) || 0);
+  if (!Array.isArray(teachers) || teachers.length === 0) return {};
+  const perTeacher = Math.floor(totalHours / teachers.length);
+  let rem = totalHours % teachers.length;
+  const result = {};
+  teachers.forEach(fCode => {
+    result[fCode] = perTeacher + (rem > 0 ? 1 : 0);
+    if (rem > 0) rem--;
+  });
+  return result;
+}
+
+function validateAndBalanceTeacherHours(totalHours, teachers, existingHours) {
+  totalHours = Math.max(1, parseInt(totalHours) || 4);
+  if (!Array.isArray(teachers) || teachers.length === 0) return {};
+  if (teachers.length === 1) return { [teachers[0]]: totalHours };
+
+  const hoursObj = existingHours ? { ...existingHours } : {};
+  let currentSum = 0;
+  let allPresent = true;
+  teachers.forEach(t => {
+    if (hoursObj[t] === undefined || isNaN(parseInt(hoursObj[t])) || parseInt(hoursObj[t]) < 1) {
+      allPresent = false;
+    } else {
+      currentSum += parseInt(hoursObj[t]);
+    }
+  });
+
+  if (!allPresent || currentSum !== totalHours) {
+    return calculateDefaultTeacherSplit(totalHours, teachers);
+  }
+
+  return hoursObj;
+}
+
+function updateSplitBadge(cCode, targetTotal, hoursObj, badgeId) {
+  const badge = document.getElementById(badgeId);
+  if (!badge) return;
+  const sum = Object.values(hoursObj || {}).reduce((a, b) => a + (parseInt(b) || 0), 0);
+  if (sum === targetTotal) {
+    badge.className = 'badge badge-success';
+    badge.innerHTML = `<i class="fa-solid fa-check"></i> Total: ${sum} / ${targetTotal} hrs`;
+  } else {
+    badge.className = 'badge badge-danger';
+    badge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Total: ${sum} / ${targetTotal} hrs (Mismatch!)`;
+  }
+}
+
 function initLocalSubjectMappings() {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const deptUpper = deptName.toUpperCase();
@@ -3087,15 +3258,15 @@ function initLocalSubjectMappings() {
       const isPrac = (saved.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
       const courseType = isPrac ? 'P' : 'T';
 
-      let assignedTeachers = [];
+      // Fallback teachers from existing allocations
+      let fallbackTeachers = [];
       if (Array.isArray(saved.teachers) && saved.teachers.length > 0) {
-        assignedTeachers = saved.teachers;
+        fallbackTeachers = saved.teachers;
       } else if (Array.isArray(c.teachers) && c.teachers.length > 0) {
-        assignedTeachers = c.teachers;
+        fallbackTeachers = c.teachers;
       } else if (autoGenCourseFacultyBindings[c.code] && autoGenCourseFacultyBindings[c.code].length > 0) {
-        assignedTeachers = autoGenCourseFacultyBindings[c.code];
+        fallbackTeachers = autoGenCourseFacultyBindings[c.code];
       } else {
-        // Fallback from allocations
         const existingAlloc = state.allocations[c.code] || {};
         const assignedSet = new Set();
         Object.values(existingAlloc).forEach(dayObj => {
@@ -3103,39 +3274,155 @@ function initLocalSubjectMappings() {
             if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
           });
         });
-        assignedTeachers = Array.from(assignedSet);
+        fallbackTeachers = Array.from(assignedSet);
       }
 
-      // Teacher hour divisions
-      let teacherHours = saved.teacherHours || c.teacherHours || {};
-      if (assignedTeachers.length > 0 && Object.keys(teacherHours).length === 0) {
-        const perTeacher = Math.floor(courseHours / assignedTeachers.length);
-        let rem = courseHours % assignedTeachers.length;
-        teacherHours = {};
-        assignedTeachers.forEach(fCode => {
-          teacherHours[fCode] = perTeacher + (rem > 0 ? 1 : 0);
-          if (rem > 0) rem--;
+      if (courseType === 'P') {
+        const defSplit = calculateDefaultPracticalSplit(courseHours);
+        let practicalHours = (saved.practicalHours !== undefined && parseInt(saved.practicalHours) % 2 === 0)
+          ? parseInt(saved.practicalHours)
+          : defSplit.practical;
+        if (practicalHours < 2 && courseHours >= 2) practicalHours = 2;
+        const theoryHours = saved.theoryHours !== undefined
+          ? parseInt(saved.theoryHours)
+          : Math.max(0, courseHours - practicalHours);
+
+        let practicalTeachers = (Array.isArray(saved.practicalTeachers) && saved.practicalTeachers.length > 0)
+          ? saved.practicalTeachers
+          : ((Array.isArray(c.practicalTeachers) && c.practicalTeachers.length > 0) ? c.practicalTeachers : fallbackTeachers);
+        let theoryTeachers = (Array.isArray(saved.theoryTeachers) && saved.theoryTeachers.length > 0)
+          ? saved.theoryTeachers
+          : ((Array.isArray(c.theoryTeachers) && c.theoryTeachers.length > 0) ? c.theoryTeachers : []);
+        
+        // Validate and rebalance theory teacher hours so sum strictly matches theoryHours!
+        let theoryTeacherHours = validateAndBalanceTeacherHours(theoryHours, theoryTeachers, saved.theoryTeacherHours || c.theoryTeacherHours);
+
+        const unifiedTeachers = Array.from(new Set([...practicalTeachers, ...theoryTeachers]));
+        const unifiedTeacherHours = { ...theoryTeacherHours };
+        practicalTeachers.forEach(pt => {
+          if (unifiedTeacherHours[pt] === undefined) unifiedTeacherHours[pt] = practicalHours;
         });
+
+        localSubjectMappings[c.code] = {
+          hours: courseHours,
+          courseType: 'P',
+          practicalHours: practicalHours,
+          theoryHours: theoryHours,
+          practicalTeachers: practicalTeachers,
+          theoryTeachers: theoryTeachers,
+          theoryTeacherHours: theoryTeacherHours,
+          teachers: unifiedTeachers,
+          teacherHours: unifiedTeacherHours
+        };
+        syncAutoGenConfigForCourse(c.code);
+      } else {
+        // Pure Theory
+        let theoryTeachers = Array.isArray(saved.theoryTeachers) && saved.theoryTeachers.length > 0
+          ? saved.theoryTeachers
+          : fallbackTeachers;
+
+        // Validate and rebalance teacher hours so sum strictly matches courseHours!
+        let teacherHours = validateAndBalanceTeacherHours(courseHours, theoryTeachers, saved.teacherHours || c.teacherHours);
+
+        localSubjectMappings[c.code] = {
+          hours: courseHours,
+          courseType: 'T',
+          teachers: theoryTeachers,
+          teacherHours: teacherHours,
+          practicalHours: 0,
+          theoryHours: courseHours,
+          theoryTeachers: theoryTeachers,
+          theoryTeacherHours: teacherHours,
+          practicalTeachers: []
+        };
+        syncAutoGenConfigForCourse(c.code);
       }
-
-      const pracHours = saved.practicalHours !== undefined ? parseInt(saved.practicalHours) : (c.practicalHours !== undefined ? parseInt(c.practicalHours) : 2);
-      const theoryHours = saved.theoryHours !== undefined ? parseInt(saved.theoryHours) : (c.theoryHours !== undefined ? parseInt(c.theoryHours) : Math.max(0, courseHours - pracHours));
-
-      localSubjectMappings[c.code] = {
-        teachers: assignedTeachers,
-        hours: courseHours,
-        teacherHours: teacherHours,
-        courseType: courseType,
-        practicalHours: pracHours,
-        theoryHours: theoryHours
-      };
     }
   });
+}
+
+function renderTileFacultyPopoverHtml(cCode, sectionKey, popoverId, selectedList, deptFaculty, closeClass, filterClass, cbClass) {
+  return `
+    <div class="fac-checklist-popover hidden mt-2" id="${popoverId}" style="background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);">
+      <div style="font-weight: 700; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between;">
+        <span>Select Faculty (${deptFaculty.length}):</span>
+        <span class="text-muted" style="font-weight: normal; font-size: 10px;">Check 1 or more</span>
+      </div>
+      ${deptFaculty.length > 5 ? `
+        <input type="text" class="form-control form-control-sm ${filterClass} mb-2" data-course-code="${cCode}" placeholder="Filter teachers..." style="font-size: 11px; height: 24px; padding: 2px 6px;">
+      ` : ''}
+      <div class="tile-fac-checklist" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
+        ${deptFaculty.map(f => {
+          const isChecked = selectedList.includes(f.code);
+          return `
+            <label class="tile-fac-item" style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; padding: 2px 4px; border-radius: 3px;">
+              <input type="checkbox" class="${cbClass}" data-course-code="${cCode}" data-fac-code="${f.code}" ${isChecked ? 'checked' : ''} style="accent-color: var(--primary);">
+              <strong style="color: var(--primary); min-width: 30px;">${f.code}</strong>
+              <span style="color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${f.name}</span>
+            </label>
+          `;
+        }).join('')}
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+        <button type="button" class="btn btn-primary btn-xs ${closeClass}" data-course-code="${cCode}" style="font-size: 10px; padding: 2px 10px;">Done</button>
+      </div>
+    </div>
+  `;
+}
+
+function populateSubjectMappingSemFilter() {
+  const semFilter = document.getElementById('subject-mapping-sem-filter');
+  const progFilter = document.getElementById('subject-mapping-program-filter');
+  if (!semFilter) return;
+
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptCourses = state.courses.filter(c => c.department === deptName);
+  const selectedProg = progFilter ? progFilter.value : '';
+
+  const curVal = semFilter.value;
+  semFilter.innerHTML = '<option value="">All Semesters</option>';
+
+  if (selectedProg === 'UG') {
+    const sems = Array.from(new Set(deptCourses.filter(c => (c.programType || 'UG') === 'UG').map(c => c.semester))).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+    sems.forEach(s => {
+      semFilter.innerHTML += `<option value="${s}">Semester ${s} (BSc)</option>`;
+    });
+  } else if (selectedProg === 'PG') {
+    const sems = Array.from(new Set(deptCourses.filter(c => (c.programType || 'UG') === 'PG').map(c => c.semester))).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+    sems.forEach(s => {
+      semFilter.innerHTML += `<option value="${s}">Semester ${s} (MSc)</option>`;
+    });
+  } else {
+    // All Programs: list each semester and degree clearly
+    const pairs = [];
+    deptCourses.forEach(c => {
+      const prog = c.programType || 'UG';
+      const key = `${c.semester}_${prog}`;
+      if (!pairs.some(p => p.key === key)) {
+        pairs.push({ key, sem: c.semester, prog });
+      }
+    });
+    pairs.sort((a, b) => {
+      const semDiff = parseInt(a.sem || 0) - parseInt(b.sem || 0);
+      if (semDiff !== 0) return semDiff;
+      return a.prog.localeCompare(b.prog);
+    });
+
+    pairs.forEach(p => {
+      const progLabel = p.prog === 'PG' ? 'MSc' : 'BSc';
+      semFilter.innerHTML += `<option value="${p.key}">Semester ${p.sem} (${progLabel})</option>`;
+    });
+  }
+
+  if (Array.from(semFilter.options).some(o => o.value === curVal)) {
+    semFilter.value = curVal;
+  }
 }
 
 function renderSubjectMappingTiles() {
   const container = document.getElementById('subject-mapping-grid');
   const semFilter = document.getElementById('subject-mapping-sem-filter');
+  const progFilter = document.getElementById('subject-mapping-program-filter');
   const searchInput = document.getElementById('subject-mapping-search');
   const sortSelect = document.getElementById('subject-mapping-sort');
   if (!container) return;
@@ -3148,20 +3435,24 @@ function renderSubjectMappingTiles() {
 
   // Populate semester filter dropdown if needed
   if (semFilter && semFilter.options.length <= 1) {
-    const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
-    const curVal = semFilter.value;
-    semFilter.innerHTML = '<option value="">All Semesters</option>';
-    sems.forEach(s => {
-      const label = (state.config && state.config.semesterLabels && state.config.semesterLabels[s]) || `Semester ${s}`;
-      semFilter.innerHTML += `<option value="${s}">${label}</option>`;
-    });
-    if (curVal) semFilter.value = curVal;
+    populateSubjectMappingSemFilter();
   }
 
-  // Filter by semester
+  // Filter by program
+  const selectedProg = progFilter ? progFilter.value : '';
+  if (selectedProg) {
+    deptCourses = deptCourses.filter(c => (c.programType || 'UG') === selectedProg);
+  }
+
+  // Filter by semester (supports simple sem '1' or combined '1_UG' / '1_PG')
   const selectedSem = semFilter ? semFilter.value : '';
   if (selectedSem) {
-    deptCourses = deptCourses.filter(c => String(c.semester) === String(selectedSem));
+    if (selectedSem.includes('_')) {
+      const [sNum, sProg] = selectedSem.split('_');
+      deptCourses = deptCourses.filter(c => String(c.semester) === String(sNum) && (c.programType || 'UG') === sProg);
+    } else {
+      deptCourses = deptCourses.filter(c => String(c.semester) === String(selectedSem));
+    }
   }
 
   // Filter by search query
@@ -3200,22 +3491,81 @@ function renderSubjectMappingTiles() {
   let html = '';
   deptCourses.forEach(c => {
     const mapping = localSubjectMappings[c.code] || {
-      teachers: [],
       hours: parseInt(c.hours) || 4,
-      teacherHours: {},
       courseType: (c.courseType === 'P' || c.code.endsWith('-P')) ? 'P' : 'T',
+      teachers: [],
+      teacherHours: {},
       practicalHours: 2,
-      theoryHours: 2
+      theoryHours: 2,
+      practicalTeachers: [],
+      theoryTeachers: [],
+      theoryTeacherHours: {}
     };
 
     const isPrac = mapping.courseType === 'P';
-    const selectedTeachers = mapping.teachers || [];
-    const teacherHours = mapping.teacherHours || {};
+    const theoryTeachers = mapping.courseType === 'T' ? (mapping.teachers || []) : (mapping.theoryTeachers || []);
+    
+    // Ensure hours are strictly validated and balanced
+    mapping.teacherHours = validateAndBalanceTeacherHours(mapping.hours, theoryTeachers, mapping.teacherHours);
+    const theoryTeacherHours = mapping.courseType === 'T' ? mapping.teacherHours : (mapping.theoryTeacherHours || {});
+    const practicalTeachers = mapping.practicalTeachers || [];
+    const practicalHours = mapping.practicalHours || 2;
+    const maxEvenPrac = mapping.hours % 2 === 0 ? mapping.hours : Math.max(2, mapping.hours - 1);
 
-    // Teacher pills summary
-    const teacherPillsHtml = selectedTeachers.length > 0
-      ? selectedTeachers.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
+    // Calculate sum of allocated pure theory hours
+    const pureTheorySum = theoryTeachers.reduce((acc, t) => acc + (parseInt(theoryTeacherHours[t]) || 0), 0);
+
+    // Calculate sum of practical's theory hours
+    if (mapping.theoryTeachers && mapping.theoryTeachers.length > 0) {
+      mapping.theoryTeacherHours = validateAndBalanceTeacherHours(mapping.theoryHours || 0, mapping.theoryTeachers, mapping.theoryTeacherHours);
+    }
+    const pracTheorySum = (mapping.theoryTeachers || []).reduce((acc, t) => acc + (parseInt(mapping.theoryTeacherHours && mapping.theoryTeacherHours[t]) || 0), 0);
+
+    // Theory pills (pure theory)
+    const theoryPillsHtml = theoryTeachers.length > 0
+      ? theoryTeachers.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
       : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+
+    // Practical pills
+    const pracPillsHtml = practicalTeachers.length > 0
+      ? practicalTeachers.map(fc => `<span class="teacher-tag-pill-prac">${fc}</span>`).join('')
+      : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+
+    // Theory split rows (pure theory)
+    const pureTheorySplitRows = theoryTeachers.map(fc => {
+      const fObj = deptFaculty.find(f => f.code === fc);
+      const fName = fObj ? fObj.name : fc;
+      const curHrs = theoryTeacherHours[fc] !== undefined ? theoryTeacherHours[fc] : Math.max(1, Math.floor(mapping.hours / theoryTeachers.length));
+      return `
+        <div class="teacher-split-row">
+          <div class="teacher-name-info" title="${fName}">
+            <strong>${fc}</strong> - <span>${fName}</span>
+          </div>
+          <div class="teacher-input-wrapper">
+            <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm teacher-split-input" data-course-code="${c.code}" data-fac-code="${fc}" value="${curHrs}">
+            <span style="font-weight: 600;">hrs</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Practical's theory split rows
+    const pracTheorySplitRows = (mapping.theoryTeachers || []).map(fc => {
+      const fObj = deptFaculty.find(f => f.code === fc);
+      const fName = fObj ? fObj.name : fc;
+      const curHrs = (mapping.theoryTeacherHours && mapping.theoryTeacherHours[fc] !== undefined) ? mapping.theoryTeacherHours[fc] : Math.max(1, Math.floor((mapping.theoryHours || mapping.hours) / (mapping.theoryTeachers.length || 1)));
+      return `
+        <div class="teacher-split-row" style="background: #ffffff;">
+          <div class="teacher-name-info" title="${fName}">
+            <strong>${fc}</strong> - <span>${fName}</span>
+          </div>
+          <div class="teacher-input-wrapper">
+            <input type="number" min="1" max="${mapping.theoryHours || mapping.hours}" class="form-control form-control-sm prac-theory-split-input" data-course-code="${c.code}" data-fac-code="${fc}" value="${curHrs}">
+            <span style="font-weight: 600;">hrs</span>
+          </div>
+        </div>
+      `;
+    }).join('');
 
     html += `
       <div class="subject-tile-card" data-course-code="${c.code}" id="subject-card-${c.code}">
@@ -3225,83 +3575,23 @@ function renderSubjectMappingTiles() {
             <div class="subject-tile-title">${c.code} <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span></div>
             <div class="subject-tile-name" title="${c.name}">${c.name}</div>
           </div>
-          <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'}" style="font-size: 11px; font-weight: 700;">
+          <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'} tile-category-badge" style="font-size: 11px; font-weight: 700;">
             ${isPrac ? 'Practical (PR)' : 'Theory (TH)'}
           </span>
         </div>
 
-        <!-- Section 1: Teacher Selection -->
+        <!-- 1. Weekly Total Hours -->
         <div class="subject-tile-section">
-          <div class="flex-row justify-between items-center">
-            <span class="subject-tile-label"><i class="fa-solid fa-user-group text-primary"></i> Assigned Teachers</span>
-            <button type="button" class="btn btn-outline btn-xs btn-open-fac-picker" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 8px;">
-              <i class="fa-solid fa-user-plus"></i> Select Teachers
-            </button>
-          </div>
-          <div class="flex-row gap-1 flex-wrap mt-1" id="tile-fac-pills-${c.code}">
-            ${teacherPillsHtml}
-          </div>
-
-          <!-- Dropdown Popover Checklist for Selecting Teachers -->
-          <div class="fac-checklist-popover hidden mt-2" id="tile-popover-${c.code}" style="background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.12);">
-            <div style="font-weight: 700; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between;">
-              <span>Select Faculty (${deptFaculty.length}):</span>
-              <span class="text-muted" style="font-weight: normal; font-size: 10px;">Check 1 or more</span>
-            </div>
-            ${deptFaculty.length > 5 ? `
-              <input type="text" class="form-control form-control-sm tile-fac-filter mb-2" data-course-code="${c.code}" placeholder="Filter teachers..." style="font-size: 11px; height: 24px; padding: 2px 6px;">
-            ` : ''}
-            <div class="tile-fac-checklist" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px;">
-              ${deptFaculty.map(f => {
-                const isChecked = selectedTeachers.includes(f.code);
-                return `
-                  <label class="tile-fac-item" style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; padding: 2px 4px; border-radius: 3px;">
-                    <input type="checkbox" class="tile-teacher-cb" data-course-code="${c.code}" data-fac-code="${f.code}" ${isChecked ? 'checked' : ''} style="accent-color: var(--primary);">
-                    <strong style="color: var(--primary); min-width: 30px;">${f.code}</strong>
-                    <span style="color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${f.name}</span>
-                  </label>
-                `;
-              }).join('')}
-            </div>
-            <div style="display: flex; justify-content: flex-end; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
-              <button type="button" class="btn btn-primary btn-xs btn-close-tile-popover" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 10px;">Done</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Section 2: Subject Hour Setting -->
-        <div class="subject-tile-section">
-          <label class="subject-tile-label"><i class="fa-solid fa-clock text-primary"></i> Subject Total Weekly Hours</label>
+          <label class="subject-tile-label"><i class="fa-solid fa-clock text-primary"></i> 1. Weekly Total Hours</label>
           <div class="flex-row items-center gap-2">
-            <input type="number" min="1" max="15" class="form-control form-control-sm input-course-total-hours" data-course-code="${c.code}" value="${mapping.hours}" style="font-weight: 700; width: 70px; text-align: center;">
+            <input type="number" min="1" max="15" class="form-control form-control-sm input-course-total-hours" data-course-code="${c.code}" value="${mapping.hours}" style="font-weight: 700; width: 75px; text-align: center; font-size: 13px;">
             <span class="text-muted text-sm" style="font-size: 11px;">Hours / Week</span>
           </div>
         </div>
 
-        <!-- Section 3: If More Than 1 Teacher, Division of Hours -->
-        <div class="subject-tile-section tile-teacher-split-container" id="tile-split-${c.code}" style="display: ${selectedTeachers.length > 1 ? 'flex' : 'none'};">
-          <label class="subject-tile-label"><i class="fa-solid fa-sliders text-success"></i> Hours Division Per Teacher</label>
-          <div class="flex-row flex-column gap-1 mt-1" id="tile-split-rows-${c.code}">
-            ${selectedTeachers.map(fc => {
-              const fObj = deptFaculty.find(f => f.code === fc);
-              const fName = fObj ? fObj.name : fc;
-              const curHrs = teacherHours[fc] !== undefined ? teacherHours[fc] : Math.floor(mapping.hours / selectedTeachers.length);
-              return `
-                <div class="teacher-split-row">
-                  <span><strong>${fc}</strong> - ${fName}</span>
-                  <div class="flex-row items-center gap-1">
-                    <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm teacher-split-input" data-course-code="${c.code}" data-fac-code="${fc}" value="${curHrs}">
-                    <span style="font-weight: 600;">hrs</span>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-
-        <!-- Section 4: Theory and Practical Selection -->
+        <!-- 2. Teaching Category Selection (Theory vs Practical) -->
         <div class="subject-tile-section">
-          <label class="subject-tile-label"><i class="fa-solid fa-book-open text-primary"></i> Teaching Category</label>
+          <label class="subject-tile-label"><i class="fa-solid fa-book-open text-primary"></i> 2. Teaching Category</label>
           <div class="flex-row items-center gap-4 mt-1">
             <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
               <input type="radio" name="tile-type-${c.code}" class="tile-type-radio" data-course-code="${c.code}" value="T" ${!isPrac ? 'checked' : ''} style="accent-color: var(--primary);">
@@ -3312,20 +3602,124 @@ function renderSubjectMappingTiles() {
               <span>Practical</span>
             </label>
           </div>
+        </div>
 
-          <!-- If Practical: Breakdown of practical hours and theory section -->
-          <div class="practical-breakdown-box mt-2" id="tile-prac-box-${c.code}" style="display: ${isPrac ? 'block' : 'none'};">
-            <div style="font-weight: 700; color: #166534; font-size: 11px; margin-bottom: 6px;">
-              <i class="fa-solid fa-flask"></i> Practical & Theory Hours Breakdown:
+        <!-- BRANCH A: THEORY SECTION -->
+        <div class="tile-theory-branch" id="tile-theory-branch-${c.code}" style="display: ${!isPrac ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
+          <!-- 3. Assign Theory Teachers -->
+          <div class="subject-tile-section">
+            <div class="flex-row justify-between items-center">
+              <span class="subject-tile-label"><i class="fa-solid fa-chalkboard-user text-primary"></i> 3. Theory Teachers</span>
+              <button type="button" class="btn btn-outline btn-xs btn-open-fac-picker" data-course-code="${c.code}" data-section="pure-theory" style="font-size: 10px; padding: 2px 8px;">
+                <i class="fa-solid fa-user-plus"></i> Select Teachers
+              </button>
+            </div>
+            <div class="flex-row gap-1 flex-wrap mt-1" id="tile-fac-pills-${c.code}">
+              ${theoryPillsHtml}
+            </div>
+
+            ${renderTileFacultyPopoverHtml(c.code, 'pure-theory', `tile-popover-${c.code}`, theoryTeachers, deptFaculty, 'btn-close-tile-popover', 'tile-fac-filter', 'tile-teacher-cb')}
+          </div>
+
+          <!-- Per-Teacher Hours Allotment -->
+          <div class="subject-tile-section tile-teacher-split-container" id="tile-split-${c.code}" style="display: ${theoryTeachers.length > 0 ? 'flex' : 'none'}; width: 100%;">
+            <div class="flex-row justify-between items-center" style="width: 100%; margin-bottom: 2px;">
+              <label class="subject-tile-label"><i class="fa-solid fa-sliders text-success"></i> Hours Allotment Per Teacher</label>
+              <div class="flex-row items-center gap-1">
+                <span class="badge ${pureTheorySum === mapping.hours ? 'badge-success' : 'badge-danger'}" id="tile-split-badge-${c.code}" style="font-size: 10px;">
+                  ${pureTheorySum === mapping.hours ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-triangle-exclamation"></i>'} Total: ${pureTheorySum} / ${mapping.hours} hrs
+                </span>
+                <button type="button" class="btn btn-outline btn-xs btn-auto-balance-pure" data-course-code="${c.code}" style="font-size: 10px; padding: 1px 5px;" title="Rebalance equal split">
+                  <i class="fa-solid fa-scale-balanced"></i>
+                </button>
+              </div>
+            </div>
+            <div class="teacher-split-rows-container" id="tile-split-rows-${c.code}">
+              ${pureTheorySplitRows}
+            </div>
+          </div>
+        </div>
+
+        <!-- BRANCH B: PRACTICAL SECTION -->
+        <div class="tile-practical-branch" id="tile-practical-branch-${c.code}" style="display: ${isPrac ? 'flex' : 'none'}; flex-direction: column; gap: 10px;">
+          <!-- Practical & Theory Hours Breakdown Box -->
+          <div class="practical-breakdown-box">
+            <div style="font-weight: 700; color: #166534; font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+              <span><i class="fa-solid fa-flask"></i> Practical & Theory Hours Breakdown:</span>
+              <span class="badge badge-success" style="font-size: 9px; padding: 1px 5px;">Even Practical Hours</span>
             </div>
             <div class="flex-row items-center gap-3">
-              <div>
-                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">Practical Hours</label>
-                <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm tile-input-prac-hours" data-course-code="${c.code}" value="${mapping.practicalHours || 2}" style="width: 70px; text-align: center; font-weight: 700;">
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">
+                  Practical Hours <span style="font-size: 9px; font-weight: normal;">(Even: 2, 4...)</span>
+                </label>
+                <input type="number" min="2" max="${maxEvenPrac}" step="2" class="form-control form-control-sm tile-input-prac-hours" data-course-code="${c.code}" value="${practicalHours}" style="width: 100%; text-align: center; font-weight: 700;">
               </div>
-              <div>
-                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">Theory Hours</label>
-                <input type="number" min="0" max="${mapping.hours}" class="form-control form-control-sm tile-input-theory-hours" data-course-code="${c.code}" value="${mapping.theoryHours || Math.max(0, mapping.hours - (mapping.practicalHours || 2))}" style="width: 70px; text-align: center; font-weight: 700;">
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 10px; font-weight: 700; color: #15803d; margin-bottom: 2px;">
+                  Theory Hours <span style="font-size: 9px; font-weight: normal;">(Remaining)</span>
+                </label>
+                <input type="number" min="0" max="${mapping.hours}" class="form-control form-control-sm tile-input-theory-hours" data-course-code="${c.code}" value="${mapping.theoryHours || 0}" style="width: 100%; text-align: center; font-weight: 700;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Practical Section: Lab Teachers (Co-teaching) -->
+          <div class="practical-teachers-box" id="tile-prac-fac-box-${c.code}" style="display: ${practicalHours > 0 ? 'block' : 'none'};">
+            <div class="flex-row justify-between items-center mb-1">
+              <span style="font-size: 11px; font-weight: 700; color: #166534;">
+                <i class="fa-solid fa-users text-success"></i> Practical Teachers (${practicalHours} hrs)
+              </span>
+              <button type="button" class="btn btn-outline btn-xs btn-open-fac-picker" data-course-code="${c.code}" data-section="practical" style="font-size: 10px; padding: 2px 8px; border-color: #86efac; color: #166534;">
+                <i class="fa-solid fa-user-plus"></i> Select Practical Teachers
+              </button>
+            </div>
+
+            <div class="flex-row gap-1 flex-wrap mt-1" id="tile-prac-fac-pills-${c.code}">
+              ${pracPillsHtml}
+            </div>
+
+            <div class="coteach-notice mt-2">
+              <i class="fa-solid fa-circle-info" style="font-size: 11px;"></i>
+              <span><strong>Co-Teaching:</strong> All assigned practical teachers teach together in the same class and period (hours are not split). Both teachers appear in the schedule.</span>
+            </div>
+
+            ${renderTileFacultyPopoverHtml(c.code, 'practical', `tile-prac-popover-${c.code}`, practicalTeachers, deptFaculty, 'btn-close-tile-popover', 'tile-fac-filter-prac', 'tile-teacher-cb-prac')}
+          </div>
+
+          <!-- Theory Section for Practical Course -->
+          <div class="practical-theory-box" id="tile-prac-theory-box-${c.code}" style="display: ${(mapping.theoryHours || 0) > 0 ? 'block' : 'none'};">
+            <div class="flex-row justify-between items-center mb-1">
+              <span style="font-size: 11px; font-weight: 700; color: #1e40af;">
+                <i class="fa-solid fa-book text-primary"></i> Theory Teachers (${mapping.theoryHours || 0} hrs)
+              </span>
+              <button type="button" class="btn btn-outline btn-xs btn-open-fac-picker" data-course-code="${c.code}" data-section="prac-theory" style="font-size: 10px; padding: 2px 8px; border-color: #93c5fd; color: #1e40af;">
+                <i class="fa-solid fa-user-plus"></i> Select Theory Teachers
+              </button>
+            </div>
+
+            <div class="flex-row gap-1 flex-wrap mt-1" id="tile-prac-theory-pills-${c.code}">
+              ${(mapping.theoryTeachers && mapping.theoryTeachers.length > 0)
+                ? mapping.theoryTeachers.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
+                : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`}
+            </div>
+
+            ${renderTileFacultyPopoverHtml(c.code, 'prac-theory', `tile-prac-theory-popover-${c.code}`, (mapping.theoryTeachers || []), deptFaculty, 'btn-close-tile-popover', 'tile-fac-filter-prac-theory', 'tile-teacher-cb-prac-theory')}
+
+            <div class="tile-prac-theory-split-container mt-2" id="tile-prac-theory-split-${c.code}" style="display: ${(mapping.theoryTeachers && mapping.theoryTeachers.length > 0) ? 'block' : 'none'}; width: 100%;">
+              <div class="flex-row justify-between items-center" style="width: 100%; margin-bottom: 2px;">
+                <label style="font-size: 10px; font-weight: 700; color: #1e40af;"><i class="fa-solid fa-sliders"></i> Theory Hours Allotment</label>
+                <div class="flex-row items-center gap-1">
+                  <span class="badge ${pracTheorySum === (mapping.theoryHours || 0) ? 'badge-success' : 'badge-danger'}" id="tile-prac-theory-split-badge-${c.code}" style="font-size: 10px;">
+                    ${pracTheorySum === (mapping.theoryHours || 0) ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-triangle-exclamation"></i>'} Total: ${pracTheorySum} / ${mapping.theoryHours || 0} hrs
+                  </span>
+                  <button type="button" class="btn btn-outline btn-xs btn-auto-balance-prac-theory" data-course-code="${c.code}" style="font-size: 10px; padding: 1px 5px;" title="Rebalance equal split">
+                    <i class="fa-solid fa-scale-balanced"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="teacher-split-rows-container" id="tile-prac-theory-split-rows-${c.code}">
+                ${pracTheorySplitRows}
               </div>
             </div>
           </div>
@@ -3338,13 +3732,120 @@ function renderSubjectMappingTiles() {
   bindSubjectMappingTileEvents(container, deptFaculty);
 }
 
+function renderPureTheorySplitRows(container, cCode, deptFaculty) {
+  const splitContainer = document.getElementById(`tile-split-${cCode}`);
+  const splitRows = document.getElementById(`tile-split-rows-${cCode}`);
+  if (!splitContainer || !splitRows) return;
+  const mapping = localSubjectMappings[cCode] || {};
+  const teachers = mapping.teachers || [];
+  if (teachers.length === 0) {
+    splitContainer.style.display = 'none';
+    splitRows.innerHTML = '';
+    return;
+  }
+  splitContainer.style.display = 'flex';
+  mapping.teacherHours = validateAndBalanceTeacherHours(mapping.hours, teachers, mapping.teacherHours);
+  const thHours = mapping.teacherHours || {};
+  splitRows.innerHTML = teachers.map(fc => {
+    const fObj = deptFaculty.find(f => f.code === fc);
+    const fName = fObj ? fObj.name : fc;
+    const curHrs = thHours[fc] !== undefined ? thHours[fc] : Math.max(1, Math.floor(mapping.hours / teachers.length));
+    return `
+      <div class="teacher-split-row">
+        <div class="teacher-name-info" title="${fName}">
+          <strong>${fc}</strong> - <span>${fName}</span>
+        </div>
+        <div class="teacher-input-wrapper">
+          <input type="number" min="1" max="${mapping.hours}" class="form-control form-control-sm teacher-split-input" data-course-code="${cCode}" data-fac-code="${fc}" value="${curHrs}">
+          <span style="font-weight: 600;">hrs</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  updateSplitBadge(cCode, mapping.hours, thHours, `tile-split-badge-${cCode}`);
+  bindSplitInputListeners(splitRows, cCode);
+}
+
+function renderPracTheorySplitRows(container, cCode, deptFaculty) {
+  const splitContainer = document.getElementById(`tile-prac-theory-split-${cCode}`);
+  const splitRows = document.getElementById(`tile-prac-theory-split-rows-${cCode}`);
+  if (!splitContainer || !splitRows) return;
+  const mapping = localSubjectMappings[cCode] || {};
+  const teachers = mapping.theoryTeachers || [];
+  if (teachers.length === 0) {
+    splitContainer.style.display = 'none';
+    splitRows.innerHTML = '';
+    return;
+  }
+  splitContainer.style.display = 'block';
+  const thTarget = mapping.theoryHours || mapping.hours;
+  mapping.theoryTeacherHours = validateAndBalanceTeacherHours(thTarget, teachers, mapping.theoryTeacherHours);
+  const thHours = mapping.theoryTeacherHours || {};
+  splitRows.innerHTML = teachers.map(fc => {
+    const fObj = deptFaculty.find(f => f.code === fc);
+    const fName = fObj ? fObj.name : fc;
+    const curHrs = thHours[fc] !== undefined ? thHours[fc] : Math.max(1, Math.floor(thTarget / teachers.length));
+    return `
+      <div class="teacher-split-row" style="background: #ffffff;">
+        <div class="teacher-name-info" title="${fName}">
+          <strong>${fc}</strong> - <span>${fName}</span>
+        </div>
+        <div class="teacher-input-wrapper">
+          <input type="number" min="1" max="${thTarget}" class="form-control form-control-sm prac-theory-split-input" data-course-code="${cCode}" data-fac-code="${fc}" value="${curHrs}">
+          <span style="font-weight: 600;">hrs</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  updateSplitBadge(cCode, thTarget, thHours, `tile-prac-theory-split-badge-${cCode}`);
+  bindPracTheorySplitInputListeners(splitRows, cCode);
+}
+
+function syncAutoGenConfigForCourse(cCode) {
+  const mData = localSubjectMappings[cCode];
+  if (!mData) return;
+  if (mData.courseType === 'P') {
+    const unified = Array.from(new Set([...(mData.practicalTeachers || []), ...(mData.theoryTeachers || [])]));
+    autoGenCourseFacultyBindings[cCode] = unified;
+    autoGenCourseFacultyConfig[cCode] = {
+      teachers: unified,
+      distribute: false,
+      teacherHours: mData.teacherHours || {},
+      courseType: 'P',
+      practicalHours: mData.practicalHours,
+      theoryHours: mData.theoryHours,
+      practicalTeachers: mData.practicalTeachers || [],
+      theoryTeachers: mData.theoryTeachers || [],
+      theoryTeacherHours: mData.theoryTeacherHours || {}
+    };
+  } else {
+    autoGenCourseFacultyBindings[cCode] = mData.teachers || [];
+    autoGenCourseFacultyConfig[cCode] = {
+      teachers: mData.teachers || [],
+      distribute: (mData.teachers && mData.teachers.length > 1),
+      teacherHours: mData.teacherHours || {},
+      courseType: 'T',
+      practicalHours: 0,
+      theoryHours: mData.hours,
+      practicalTeachers: [],
+      theoryTeachers: mData.teachers || [],
+      theoryTeacherHours: mData.teacherHours || {}
+    };
+  }
+}
+
 function bindSubjectMappingTileEvents(container, deptFaculty) {
-  // Toggle Faculty Picker Popover
+  // Toggle Faculty Picker Popovers
   container.querySelectorAll('.btn-open-fac-picker').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const cCode = btn.getAttribute('data-course-code');
-      const popover = document.getElementById(`tile-popover-${cCode}`);
+      const section = btn.getAttribute('data-section');
+      let popoverId = `tile-popover-${cCode}`;
+      if (section === 'practical') popoverId = `tile-prac-popover-${cCode}`;
+      else if (section === 'prac-theory') popoverId = `tile-prac-theory-popover-${cCode}`;
+
+      const popover = document.getElementById(popoverId);
       if (!popover) return;
       const isHidden = popover.classList.contains('hidden');
       container.querySelectorAll('.fac-checklist-popover').forEach(p => p.classList.add('hidden'));
@@ -3352,40 +3853,72 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
     });
   });
 
-  // Close Popover
+  // Close Popovers
   container.querySelectorAll('.btn-close-tile-popover').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const cCode = btn.getAttribute('data-course-code');
-      const popover = document.getElementById(`tile-popover-${cCode}`);
+      const popover = btn.closest('.fac-checklist-popover');
       if (popover) popover.classList.add('hidden');
     });
   });
 
-  // Filter teachers inside popover
-  container.querySelectorAll('.tile-fac-filter').forEach(input => {
-    input.addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      const cCode = input.getAttribute('data-course-code');
-      const popover = document.getElementById(`tile-popover-${cCode}`);
-      if (!popover) return;
-      popover.querySelectorAll('.tile-fac-item').forEach(item => {
-        const text = item.innerText.toLowerCase();
-        item.style.display = text.includes(q) ? 'flex' : 'none';
+  // Auto-Balance Buttons
+  container.querySelectorAll('.btn-auto-balance-pure').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const totalHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
+      const teachers = (localSubjectMappings[cCode] && localSubjectMappings[cCode].teachers) || [];
+      if (teachers.length > 0) {
+        localSubjectMappings[cCode].teacherHours = calculateDefaultTeacherSplit(totalHrs, teachers);
+        localSubjectMappings[cCode].theoryTeacherHours = localSubjectMappings[cCode].teacherHours;
+        renderPureTheorySplitRows(container, cCode, deptFaculty);
+        syncAutoGenConfigForCourse(cCode);
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-auto-balance-prac-theory').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cCode = btn.getAttribute('data-course-code');
+      const theoryHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].theoryHours) || 0;
+      const teachers = (localSubjectMappings[cCode] && localSubjectMappings[cCode].theoryTeachers) || [];
+      if (teachers.length > 0) {
+        localSubjectMappings[cCode].theoryTeacherHours = calculateDefaultTeacherSplit(theoryHrs, teachers);
+        renderPracTheorySplitRows(container, cCode, deptFaculty);
+        syncAutoGenConfigForCourse(cCode);
+      }
+    });
+  });
+
+  // Filters inside popovers
+  ['.tile-fac-filter', '.tile-fac-filter-prac', '.tile-fac-filter-prac-theory'].forEach(cls => {
+    container.querySelectorAll(cls).forEach(input => {
+      input.addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase().trim();
+        const popover = input.closest('.fac-checklist-popover');
+        if (!popover) return;
+        popover.querySelectorAll('.tile-fac-item').forEach(item => {
+          const text = item.innerText.toLowerCase();
+          item.style.display = text.includes(q) ? 'flex' : 'none';
+        });
       });
     });
   });
 
-  // Faculty Checkbox Changes
+  // Pure Theory Teacher Checkbox Changes
   container.querySelectorAll('.tile-teacher-cb').forEach(cb => {
     cb.addEventListener('change', () => {
       const cCode = cb.getAttribute('data-course-code');
       const popover = document.getElementById(`tile-popover-${cCode}`);
+      if (!popover) return;
       const checkedBoxes = Array.from(popover.querySelectorAll('.tile-teacher-cb:checked'));
       const selected = checkedBoxes.map(b => b.getAttribute('data-fac-code'));
 
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].teachers = selected;
+      localSubjectMappings[cCode].theoryTeachers = selected;
 
       // Update pills
       const pillsContainer = document.getElementById(`tile-fac-pills-${cCode}`);
@@ -3395,59 +3928,74 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
           : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
       }
 
-      // Update hour division section
-      const splitContainer = document.getElementById(`tile-split-${cCode}`);
-      const splitRows = document.getElementById(`tile-split-rows-${cCode}`);
-      if (splitContainer && splitRows) {
-        if (selected.length > 1) {
-          splitContainer.style.display = 'flex';
-          const courseHours = localSubjectMappings[cCode].hours || 4;
-          const perTeacher = Math.floor(courseHours / selected.length);
-          let rem = courseHours % selected.length;
-          
-          if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
-          
-          let rowsHtml = '';
-          selected.forEach(fc => {
-            const fObj = deptFaculty.find(f => f.code === fc);
-            const fName = fObj ? fObj.name : fc;
-            if (localSubjectMappings[cCode].teacherHours[fc] === undefined) {
-              localSubjectMappings[cCode].teacherHours[fc] = perTeacher + (rem > 0 ? 1 : 0);
-              if (rem > 0) rem--;
-            }
-            const curHrs = localSubjectMappings[cCode].teacherHours[fc];
-            rowsHtml += `
-              <div class="teacher-split-row">
-                <span><strong>${fc}</strong> - ${fName}</span>
-                <div class="flex-row items-center gap-1">
-                  <input type="number" min="1" max="${courseHours}" class="form-control form-control-sm teacher-split-input" data-course-code="${cCode}" data-fac-code="${fc}" value="${curHrs}">
-                  <span style="font-weight: 600;">hrs</span>
-                </div>
-              </div>
-            `;
-          });
-          splitRows.innerHTML = rowsHtml;
-          bindSplitInputListeners(splitRows, cCode);
-        } else {
-          splitContainer.style.display = 'none';
-          if (selected.length === 1) {
-            localSubjectMappings[cCode].teacherHours = { [selected[0]]: localSubjectMappings[cCode].hours };
-          } else {
-            localSubjectMappings[cCode].teacherHours = {};
-          }
-        }
-      }
-
-      // Also sync immediately to autoGen bindings
-      autoGenCourseFacultyBindings[cCode] = selected;
-      if (!autoGenCourseFacultyConfig[cCode]) autoGenCourseFacultyConfig[cCode] = {};
-      autoGenCourseFacultyConfig[cCode].teachers = selected;
-      autoGenCourseFacultyConfig[cCode].distribute = selected.length > 1;
-      autoGenCourseFacultyConfig[cCode].teacherHours = localSubjectMappings[cCode].teacherHours;
+      // Default equal split
+      localSubjectMappings[cCode].teacherHours = calculateDefaultTeacherSplit(localSubjectMappings[cCode].hours, selected);
+      localSubjectMappings[cCode].theoryTeacherHours = localSubjectMappings[cCode].teacherHours;
+      renderPureTheorySplitRows(container, cCode, deptFaculty);
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 
-  // Total Hours Input Change
+  // Practical Teacher Checkbox Changes (Co-teaching, no hour split!)
+  container.querySelectorAll('.tile-teacher-cb-prac').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-prac-popover-${cCode}`);
+      if (!popover) return;
+      const checkedBoxes = Array.from(popover.querySelectorAll('.tile-teacher-cb-prac:checked'));
+      const selected = checkedBoxes.map(b => b.getAttribute('data-fac-code'));
+
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].practicalTeachers = selected;
+
+      // Update practical pills
+      const pillsContainer = document.getElementById(`tile-prac-fac-pills-${cCode}`);
+      if (pillsContainer) {
+        pillsContainer.innerHTML = selected.length > 0
+          ? selected.map(fc => `<span class="teacher-tag-pill-prac">${fc}</span>`).join('')
+          : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+      }
+
+      // Update unified teachers
+      const unified = Array.from(new Set([...selected, ...(localSubjectMappings[cCode].theoryTeachers || [])]));
+      localSubjectMappings[cCode].teachers = unified;
+      syncAutoGenConfigForCourse(cCode);
+    });
+  });
+
+  // Practical Course's Theory Teacher Checkbox Changes
+  container.querySelectorAll('.tile-teacher-cb-prac-theory').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cCode = cb.getAttribute('data-course-code');
+      const popover = document.getElementById(`tile-prac-theory-popover-${cCode}`);
+      if (!popover) return;
+      const checkedBoxes = Array.from(popover.querySelectorAll('.tile-teacher-cb-prac-theory:checked'));
+      const selected = checkedBoxes.map(b => b.getAttribute('data-fac-code'));
+
+      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
+      localSubjectMappings[cCode].theoryTeachers = selected;
+
+      // Update pills
+      const pillsContainer = document.getElementById(`tile-prac-theory-pills-${cCode}`);
+      if (pillsContainer) {
+        pillsContainer.innerHTML = selected.length > 0
+          ? selected.map(fc => `<span class="teacher-tag-pill">${fc}</span>`).join('')
+          : `<span class="text-muted text-sm" style="font-size: 11px;">No teachers assigned</span>`;
+      }
+
+      // Default equal split of theory hours
+      const thHours = localSubjectMappings[cCode].theoryHours || 0;
+      localSubjectMappings[cCode].theoryTeacherHours = calculateDefaultTeacherSplit(thHours, selected);
+      renderPracTheorySplitRows(container, cCode, deptFaculty);
+
+      // Update unified teachers
+      const unified = Array.from(new Set([...(localSubjectMappings[cCode].practicalTeachers || []), ...selected]));
+      localSubjectMappings[cCode].teachers = unified;
+      syncAutoGenConfigForCourse(cCode);
+    });
+  });
+
+  // Step 1: Total Hours Input Change
   container.querySelectorAll('.input-course-total-hours').forEach(input => {
     input.addEventListener('change', () => {
       const cCode = input.getAttribute('data-course-code');
@@ -3456,23 +4004,61 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].hours = val;
 
-      // Adjust practical breakdown if practical
       if (localSubjectMappings[cCode].courseType === 'P') {
+        const defSplit = calculateDefaultPracticalSplit(val);
+        let pVal = localSubjectMappings[cCode].practicalHours;
+        if (pVal === undefined || pVal % 2 !== 0 || pVal > val) {
+          pVal = defSplit.practical;
+        }
+        if (pVal < 2 && val >= 2) pVal = 2;
+        const tVal = Math.max(0, val - pVal);
+        localSubjectMappings[cCode].practicalHours = pVal;
+        localSubjectMappings[cCode].theoryHours = tVal;
+
         const pracInput = container.querySelector(`.tile-input-prac-hours[data-course-code="${cCode}"]`);
         const theoryInput = container.querySelector(`.tile-input-theory-hours[data-course-code="${cCode}"]`);
-        if (pracInput && theoryInput) {
-          const pVal = Math.min(val, parseInt(pracInput.value) || 2);
-          const tVal = Math.max(0, val - pVal);
+        if (pracInput) {
+          pracInput.max = val % 2 === 0 ? val : Math.max(2, val - 1);
           pracInput.value = pVal;
+        }
+        if (theoryInput) {
+          theoryInput.max = val;
           theoryInput.value = tVal;
-          localSubjectMappings[cCode].practicalHours = pVal;
-          localSubjectMappings[cCode].theoryHours = tVal;
+        }
+
+        // Update practical section & theory section visibility and headers
+        const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+        if (pracBox) {
+          pracBox.style.display = pVal > 0 ? 'block' : 'none';
+          const headerSpan = pracBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
+        }
+        const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+        if (thBox) {
+          thBox.style.display = tVal > 0 ? 'block' : 'none';
+          const headerSpan = thBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+        }
+
+        // Re-split theory hours among theory teachers
+        const thTeachers = localSubjectMappings[cCode].theoryTeachers || [];
+        if (thTeachers.length > 0) {
+          localSubjectMappings[cCode].theoryTeacherHours = calculateDefaultTeacherSplit(tVal, thTeachers);
+          renderPracTheorySplitRows(container, cCode, deptFaculty);
+        }
+      } else {
+        // Pure theory: re-split among theory teachers
+        const teachers = localSubjectMappings[cCode].teachers || [];
+        if (teachers.length > 0) {
+          localSubjectMappings[cCode].teacherHours = calculateDefaultTeacherSplit(val, teachers);
+          renderPureTheorySplitRows(container, cCode, deptFaculty);
         }
       }
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 
-  // Theory vs Practical Radio Change
+  // Step 2: Theory vs Practical Radio Change
   container.querySelectorAll('.tile-type-radio').forEach(radio => {
     radio.addEventListener('change', () => {
       if (!radio.checked) return;
@@ -3481,41 +4067,78 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].courseType = isPractical ? 'P' : 'T';
 
-      const pracBox = document.getElementById(`tile-prac-box-${cCode}`);
-      if (pracBox) {
-        pracBox.style.display = isPractical ? 'block' : 'none';
-      }
+      const theoryBranch = document.getElementById(`tile-theory-branch-${cCode}`);
+      const practicalBranch = document.getElementById(`tile-practical-branch-${cCode}`);
+      if (theoryBranch) theoryBranch.style.display = !isPractical ? 'flex' : 'none';
+      if (practicalBranch) practicalBranch.style.display = isPractical ? 'flex' : 'none';
 
       const card = document.getElementById(`subject-card-${cCode}`);
-      const typeBadge = card ? card.querySelector('.subject-tile-header .badge:last-child') : null;
+      const typeBadge = card ? card.querySelector('.tile-category-badge') : null;
       if (typeBadge) {
         if (isPractical) {
-          typeBadge.className = 'badge badge-success';
+          typeBadge.className = 'badge badge-success tile-category-badge';
           typeBadge.textContent = 'Practical (PR)';
         } else {
-          typeBadge.className = 'badge badge-warning';
+          typeBadge.className = 'badge badge-warning tile-category-badge';
           typeBadge.textContent = 'Theory (TH)';
         }
       }
+
+      if (isPractical) {
+        const totalHrs = localSubjectMappings[cCode].hours || 4;
+        if (!localSubjectMappings[cCode].practicalHours || localSubjectMappings[cCode].practicalHours % 2 !== 0) {
+          const defSplit = calculateDefaultPracticalSplit(totalHrs);
+          localSubjectMappings[cCode].practicalHours = defSplit.practical;
+          localSubjectMappings[cCode].theoryHours = defSplit.theory;
+        }
+      }
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 
-  // Practical breakdown hours inputs
+  // Practical Breakdown Hours Inputs (Enforce even numbers for practical)
   container.querySelectorAll('.tile-input-prac-hours').forEach(input => {
     input.addEventListener('change', () => {
       const cCode = input.getAttribute('data-course-code');
       const totalHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
-      const pVal = Math.min(totalHrs, Math.max(1, parseInt(input.value) || 2));
+      let pVal = parseInt(input.value) || 2;
+      // Strictly enforce even numbers
+      if (pVal % 2 !== 0) {
+        pVal = Math.max(2, pVal - 1);
+      }
+      const maxEven = totalHrs % 2 === 0 ? totalHrs : Math.max(2, totalHrs - 1);
+      pVal = Math.max(2, Math.min(maxEven, pVal));
       input.value = pVal;
+
+      const tVal = Math.max(0, totalHrs - pVal);
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].practicalHours = pVal;
+      localSubjectMappings[cCode].theoryHours = tVal;
 
       const theoryInput = container.querySelector(`.tile-input-theory-hours[data-course-code="${cCode}"]`);
-      if (theoryInput) {
-        const tVal = Math.max(0, totalHrs - pVal);
-        theoryInput.value = tVal;
-        localSubjectMappings[cCode].theoryHours = tVal;
+      if (theoryInput) theoryInput.value = tVal;
+
+      // Update practical & theory boxes
+      const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+      if (pracBox) {
+        pracBox.style.display = pVal > 0 ? 'block' : 'none';
+        const headerSpan = pracBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
       }
+      const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+      if (thBox) {
+        thBox.style.display = tVal > 0 ? 'block' : 'none';
+        const headerSpan = thBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+      }
+
+      // Re-split theory hours among theory teachers
+      const thTeachers = localSubjectMappings[cCode].theoryTeachers || [];
+      if (thTeachers.length > 0) {
+        localSubjectMappings[cCode].theoryTeacherHours = calculateDefaultTeacherSplit(tVal, thTeachers);
+        renderPracTheorySplitRows(container, cCode, deptFaculty);
+      }
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 
@@ -3523,10 +4146,29 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
     input.addEventListener('change', () => {
       const cCode = input.getAttribute('data-course-code');
       const totalHrs = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
-      const tVal = Math.max(0, parseInt(input.value) || 0);
+      let tVal = Math.max(0, Math.min(totalHrs, parseInt(input.value) || 0));
+      let pVal = totalHrs - tVal;
+      // Ensure practical remains even
+      if (pVal % 2 !== 0) {
+        pVal = Math.max(2, pVal - 1);
+        tVal = totalHrs - pVal;
+      }
       input.value = tVal;
+
+      const pracInput = container.querySelector(`.tile-input-prac-hours[data-course-code="${cCode}"]`);
+      if (pracInput) pracInput.value = pVal;
+
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].theoryHours = tVal;
+      localSubjectMappings[cCode].practicalHours = pVal;
+
+      // Re-split theory hours among theory teachers
+      const thTeachers = localSubjectMappings[cCode].theoryTeachers || [];
+      if (thTeachers.length > 0) {
+        localSubjectMappings[cCode].theoryTeacherHours = calculateDefaultTeacherSplit(tVal, thTeachers);
+        renderPracTheorySplitRows(container, cCode, deptFaculty);
+      }
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 
@@ -3535,21 +4177,76 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
     const cCode = splitContainer.id.replace('tile-split-', '');
     bindSplitInputListeners(splitContainer, cCode);
   });
+  container.querySelectorAll('.tile-prac-theory-split-container').forEach(splitContainer => {
+    const cCode = splitContainer.id.replace('tile-prac-theory-split-', '');
+    bindPracTheorySplitInputListeners(splitContainer, cCode);
+  });
 }
 
 function bindSplitInputListeners(container, cCode) {
   container.querySelectorAll('.teacher-split-input').forEach(input => {
     input.addEventListener('change', () => {
       const facCode = input.getAttribute('data-fac-code');
-      const val = Math.max(1, parseInt(input.value) || 1);
-      input.value = val;
-      if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
-      if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
-      localSubjectMappings[cCode].teacherHours[facCode] = val;
-
-      if (autoGenCourseFacultyConfig[cCode]) {
-        autoGenCourseFacultyConfig[cCode].teacherHours = localSubjectMappings[cCode].teacherHours;
+      const totalHours = (localSubjectMappings[cCode] && localSubjectMappings[cCode].hours) || 4;
+      const teachers = (localSubjectMappings[cCode] && localSubjectMappings[cCode].teachers) || [];
+      
+      let val = parseInt(input.value) || 1;
+      // If 2 teachers, automatically adjust the other teacher so sum ALWAYS matches totalHours!
+      if (teachers.length === 2) {
+        val = Math.max(1, Math.min(totalHours - 1, val));
+        input.value = val;
+        const otherFac = teachers.find(f => f !== facCode);
+        const otherVal = Math.max(1, totalHours - val);
+        
+        if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
+        localSubjectMappings[cCode].teacherHours[facCode] = val;
+        localSubjectMappings[cCode].teacherHours[otherFac] = otherVal;
+        
+        const otherInput = container.querySelector(`.teacher-split-input[data-course-code="${cCode}"][data-fac-code="${otherFac}"]`);
+        if (otherInput) otherInput.value = otherVal;
+      } else {
+        val = Math.max(1, Math.min(totalHours, val));
+        input.value = val;
+        if (!localSubjectMappings[cCode].teacherHours) localSubjectMappings[cCode].teacherHours = {};
+        localSubjectMappings[cCode].teacherHours[facCode] = val;
       }
+
+      updateSplitBadge(cCode, totalHours, localSubjectMappings[cCode].teacherHours, `tile-split-badge-${cCode}`);
+      syncAutoGenConfigForCourse(cCode);
+    });
+  });
+}
+
+function bindPracTheorySplitInputListeners(container, cCode) {
+  container.querySelectorAll('.prac-theory-split-input').forEach(input => {
+    input.addEventListener('change', () => {
+      const facCode = input.getAttribute('data-fac-code');
+      const theoryHours = (localSubjectMappings[cCode] && localSubjectMappings[cCode].theoryHours) || 0;
+      const teachers = (localSubjectMappings[cCode] && localSubjectMappings[cCode].theoryTeachers) || [];
+      
+      let val = parseInt(input.value) || 1;
+      // If 2 teachers, automatically adjust the other teacher so sum ALWAYS matches theoryHours!
+      if (teachers.length === 2) {
+        val = Math.max(1, Math.min(Math.max(1, theoryHours - 1), val));
+        input.value = val;
+        const otherFac = teachers.find(f => f !== facCode);
+        const otherVal = Math.max(1, theoryHours - val);
+        
+        if (!localSubjectMappings[cCode].theoryTeacherHours) localSubjectMappings[cCode].theoryTeacherHours = {};
+        localSubjectMappings[cCode].theoryTeacherHours[facCode] = val;
+        localSubjectMappings[cCode].theoryTeacherHours[otherFac] = otherVal;
+        
+        const otherInput = container.querySelector(`.prac-theory-split-input[data-course-code="${cCode}"][data-fac-code="${otherFac}"]`);
+        if (otherInput) otherInput.value = otherVal;
+      } else {
+        val = Math.max(1, Math.min(theoryHours, val));
+        input.value = val;
+        if (!localSubjectMappings[cCode].theoryTeacherHours) localSubjectMappings[cCode].theoryTeacherHours = {};
+        localSubjectMappings[cCode].theoryTeacherHours[facCode] = val;
+      }
+
+      updateSplitBadge(cCode, theoryHours, localSubjectMappings[cCode].theoryTeacherHours, `tile-prac-theory-split-badge-${cCode}`);
+      syncAutoGenConfigForCourse(cCode);
     });
   });
 }
@@ -3597,15 +4294,13 @@ async function saveAllSubjectMappings() {
           course.theoryHours = mData.theoryHours;
           course.teachers = mData.teachers;
           course.teacherHours = mData.teacherHours;
+          course.practicalTeachers = mData.practicalTeachers;
+          course.theoryTeachers = mData.theoryTeachers;
+          course.theoryTeacherHours = mData.theoryTeacherHours;
         }
 
         // Sync to auto-gen structures
-        autoGenCourseFacultyBindings[cCode] = mData.teachers;
-        autoGenCourseFacultyConfig[cCode] = {
-          teachers: mData.teachers,
-          distribute: mData.teachers.length > 1,
-          teacherHours: mData.teacherHours
-        };
+        syncAutoGenConfigForCourse(cCode);
       });
 
       showModalAlert('Saved', 'Subject teacher mappings, weekly hours, and course types saved successfully!', 'success');
@@ -3627,8 +4322,56 @@ async function saveAllSubjectMappings() {
 // -------------------------------------------------------------
 // TAB 3: Auto Timetable Generator Pane Controller
 // -------------------------------------------------------------
-function initAutoGeneratorPane() {
+function populateAutoGenSemFilter() {
   const semSelect = document.getElementById('auto-gen-sem-select');
+  const progSelect = document.getElementById('auto-gen-program-select');
+  if (!semSelect) return;
+
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptCourses = state.courses.filter(c => c.department === deptName);
+  const selectedProg = progSelect ? progSelect.value : '';
+
+  const curVal = semSelect.value;
+  semSelect.innerHTML = '<option value="">All Semesters in Department</option>';
+
+  if (selectedProg === 'UG') {
+    const sems = Array.from(new Set(deptCourses.filter(c => (c.programType || 'UG') === 'UG').map(c => c.semester))).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+    sems.forEach(s => {
+      semSelect.innerHTML += `<option value="${s}">Semester ${s} (BSc)</option>`;
+    });
+  } else if (selectedProg === 'PG') {
+    const sems = Array.from(new Set(deptCourses.filter(c => (c.programType || 'UG') === 'PG').map(c => c.semester))).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+    sems.forEach(s => {
+      semSelect.innerHTML += `<option value="${s}">Semester ${s} (MSc)</option>`;
+    });
+  } else {
+    // All Programs: clearly distinguish BSc and MSc
+    const pairs = [];
+    deptCourses.forEach(c => {
+      const prog = c.programType || 'UG';
+      const key = `${c.semester}_${prog}`;
+      if (!pairs.some(p => p.key === key)) {
+        pairs.push({ key, sem: c.semester, prog });
+      }
+    });
+    pairs.sort((a, b) => {
+      const semDiff = parseInt(a.sem || 0) - parseInt(b.sem || 0);
+      if (semDiff !== 0) return semDiff;
+      return a.prog.localeCompare(b.prog);
+    });
+
+    pairs.forEach(p => {
+      const progLabel = p.prog === 'PG' ? 'MSc' : 'BSc';
+      semSelect.innerHTML += `<option value="${p.key}">Semester ${p.sem} (${progLabel})</option>`;
+    });
+  }
+
+  if (Array.from(semSelect.options).some(o => o.value === curVal)) {
+    semSelect.value = curVal;
+  }
+}
+
+function initAutoGeneratorPane() {
   const resultsCard = document.getElementById('auto-gen-results-card');
   const btnApply = document.getElementById('btn-apply-auto-generate');
   const errBox = document.getElementById('auto-gen-error-alert');
@@ -3641,19 +4384,7 @@ function initAutoGeneratorPane() {
   tempGeneratedAllocations = null;
 
   // Populate semester dropdown
-  const deptName = state.currentUser ? state.currentUser.departmentName : '';
-  const deptCourses = state.courses.filter(c => c.department === deptName);
-  const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
-  
-  if (semSelect) {
-    const currentSem = semSelect.value;
-    semSelect.innerHTML = '<option value="">All Semesters in Department</option>';
-    sems.forEach(s => {
-      const label = (state.config && state.config.semesterLabels && state.config.semesterLabels[s]) || `Semester ${s}`;
-      semSelect.innerHTML += `<option value="${s}">${label}</option>`;
-    });
-    if (sems.includes(currentSem)) semSelect.value = currentSem;
-  }
+  populateAutoGenSemFilter();
 
   // Update global locks status badge
   const locksBadge = document.getElementById('auto-gen-global-locks-badge');
@@ -3665,10 +4396,13 @@ function initAutoGeneratorPane() {
   renderAutoGeneratorBindings();
 }
 
+let lastAutoGenFilterKey = null;
+
 function renderAutoGeneratorBindings() {
   const container = document.getElementById('auto-gen-faculty-bindings-list');
   const countSpan = document.getElementById('auto-gen-courses-count');
   const semSelect = document.getElementById('auto-gen-sem-select');
+  const progSelect = document.getElementById('auto-gen-program-select');
   const selectAllCb = document.getElementById('auto-gen-select-all-courses');
   const sortSelect = document.getElementById('auto-gen-courses-sort');
   const searchInput = document.getElementById('auto-gen-courses-search');
@@ -3676,17 +4410,30 @@ function renderAutoGeneratorBindings() {
 
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   let deptCourses = state.courses.filter(c => c.department === deptName);
-  const targetSem = semSelect ? semSelect.value : '';
 
+  // Filter by Program (BSc / MSc)
+  const targetProg = progSelect ? progSelect.value : '';
+  if (targetProg) {
+    deptCourses = deptCourses.filter(c => (c.programType || 'UG') === targetProg);
+  }
+
+  // Filter by Semester (supports simple sem '1' or combined '1_UG' / '1_PG')
+  const targetSem = semSelect ? semSelect.value : '';
   if (targetSem) {
-    deptCourses = deptCourses.filter(c => String(c.semester) === String(targetSem));
+    if (targetSem.includes('_')) {
+      const [sNum, sProg] = targetSem.split('_');
+      deptCourses = deptCourses.filter(c => String(c.semester) === String(sNum) && (c.programType || 'UG') === sProg);
+    } else {
+      deptCourses = deptCourses.filter(c => String(c.semester) === String(targetSem));
+    }
   }
 
   const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
   if (query) {
     deptCourses = deptCourses.filter(c => 
       c.code.toLowerCase().includes(query) || 
-      c.name.toLowerCase().includes(query)
+      c.name.toLowerCase().includes(query) ||
+      (c.alias && c.alias.toLowerCase().includes(query))
     );
   }
 
@@ -3707,14 +4454,19 @@ function renderAutoGeneratorBindings() {
     return 0;
   });
 
-  // Preserve checked state across re-renders
+  const filterKey = `${targetProg}|${targetSem}|${query}`;
+  const filterChanged = (lastAutoGenFilterKey !== null && filterKey !== lastAutoGenFilterKey);
+  lastAutoGenFilterKey = filterKey;
+
+  // Preserve or select all for currently filtered view
   const currentChecked = new Set();
   const existingCbs = container.querySelectorAll('.auto-gen-course-cb');
-  if (existingCbs.length > 0) {
+  if (existingCbs.length > 0 && !filterChanged) {
     existingCbs.forEach(cb => {
       if (cb.checked) currentChecked.add(cb.value);
     });
   } else {
+    // When filter changes, default to selecting all courses in this filtered section
     deptCourses.forEach(c => currentChecked.add(c.code));
   }
 
@@ -3739,37 +4491,50 @@ function renderAutoGeneratorBindings() {
 
   let html = '';
   deptCourses.forEach(c => {
-    // Sync with localSubjectMappings if present
-    if (localSubjectMappings[c.code] && localSubjectMappings[c.code].teachers) {
-      autoGenCourseFacultyBindings[c.code] = localSubjectMappings[c.code].teachers;
-      autoGenCourseFacultyConfig[c.code] = {
-        teachers: localSubjectMappings[c.code].teachers,
-        distribute: localSubjectMappings[c.code].teachers.length > 1,
-        teacherHours: localSubjectMappings[c.code].teacherHours
-      };
-    } else if (autoGenCourseFacultyBindings[c.code] === undefined) {
-      const existingAlloc = state.allocations[c.code] || {};
-      const assignedSet = new Set();
-      Object.values(existingAlloc).forEach(dayObj => {
-        Object.values(dayObj).forEach(facArr => {
-          if (Array.isArray(facArr)) facArr.forEach(fc => assignedSet.add(fc));
-        });
-      });
-      autoGenCourseFacultyBindings[c.code] = Array.from(assignedSet);
-      autoGenCourseFacultyConfig[c.code] = { distribute: true };
+    const mapObj = localSubjectMappings[c.code] || {};
+    const isPrac = (mapObj.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
+    const pracTeachers = (mapObj.practicalTeachers && mapObj.practicalTeachers.length > 0)
+      ? mapObj.practicalTeachers
+      : ((c.practicalTeachers && c.practicalTeachers.length > 0) ? c.practicalTeachers : []);
+    const theoryTeachers = (mapObj.theoryTeachers && mapObj.theoryTeachers.length > 0)
+      ? mapObj.theoryTeachers
+      : ((c.theoryTeachers && c.theoryTeachers.length > 0) ? c.theoryTeachers : []);
+    const allConfigTeachers = Array.from(new Set([...pracTeachers, ...theoryTeachers, ...(mapObj.teachers || []), ...(c.teachers || [])]));
+
+    if (autoGenCourseFacultyBindings[c.code] === undefined || autoGenCourseFacultyBindings[c.code].length === 0) {
+      autoGenCourseFacultyBindings[c.code] = allConfigTeachers.length > 0 ? allConfigTeachers : (c.teachers || []);
     }
+
+    autoGenCourseFacultyConfig[c.code] = {
+      teachers: autoGenCourseFacultyBindings[c.code],
+      distribute: isPrac ? false : ((autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false) && autoGenCourseFacultyBindings[c.code].length > 1),
+      teacherHours: mapObj.teacherHours || c.teacherHours || null,
+      courseType: isPrac ? 'P' : 'T',
+      practicalHours: mapObj.practicalHours !== undefined ? mapObj.practicalHours : c.practicalHours,
+      theoryHours: mapObj.theoryHours !== undefined ? mapObj.theoryHours : c.theoryHours,
+      practicalTeachers: pracTeachers.length > 0 ? pracTeachers : (isPrac ? autoGenCourseFacultyBindings[c.code] : []),
+      theoryTeachers: theoryTeachers,
+      theoryTeacherHours: mapObj.theoryTeacherHours || c.theoryTeacherHours || null
+    };
 
     const selectedFacs = autoGenCourseFacultyBindings[c.code] || [];
-    const isDistribute = (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
+    const isDistribute = !isPrac && (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
 
     let summaryText = 'Auto-Assign';
-    if (selectedFacs.length === 1) {
-      summaryText = `${selectedFacs[0]} (1 Teacher)`;
-    } else if (selectedFacs.length > 1) {
-      summaryText = `${selectedFacs.join(', ')} (${selectedFacs.length} Teachers)`;
+    if (isPrac) {
+      if (pracTeachers.length > 1) {
+        summaryText = `Co-Teachers: ${pracTeachers.join(', ')} (${pracTeachers.length} in same period)`;
+      } else if (selectedFacs.length > 0) {
+        summaryText = `Co-Teaching: ${selectedFacs.join(', ')}`;
+      }
+    } else {
+      if (selectedFacs.length === 1) {
+        summaryText = `${selectedFacs[0]} (1 Teacher)`;
+      } else if (selectedFacs.length > 1) {
+        summaryText = `${selectedFacs.join(', ')} (${selectedFacs.length} Teachers)`;
+      }
     }
 
-    const isPrac = (c.courseType === 'P' || c.code.endsWith('-P'));
     const typeBadge = isPrac
       ? `<span class="badge" style="background-color: var(--success-light); color: var(--success-dark); font-size: 10px;">PR</span>`
       : `<span class="badge" style="background-color: var(--warning-light); color: var(--warning-dark); font-size: 10px;">TH</span>`;
@@ -3801,14 +4566,14 @@ function renderAutoGeneratorBindings() {
         <!-- Selected Faculty Badges & Distribution indicator -->
         <div class="fac-selected-pills-row" id="fac-pills-${c.code}" style="display: ${selectedFacs.length > 0 ? 'flex' : 'none'}; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 4px; padding-left: 23px;">
           ${selectedFacs.map(fCode => `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; padding: 2px 6px; font-weight: 700;">${fCode}</span>`).join('')}
-          ${selectedFacs.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${c.code}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDistribute ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed</span>` : ''}
+          ${isPrac ? `<span class="badge" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-users"></i> Co-Teaching in same period</span>` : (selectedFacs.length > 1 ? `<span class="badge fac-distribute-badge" id="dist-badge-${c.code}" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 6px; font-weight: 600; display: ${isDistribute ? 'inline-flex' : 'none'}; align-items: center; gap: 4px;"><i class="fa-solid fa-shuffle"></i> Distributed</span>` : '')}
         </div>
 
         <!-- Popover Checklist with Checkboxes for Multiple Teachers -->
         <div class="fac-checklist-popover hidden" id="fac-popover-${c.code}" style="margin-top: 8px; margin-left: 23px; background: #ffffff; border: 1.5px solid var(--primary); border-radius: 6px; padding: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.12); font-size: 11px;">
           <div style="font-weight: 700; color: var(--text-main); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <span><i class="fa-solid fa-users text-primary"></i> Select Teachers for ${c.code}:</span>
-            <span class="text-muted" style="font-size: 10px; font-weight: normal;">(Check multiple to share)</span>
+            <span><i class="fa-solid fa-users text-primary"></i> ${isPrac ? 'Practical Co-Teachers' : 'Select Teachers'} for ${c.code}:</span>
+            <span class="text-muted" style="font-size: 10px; font-weight: normal;">${isPrac ? '(All selected co-teach together)' : '(Check multiple to share)'}</span>
           </div>
 
           ${deptFaculty.length > 5 ? `
@@ -3828,12 +4593,18 @@ function renderAutoGeneratorBindings() {
             }).join('')}
           </div>
 
-          <div class="fac-distribute-box" id="distribute-box-${c.code}" style="display: ${selectedFacs.length > 1 ? 'block' : 'none'}; margin-top: 8px; padding: 6px 8px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px;">
-            <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer; margin: 0; color: #166534; font-weight: 600; font-size: 11px;">
-              <input type="checkbox" class="auto-gen-distribute-cb" data-course-code="${c.code}" ${isDistribute ? 'checked' : ''} style="accent-color: #16a34a; width: 14px; height: 14px; margin-top: 2px;">
-              <span>Distribute periods across selected teachers according to availability</span>
-            </label>
-          </div>
+          ${isPrac ? `
+            <div style="margin-top: 8px; padding: 6px 8px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534; font-size: 11px;">
+              <i class="fa-solid fa-users"></i> <strong>Co-Teaching Mode:</strong> All assigned practical teachers teach together simultaneously in the same period without splitting hours. Time is credited to all selected teachers.
+            </div>
+          ` : `
+            <div class="fac-distribute-box" id="distribute-box-${c.code}" style="display: ${selectedFacs.length > 1 ? 'block' : 'none'}; margin-top: 8px; padding: 6px 8px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px;">
+              <label style="display: flex; align-items: flex-start; gap: 6px; cursor: pointer; margin: 0; color: #166534; font-weight: 600; font-size: 11px;">
+                <input type="checkbox" class="auto-gen-distribute-cb" data-course-code="${c.code}" ${isDistribute ? 'checked' : ''} style="accent-color: #16a34a; width: 14px; height: 14px; margin-top: 2px;">
+                <span>Distribute periods across selected teachers according to availability</span>
+              </label>
+            </div>
+          `}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border);">
             <button type="button" class="btn btn-outline btn-xs btn-clear-course-fac" data-course-code="${c.code}" style="font-size: 10px; padding: 2px 8px;">Clear Selection</button>
@@ -3961,6 +4732,15 @@ function renderAutoGeneratorBindings() {
       updateSelectedCount();
     };
   }
+
+  // Bind change events to individual course checkboxes
+  container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      updateSelectedCount();
+    });
+  });
+
+  updateSelectedCount();
 }
 
 // -------------------------------------------------------------
@@ -4002,11 +4782,28 @@ async function runAutoGeneration(forceRelaxed = false) {
     if (Array.isArray(facList) && facList.length > 0) {
       courseFacultyMap[cCode] = facList;
       const mapping = localSubjectMappings[cCode] || {};
-      const isDistribute = (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false);
+      const course = state.courses.find(c => c.code === cCode) || {};
+      const courseType = mapping.courseType || course.courseType || (cCode.endsWith('-P') ? 'P' : 'T');
+      const isPrac = courseType === 'P';
+      const pracTeachers = isPrac
+        ? (mapping.practicalTeachers && mapping.practicalTeachers.length > 0
+            ? mapping.practicalTeachers
+            : ((course.practicalTeachers && course.practicalTeachers.length > 0) ? course.practicalTeachers : facList))
+        : [];
+      const thTeachers = mapping.theoryTeachers && mapping.theoryTeachers.length > 0
+        ? mapping.theoryTeachers
+        : (course.theoryTeachers || []);
+
       courseFacultyConfig[cCode] = {
         teachers: facList,
-        teacherHours: mapping.teacherHours || (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].teacherHours) || null,
-        distribute: isDistribute && facList.length > 1
+        teacherHours: mapping.teacherHours || course.teacherHours || (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].teacherHours) || null,
+        distribute: isPrac ? false : ((autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false) && facList.length > 1),
+        courseType: courseType,
+        practicalHours: mapping.practicalHours !== undefined ? mapping.practicalHours : course.practicalHours,
+        theoryHours: mapping.theoryHours !== undefined ? mapping.theoryHours : course.theoryHours,
+        practicalTeachers: pracTeachers,
+        theoryTeachers: thTeachers,
+        theoryTeacherHours: mapping.theoryTeacherHours || course.theoryTeacherHours || null
       };
     }
   });
@@ -4194,25 +4991,9 @@ async function runAutoGeneration(forceRelaxed = false) {
 async function applyAutoGeneratedSchedule() {
   if (!tempGeneratedAllocations) return;
 
-  const semSelect = document.getElementById('auto-gen-sem-select');
-  const targetSem = semSelect ? semSelect.value : '';
-
-  if (targetSem) {
-    const deptName = state.currentUser.departmentName;
-    const targetCourses = state.courses.filter(c => c.department === deptName && String(c.semester) === String(targetSem));
-    const targetCodes = new Set(targetCourses.map(c => c.code));
-
-    Object.keys(tempGeneratedAllocations).forEach(cCode => {
-      const base = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-      if (targetCodes.has(cCode) || targetCodes.has(base)) {
-        state.allocations[cCode] = tempGeneratedAllocations[cCode];
-      }
-    });
-  } else {
-    Object.keys(tempGeneratedAllocations).forEach(cCode => {
-      state.allocations[cCode] = tempGeneratedAllocations[cCode];
-    });
-  }
+  Object.keys(tempGeneratedAllocations).forEach(cCode => {
+    state.allocations[cCode] = tempGeneratedAllocations[cCode];
+  });
 
   renderAllocationMatrix();
   updateDeptLiveWorkloadTracker();

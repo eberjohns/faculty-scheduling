@@ -200,11 +200,20 @@ export function generateDepartmentSchedule({
     let facList = [];
     let isDistribute = true;
     let teacherHours = null;
+    let practicalTeachers = [];
+    let theoryTeachers = [];
+    let theoryTeacherHours = null;
 
-    if (courseFacultyConfig[c.code] && Array.isArray(courseFacultyConfig[c.code].teachers)) {
-      facList = courseFacultyConfig[c.code].teachers.filter(Boolean);
-      isDistribute = courseFacultyConfig[c.code].distribute !== false;
-      teacherHours = courseFacultyConfig[c.code].teacherHours || null;
+    const cfg = courseFacultyConfig[c.code] || {};
+    const savedMapping = (db.subjectTeacherMapping && db.subjectTeacherMapping[deptUpper] && db.subjectTeacherMapping[deptUpper][c.code]) || null;
+
+    if (cfg.teachers && Array.isArray(cfg.teachers)) {
+      facList = cfg.teachers.filter(Boolean);
+      isDistribute = cfg.distribute !== false;
+      teacherHours = cfg.teacherHours || null;
+      if (Array.isArray(cfg.practicalTeachers) && cfg.practicalTeachers.length > 0) practicalTeachers = cfg.practicalTeachers.filter(Boolean);
+      if (Array.isArray(cfg.theoryTeachers) && cfg.theoryTeachers.length > 0) theoryTeachers = cfg.theoryTeachers.filter(Boolean);
+      if (cfg.theoryTeacherHours) theoryTeacherHours = cfg.theoryTeacherHours;
     } else if (courseFacultyMap[c.code] && Array.isArray(courseFacultyMap[c.code])) {
       facList = courseFacultyMap[c.code].filter(Boolean);
       isDistribute = (facList.length > 1);
@@ -213,11 +222,50 @@ export function generateDepartmentSchedule({
       isDistribute = false;
     }
 
-    if (facList.length > 0) {
+    if (savedMapping) {
+      if (practicalTeachers.length === 0 && Array.isArray(savedMapping.practicalTeachers) && savedMapping.practicalTeachers.length > 0) {
+        practicalTeachers = savedMapping.practicalTeachers.filter(Boolean);
+      }
+      if (theoryTeachers.length === 0 && Array.isArray(savedMapping.theoryTeachers) && savedMapping.theoryTeachers.length > 0) {
+        theoryTeachers = savedMapping.theoryTeachers.filter(Boolean);
+      }
+      if (!theoryTeacherHours && savedMapping.theoryTeacherHours) {
+        theoryTeacherHours = savedMapping.theoryTeacherHours;
+      }
+      if (facList.length === 0 && Array.isArray(savedMapping.teachers)) {
+        facList = savedMapping.teachers.filter(Boolean);
+      }
+      if (!teacherHours && savedMapping.teacherHours) {
+        teacherHours = savedMapping.teacherHours;
+      }
+    }
+
+    if (practicalTeachers.length === 0 && Array.isArray(c.practicalTeachers) && c.practicalTeachers.length > 0) {
+      practicalTeachers = c.practicalTeachers.filter(Boolean);
+    }
+    if (theoryTeachers.length === 0 && Array.isArray(c.theoryTeachers) && c.theoryTeachers.length > 0) {
+      theoryTeachers = c.theoryTeachers.filter(Boolean);
+    }
+    if (!theoryTeacherHours && c.theoryTeacherHours) {
+      theoryTeacherHours = c.theoryTeacherHours;
+    }
+
+    const isPracticalCourse = (cfg.courseType === 'P' || (savedMapping && savedMapping.courseType === 'P') || c.courseType === 'P' || (c.code && c.code.endsWith('-P')));
+    if (isPracticalCourse) {
+      if (practicalTeachers.length === 0 && facList.length > 0) {
+        practicalTeachers = [...facList];
+      }
+    }
+
+    if (facList.length > 0 || practicalTeachers.length > 0 || theoryTeachers.length > 0) {
+      const allTeachers = Array.from(new Set([...facList, ...practicalTeachers, ...theoryTeachers])).filter(Boolean);
       resolvedFacultyBindings[c.code] = {
-        teachers: facList,
-        distribute: isDistribute && facList.length > 1,
-        teacherHours
+        teachers: allTeachers.length > 0 ? allTeachers : facList,
+        distribute: isPracticalCourse ? false : (isDistribute && (allTeachers.length > 1)),
+        teacherHours,
+        practicalTeachers,
+        theoryTeachers,
+        theoryTeacherHours
       };
       return;
     }
@@ -235,20 +283,29 @@ export function generateDepartmentSchedule({
       const existingList = Array.from(foundCodes);
       resolvedFacultyBindings[c.code] = {
         teachers: existingList,
-        distribute: existingList.length > 1
+        distribute: existingList.length > 1,
+        practicalTeachers: [],
+        theoryTeachers: [],
+        theoryTeacherHours: null
       };
     } else if (deptFaculty.length > 0) {
       // Round-robin distribution
       const assignedFac = deptFaculty[facultyWorkloadIndex % deptFaculty.length];
       resolvedFacultyBindings[c.code] = {
         teachers: [assignedFac.code],
-        distribute: false
+        distribute: false,
+        practicalTeachers: [],
+        theoryTeachers: [],
+        theoryTeacherHours: null
       };
       facultyWorkloadIndex++;
     } else {
       resolvedFacultyBindings[c.code] = {
         teachers: [],
-        distribute: false
+        distribute: false,
+        practicalTeachers: [],
+        theoryTeachers: [],
+        theoryTeacherHours: null
       };
     }
   });
@@ -259,14 +316,18 @@ export function generateDepartmentSchedule({
 
   targetCourses.forEach(course => {
     const courseCode = course.code;
-    const isPractical = (course.courseType === 'P' || (course.code && course.code.endsWith('-P')));
-    const binding = resolvedFacultyBindings[courseCode] || { teachers: [], distribute: false };
+    const cfg = courseFacultyConfig[courseCode] || {};
+    const savedMapping = (db.subjectTeacherMapping && db.subjectTeacherMapping[deptUpper] && db.subjectTeacherMapping[deptUpper][courseCode]) || null;
+    const courseType = cfg.courseType || (savedMapping && savedMapping.courseType) || course.courseType;
+    const isPractical = (courseType === 'P' || (course.code && course.code.endsWith('-P')));
+
+    const binding = resolvedFacultyBindings[courseCode] || { teachers: [], distribute: false, practicalTeachers: [], theoryTeachers: [] };
     const assignedFacs = binding.teachers || [];
     const isDistributed = binding.distribute && assignedFacs.length > 1;
     const mappedBatches = (db.groupMappings && db.groupMappings[courseCode]) || [];
     
     // Determine needed weekly hours
-    let neededHours = parseInt(course.hours) || 0;
+    let neededHours = parseInt(cfg.hours !== undefined ? cfg.hours : (savedMapping && savedMapping.hours !== undefined ? savedMapping.hours : course.hours)) || 0;
     if (neededHours <= 0) {
       if (course.recommendations) {
         let count = 0;
@@ -292,20 +353,45 @@ export function generateDepartmentSchedule({
     courseTotalHours[courseCode] = neededHours;
 
     if (isPractical) {
-      let practicalNeed = parseInt(course.practicalHours);
-      let theoryNeed = parseInt(course.theoryHours);
+      let practicalNeed = parseInt(cfg.practicalHours !== undefined ? cfg.practicalHours : (savedMapping && savedMapping.practicalHours !== undefined ? savedMapping.practicalHours : course.practicalHours));
+      let theoryNeed = parseInt(cfg.theoryHours !== undefined ? cfg.theoryHours : (savedMapping && savedMapping.theoryHours !== undefined ? savedMapping.theoryHours : course.theoryHours));
 
       if (isNaN(practicalNeed) || isNaN(theoryNeed) || (practicalNeed === 0 && theoryNeed === 0)) {
-        practicalNeed = remainingHours;
-        theoryNeed = 0;
+        // Default practical split: even practical hours (e.g. 4 -> 2,2; 5 -> 2,3)
+        let half = Math.floor(remainingHours / 2);
+        let p = half - (half % 2);
+        if (p < 2 && remainingHours >= 2) p = 2;
+        if (p > remainingHours) p = remainingHours - (remainingHours % 2);
+        practicalNeed = p;
+        theoryNeed = Math.max(0, remainingHours - p);
       } else {
+        // Enforce practical hours is an even number
+        if (practicalNeed % 2 !== 0) {
+          practicalNeed = Math.max(2, practicalNeed - 1);
+          theoryNeed = Math.max(0, remainingHours - practicalNeed);
+        }
         const totalSpecified = practicalNeed + theoryNeed;
         if (totalSpecified > 0 && remainingHours < totalSpecified) {
           const ratio = remainingHours / totalSpecified;
           practicalNeed = Math.round(practicalNeed * ratio);
-          theoryNeed = remainingHours - practicalNeed;
+          if (practicalNeed % 2 !== 0) practicalNeed = Math.max(2, practicalNeed - 1);
+          theoryNeed = Math.max(0, remainingHours - practicalNeed);
         }
       }
+
+      // Practical teachers: Co-teaching in same class and period (NO splitting)
+      const pracTeachers = (binding.practicalTeachers && binding.practicalTeachers.length > 0)
+        ? binding.practicalTeachers
+        : ((Array.isArray(course.practicalTeachers) && course.practicalTeachers.length > 0)
+            ? course.practicalTeachers
+            : assignedFacs);
+
+      // Theory teachers: Split hours per teacher
+      const thTeachers = (binding.theoryTeachers && binding.theoryTeachers.length > 0)
+        ? binding.theoryTeachers
+        : assignedFacs;
+      const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || null;
+      const thDistributed = thTeachers.length > 1;
 
       const blockSize = Math.min(practicalBlockSize, Math.max(1, practicalNeed));
       while (practicalNeed > 0) {
@@ -318,10 +404,10 @@ export function generateDepartmentSchedule({
           type: 'P',
           duration: curDuration,
           semester: course.semester,
-          assignedFaculty: assignedFacs,
-          isDistributed,
-          facultyPool: assignedFacs,
-          teacherHours: binding.teacherHours || null,
+          assignedFaculty: pracTeachers,
+          isDistributed: false, // ALL practical teachers placed together simultaneously!
+          facultyPool: pracTeachers,
+          teacherHours: null,
           batches: mappedBatches,
           recommendations: course.recommendations || {}
         });
@@ -337,10 +423,10 @@ export function generateDepartmentSchedule({
           type: 'T',
           duration: 1,
           semester: course.semester,
-          assignedFaculty: assignedFacs,
-          isDistributed,
-          facultyPool: assignedFacs,
-          teacherHours: binding.teacherHours || null,
+          assignedFaculty: thTeachers,
+          isDistributed: thDistributed,
+          facultyPool: thTeachers,
+          teacherHours: thTeacherHours,
           batches: mappedBatches,
           recommendations: course.recommendations || {}
         });

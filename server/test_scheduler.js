@@ -348,3 +348,131 @@ if (recSpreadResult.success) {
   const pracMatched = friPeriods.includes("4") && friPeriods.includes("5");
   console.log("ENG102-P Practical Block Placed on Friday P4-P5:", pracMatched ? "PASSED" : "FAILED (" + friPeriods + ")");
 }
+
+// -------------------------------------------------------------
+// Test Practical Co-Teaching (Simultaneous in same period) & Theory Split
+// -------------------------------------------------------------
+console.log("\n--- Testing Practical Co-Teaching & Theory Hour Allotment ---");
+const coteachDb = {
+  periods: ["1", "2", "3", "LB", "4", "5", "6"],
+  config: { globalLockedPeriods: [] },
+  courses: [
+    {
+      code: "CSC501-P",
+      name: "Cloud Computing & Lab",
+      department: "COMPUTER SCIENCE",
+      semester: "5",
+      courseType: "P",
+      hours: 4,
+      practicalHours: 2,
+      theoryHours: 2,
+      practicalTeachers: ["AT", "GH"],
+      theoryTeachers: ["AT"],
+      theoryTeacherHours: { AT: 2 }
+    },
+    {
+      code: "CSC502-T",
+      name: "Software Engineering",
+      department: "COMPUTER SCIENCE",
+      semester: "5",
+      courseType: "T",
+      hours: 5,
+      teachers: ["AT", "GH"],
+      teacherHours: { AT: 3, GH: 2 }
+    }
+  ],
+  faculty: [
+    { staffId: "STF1", name: "Dr. Alan Turing", code: "AT", department: "COMPUTER SCIENCE" },
+    { staffId: "STF2", name: "Grace Hopper", code: "GH", department: "COMPUTER SCIENCE" }
+  ],
+  teacherUnavailability: {},
+  allocations: {},
+  groupMappings: {}
+};
+
+const coteachResult = generateDepartmentSchedule({
+  db: coteachDb,
+  departmentName: "COMPUTER SCIENCE",
+  semester: "5",
+  courseFacultyConfig: {
+    "CSC501-P": {
+      courseType: "P",
+      practicalHours: 2,
+      theoryHours: 2,
+      practicalTeachers: ["AT", "GH"],
+      theoryTeachers: ["AT"],
+      theoryTeacherHours: { AT: 2 }
+    },
+    "CSC502-T": {
+      courseType: "T",
+      hours: 5,
+      teachers: ["AT", "GH"],
+      teacherHours: { AT: 3, GH: 2 },
+      distribute: true
+    }
+  }
+});
+
+console.log("Co-teach & Theory Split Run Success:", coteachResult.success);
+if (coteachResult.success) {
+  const alloc501 = coteachResult.allocations["CSC501-P"];
+  let practicalSlotsWithBothTeachers = 0;
+  let theorySlotsCount = 0;
+
+  Object.entries(alloc501).forEach(([d, pObj]) => {
+    Object.entries(pObj).forEach(([p, facs]) => {
+      if (Array.isArray(facs) && facs.length === 2 && facs.includes("AT") && facs.includes("GH")) {
+        practicalSlotsWithBothTeachers++;
+      } else if (Array.isArray(facs) && facs.length === 1 && facs.includes("AT")) {
+        theorySlotsCount++;
+      }
+    });
+  });
+
+  console.log("CSC501-P Practical Slots with Both AT & GH Co-Teaching (Expected 2):", practicalSlotsWithBothTeachers === 2 ? "PASSED (2 co-taught slots)" : "FAILED (" + practicalSlotsWithBothTeachers + ")");
+  console.log("CSC501-P Theory Slots with AT (Expected 2):", theorySlotsCount === 2 ? "PASSED (2 theory slots)" : "FAILED (" + theorySlotsCount + ")");
+
+  const alloc502 = coteachResult.allocations["CSC502-T"];
+  let at502Hours = 0;
+  let gh502Hours = 0;
+  Object.entries(alloc502).forEach(([d, pObj]) => {
+    Object.entries(pObj).forEach(([p, facs]) => {
+      if (Array.isArray(facs)) {
+        if (facs.includes("AT")) at502Hours++;
+        if (facs.includes("GH")) gh502Hours++;
+      }
+    });
+  });
+
+  console.log("CSC502-T Theory Hour Allotment (Expected AT: 3, GH: 2):", (at502Hours === 3 && gh502Hours === 2) ? `PASSED (AT: ${at502Hours}, GH: ${gh502Hours})` : `FAILED (AT: ${at502Hours}, GH: ${gh502Hours})`);
+}
+
+// Test practical co-teaching fallback when only generic teachers array is supplied
+const autoPracResult = generateDepartmentSchedule({
+  db: coteachDb,
+  departmentName: "COMPUTER SCIENCE",
+  semester: "5",
+  courseFacultyConfig: {
+    "CSC501-P": {
+      courseType: "P",
+      practicalHours: 2,
+      theoryHours: 0,
+      teachers: ["AT", "GH"], // generic teachers array without explicit practicalTeachers
+      distribute: true // should be overridden to false for practicals
+    }
+  }
+});
+
+let autoCoTaught = 0;
+if (autoPracResult.success && autoPracResult.allocations["CSC501-P"]) {
+  Object.values(autoPracResult.allocations["CSC501-P"]).forEach(pObj => {
+    Object.values(pObj).forEach(facs => {
+      if (Array.isArray(facs) && facs.includes("AT") && facs.includes("GH")) {
+        autoCoTaught += 1;
+      }
+    });
+  });
+}
+console.log("Practical Generic Teachers Override to Co-Teaching (Expected 2):", autoCoTaught === 2 ? "PASSED (Both teachers in same slot)" : "FAILED (" + autoCoTaught + ")");
+
+

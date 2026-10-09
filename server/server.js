@@ -1524,6 +1524,15 @@ app.post('/api/department/subject-mapping', requireDepartment, (req, res) => {
       if (mapData.teacherHours && typeof mapData.teacherHours === 'object') {
         course.teacherHours = mapData.teacherHours;
       }
+      if (Array.isArray(mapData.practicalTeachers)) {
+        course.practicalTeachers = mapData.practicalTeachers;
+      }
+      if (Array.isArray(mapData.theoryTeachers)) {
+        course.theoryTeachers = mapData.theoryTeachers;
+      }
+      if (mapData.theoryTeacherHours && typeof mapData.theoryTeacherHours === 'object') {
+        course.theoryTeacherHours = mapData.theoryTeacherHours;
+      }
     }
   });
 

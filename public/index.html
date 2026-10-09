@@ -13,7 +13,7 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Core Stylesheet with Cache Busting -->
-  <link rel="stylesheet" href="styles.css?v=2.5">
+  <link rel="stylesheet" href="styles.css?v=2.7">
 </head>
 <body>
   
@@ -405,6 +405,9 @@
               </tbody>
             </table>
           </div>
+          <div class="modal-footer" style="display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1.5px solid var(--border);">
+            <button type="button" id="btn-done-fac-select" class="btn btn-primary btn-sm"><i class="fa-solid fa-check"></i> Done</button>
+          </div>
         </div>
       </div>
     </div>
@@ -619,15 +622,22 @@
 
               <!-- Filter and Sort Bar -->
               <div class="adv-search-bar">
-                <div style="flex: 1; min-width: 220px;">
+                <div style="flex: 1; min-width: 200px;">
                   <input type="text" id="subject-mapping-search" class="form-control" placeholder="Search subjects by code or name...">
+                </div>
+                <div style="width: 150px;">
+                  <select id="subject-mapping-program-filter" class="form-control">
+                    <option value="">All Programs</option>
+                    <option value="UG">BSc (UG)</option>
+                    <option value="PG">MSc (PG)</option>
+                  </select>
                 </div>
                 <div style="width: 180px;">
                   <select id="subject-mapping-sem-filter" class="form-control">
                     <option value="">All Semesters</option>
                   </select>
                 </div>
-                <div style="width: 200px;">
+                <div style="width: 190px;">
                   <select id="subject-mapping-sort" class="form-control">
                     <option value="code-asc">Sort: Course Code (A-Z)</option>
                     <option value="name-asc">Sort: Subject Name (A-Z)</option>
@@ -665,6 +675,14 @@
                   <div class="auto-gen-card">
                     <h3><span class="step-num-badge">1</span> Scope & Semester Selection</h3>
                     <div class="form-group mt-2">
+                      <label for="auto-gen-program-select" class="text-sm bold">Target Program / Degree</label>
+                      <select id="auto-gen-program-select" class="form-control mt-1">
+                        <option value="">All Programs (BSc & MSc)</option>
+                        <option value="UG">BSc (UG)</option>
+                        <option value="PG">MSc (PG)</option>
+                      </select>
+                    </div>
+                    <div class="form-group mt-2">
                       <label for="auto-gen-sem-select" class="text-sm bold">Target Semester</label>
                       <select id="auto-gen-sem-select" class="form-control mt-1">
                         <option value="">All Semesters in Department</option>
@@ -681,10 +699,8 @@
                         <strong class="text-sm" style="display:block;">Preserve / Pin Existing Slots</strong>
                         <span class="text-muted text-sm">Keep currently allocated slots and generate around them.</span>
                       </div>
-                      <label class="switch">
-                        <input type="checkbox" id="auto-gen-pin-slots">
-                        <span class="slider"></span>
-                      </label>
+                      <input type="checkbox" id="auto-gen-pin-slots" checked style="display: none;">
+                      <span class="badge badge-success" style="font-size: 11px;"><i class="fa-solid fa-check"></i> Always Active</span>
                     </div>
 
                     <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
@@ -730,7 +746,14 @@
                         <input type="text" id="auto-gen-courses-search" class="form-control" placeholder="Search code or subject..." style="font-size: 11px; padding: 4px 8px 4px 26px; height: 30px;">
                         <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 9px; font-size: 11px; color: var(--text-muted);"></i>
                       </div>
-                      <div style="width: 175px;">
+                      <div style="width: 120px;">
+                        <select id="auto-gen-courses-program" class="form-control" style="font-size: 11px; padding: 3px 6px; height: 30px;">
+                          <option value="">All (BSc & MSc)</option>
+                          <option value="UG">BSc (UG)</option>
+                          <option value="PG">MSc (PG)</option>
+                        </select>
+                      </div>
+                      <div style="width: 150px;">
                         <select id="auto-gen-courses-sort" class="form-control" style="font-size: 11px; padding: 3px 6px; height: 30px;">
                           <option value="code-asc">Sort: Course Code (A-Z)</option>
                           <option value="code-desc">Sort: Course Code (Z-A)</option>
@@ -817,6 +840,6 @@
   <!-- SheetJS Library via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Frontend Javascript Orchestrator with Cache Busting -->
-  <script src="js/app.js?v=2.5"></script>
+  <script src="js/app.js?v=2.8"></script>
 </body>
 </html>
