@@ -1830,32 +1830,129 @@ input:checked + .slider:before {
   letter-spacing: 0.5px;
 }
 
+.teacher-split-rows-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
 .teacher-split-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
   background: #f8fafc;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
   font-size: 11px;
+  transition: all 0.15s ease;
 }
 
-.teacher-split-input {
-  width: 52px;
-  height: 24px;
-  font-size: 11px;
+.teacher-split-row:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.teacher-split-row .teacher-name-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.teacher-split-row .teacher-name-info strong {
+  color: var(--primary);
+  font-weight: 700;
+  min-width: 28px;
+}
+
+.teacher-split-row .teacher-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.teacher-split-input,
+.prac-theory-split-input {
+  width: 56px;
+  height: 28px;
+  font-size: 12px;
   text-align: center;
   font-weight: 700;
+  border-radius: 4px;
 }
 
 .practical-breakdown-box {
   background: #f0fdf4;
   border: 1px solid #bbf7d0;
-  border-radius: 4px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 10px 12px;
   font-size: 11px;
 }
+
+.tile-theory-branch,
+.tile-practical-branch {
+  animation: fadeIn 0.15s ease-out;
+}
+
+.practical-teachers-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px;
+  transition: all 0.2s ease;
+}
+
+.practical-theory-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 10px;
+  transition: all 0.2s ease;
+}
+
+.coteach-notice {
+  font-size: 10px;
+  color: #15803d;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.teacher-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.teacher-tag-pill-prac {
+  display: inline-flex;
+  align-items: center;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
 
 /* In-Section Problem Statement & Solver */
 .insection-solver-box {

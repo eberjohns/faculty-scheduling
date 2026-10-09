@@ -18,8 +18,18 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static frontend files
-app.use(express.static(path.join(__dirname, '../public')));
+// Serve static frontend files with no-cache to ensure browsers always receive latest updates
+app.use(express.static(path.join(__dirname, '../public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // Health check / ping endpoints for uptime bots & monitors (keeps Render from sleeping)
 app.get(['/health', '/api/health', '/ping'], (req, res) => {
@@ -1513,6 +1523,15 @@ app.post('/api/department/subject-mapping', requireDepartment, (req, res) => {
       }
       if (mapData.teacherHours && typeof mapData.teacherHours === 'object') {
         course.teacherHours = mapData.teacherHours;
+      }
+      if (Array.isArray(mapData.practicalTeachers)) {
+        course.practicalTeachers = mapData.practicalTeachers;
+      }
+      if (Array.isArray(mapData.theoryTeachers)) {
+        course.theoryTeachers = mapData.theoryTeachers;
+      }
+      if (mapData.theoryTeacherHours && typeof mapData.theoryTeacherHours === 'object') {
+        course.theoryTeacherHours = mapData.theoryTeacherHours;
       }
     }
   });

@@ -190,6 +190,7 @@ export function writeDb(data) {
     batchDeptMappings: data.batchDeptMappings,
     groupMappings: data.groupMappings,
     teacherUnavailability: data.teacherUnavailability || {},
+    subjectTeacherMapping: data.subjectTeacherMapping || {},
     batchConfig: data.batchConfig,
     periods: data.periods
   };
