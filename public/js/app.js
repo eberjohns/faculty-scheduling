@@ -31,7 +31,8 @@ let state = {
   allBatches: [],
   groupMappings: {},
   teacherUnavailability: {},
-  subjectTeacherMapping: {}
+  subjectTeacherMapping: {},
+  commonBatches: []
 };
 
 let autosaveTimer = null;
@@ -304,6 +305,9 @@ async function initApp() {
       const res = await fetch(`${API_BASE}/config`);
       if (res.ok) {
         const freshConfig = await res.json();
+        if (freshConfig.commonBatches) {
+          state.commonBatches = freshConfig.commonBatches;
+        }
         const oldLocks = JSON.stringify((state.config && state.config.globalLockedPeriods) || []);
         const newLocks = JSON.stringify(freshConfig.globalLockedPeriods || []);
         if (oldLocks !== newLocks) {
@@ -379,7 +383,7 @@ async function loadLoginDepartments() {
 
 async function fetchGlobalData() {
   try {
-    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes, mappingRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes, mappingRes, commonBatchesRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
       authFetch(`${API_BASE}/courses`),
@@ -387,7 +391,8 @@ async function fetchGlobalData() {
       authFetch(`${API_BASE}/batches`),
       authFetch(`${API_BASE}/admin/group-mappings`),
       authFetch(`${API_BASE}/department/teacher-unavailability`),
-      authFetch(`${API_BASE}/department/subject-mapping`)
+      authFetch(`${API_BASE}/department/subject-mapping`),
+      authFetch(`${API_BASE}/common-batches`)
     ]);
     
     state.config = await configRes.json();
@@ -401,6 +406,11 @@ async function fetchGlobalData() {
     }
     if (mappingRes && mappingRes.ok) {
       state.subjectTeacherMapping = await mappingRes.json();
+    }
+    if (commonBatchesRes && commonBatchesRes.ok) {
+      state.commonBatches = await commonBatchesRes.json();
+    } else {
+      state.commonBatches = (state.config && state.config.commonBatches) || [];
     }
     // Initialize local subject mappings immediately on startup
     initLocalSubjectMappings();
@@ -480,7 +490,40 @@ function bindFilterEvents() {
   const progSelect = document.getElementById('filter-program');
   const semSelect = document.getElementById('filter-semester');
   const catSelect = document.getElementById('filter-category');
+  const termToggleContainer = document.getElementById('term-quick-toggle');
   
+  const updateTermQuickToggleButtons = (activeVal) => {
+    if (!termToggleContainer) return;
+    const termBtns = termToggleContainer.querySelectorAll('button');
+    termBtns.forEach(b => {
+      const bTerm = b.getAttribute('data-term');
+      if ((bTerm === activeVal) || (!bTerm && !activeVal)) {
+        b.style.background = '#ffffff';
+        b.style.color = 'var(--primary)';
+        b.style.fontWeight = '700';
+        b.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
+      } else {
+        b.style.background = 'transparent';
+        b.style.color = '#475569';
+        b.style.fontWeight = '600';
+        b.style.boxShadow = 'none';
+      }
+    });
+  };
+
+  if (termToggleContainer) {
+    const termBtns = termToggleContainer.querySelectorAll('button');
+    termBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const term = btn.getAttribute('data-term');
+        state.filters.semester = term;
+        if (semSelect) semSelect.value = term;
+        updateTermQuickToggleButtons(term);
+        renderAllocationMatrix();
+      });
+    });
+  }
+
   if (progSelect) {
     progSelect.addEventListener('change', () => {
       state.filters.program = progSelect.value;
@@ -489,15 +532,20 @@ function bindFilterEvents() {
     });
   }
   
-  semSelect.addEventListener('change', () => {
-    state.filters.semester = semSelect.value;
-    renderAllocationMatrix();
-  });
+  if (semSelect) {
+    semSelect.addEventListener('change', () => {
+      state.filters.semester = semSelect.value;
+      updateTermQuickToggleButtons(semSelect.value);
+      renderAllocationMatrix();
+    });
+  }
   
-  catSelect.addEventListener('change', () => {
-    state.filters.category = catSelect.value;
-    renderAllocationMatrix();
-  });
+  if (catSelect) {
+    catSelect.addEventListener('change', () => {
+      state.filters.category = catSelect.value;
+      renderAllocationMatrix();
+    });
+  }
 
   // Dynamic filter lists population
   function populateFilters() {
@@ -513,7 +561,11 @@ function bindFilterEvents() {
     const sems = Array.from(new Set(deptCourses.map(c => c.semester))).sort();
     const prevSelectedSem = state.filters.semester;
     
-    semSelect.innerHTML = '<option value="">All Semesters</option>';
+    semSelect.innerHTML = `
+      <option value="">All Semesters</option>
+      <option value="odd">Odd Semesters (1, 3, 5)</option>
+      <option value="even">Even Semesters (2, 4)</option>
+    `;
     sems.forEach(s => {
       let label = state.config.semesterLabels[s] || `Sem ${s}`;
       
@@ -528,12 +580,13 @@ function bindFilterEvents() {
       semSelect.innerHTML += `<option value="${s}">${label}</option>`;
     });
     
-    if (sems.includes(prevSelectedSem)) {
+    if (['', 'odd', 'even'].includes(prevSelectedSem) || sems.includes(prevSelectedSem)) {
       semSelect.value = prevSelectedSem;
     } else {
       state.filters.semester = '';
       semSelect.value = '';
     }
+    updateTermQuickToggleButtons(semSelect.value);
 
     // Categories
     const cats = Array.from(new Set(deptCourses.map(c => c.category))).sort();
@@ -747,7 +800,10 @@ function bindDeptEvents() {
       }
 
       const activeSem = state.filters.semester;
-      const targetLabel = activeSem ? `Semester ${activeSem}` : 'All Semesters';
+      let targetLabel = 'All Semesters';
+      if (activeSem === 'odd') targetLabel = 'Odd Semesters (1, 3, 5)';
+      else if (activeSem === 'even') targetLabel = 'Even Semesters (2, 4)';
+      else if (activeSem) targetLabel = `Semester ${activeSem}`;
 
       showModalConfirm(
         `Clear ${targetLabel} Allocations?`,
@@ -766,7 +822,11 @@ function bindDeptEvents() {
             if (res.ok && result.success) {
               const deptName = state.currentUser.departmentName;
               let deptCourses = state.courses.filter(c => c.department === deptName);
-              if (activeSem) {
+              if (activeSem === 'odd') {
+                deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+              } else if (activeSem === 'even') {
+                deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+              } else if (activeSem) {
                 deptCourses = deptCourses.filter(c => String(c.semester) === String(activeSem));
               }
               const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
@@ -1085,7 +1145,13 @@ function renderAllocationMatrix() {
     deptCourses = deptCourses.filter(c => (c.programType || 'UG') === state.filters.program);
   }
   if (state.filters.semester) {
-    deptCourses = deptCourses.filter(c => c.semester === state.filters.semester);
+    if (state.filters.semester === 'odd') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (state.filters.semester === 'even') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else {
+      deptCourses = deptCourses.filter(c => String(c.semester) === String(state.filters.semester));
+    }
   }
   if (state.filters.category) {
     deptCourses = deptCourses.filter(c => c.category === state.filters.category);
@@ -1278,19 +1344,143 @@ function getMergedCourseInfo(baseCode, deptCourses) {
 }
 
 
+function courseMatchesCommonSubject(course, subjectCode, commonBatches = []) {
+  if (!course) return false;
+  const norm = (subjectCode || '').toUpperCase().trim();
+  const cCode = (course.code || course.courseCode || '').toUpperCase().trim();
+  const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+  const cat = (course.category || '').toUpperCase().trim();
+  const name = (course.name || course.courseName || '').toUpperCase().trim();
+  const dept = (course.department || '').toUpperCase().trim();
+  const cSem = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+  // 1. Direct common batch linkage
+  if (Array.isArray(commonBatches)) {
+    const hasBatch = commonBatches.some(b => {
+      const bSubj = (b.subjectCode || '').toUpperCase().trim();
+      const bCourse = (b.courseCode || '').toUpperCase().trim();
+      const bBase = bCourse.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      if (bSubj !== norm && !(norm.startsWith('MDC') && bSubj.startsWith('MDC'))) return false;
+      return bCourse === cCode || bBase === baseCode || cCode.startsWith(bCourse) || bCourse.startsWith(baseCode);
+    });
+    if (hasBatch) return true;
+  }
+
+  // 2. MDC match (MDC1 in Sem 1, MDC-2 in Sem 2, MDC3 in Sem 3, or general MDC)
+  if (norm.startsWith('MDC')) {
+    if (norm === 'MDC1' && cSem !== '1') return false;
+    if ((norm === 'MDC-2' || norm === 'MDC2') && cSem !== '2') return false;
+    if (norm === 'MDC3' && cSem !== '3') return false;
+    const isMdc = cat === 'MDC' || cat.includes('MDC') || cat.includes('MULTI') || 
+                  cCode.includes('FM') || cCode.includes('MDC') || 
+                  name.includes('MDC') || name.includes('MULTIDISCIPLINARY') || name.includes('MULTI-DISCIPLINARY');
+    return isMdc;
+  }
+
+  // 3. AEC match
+  if (norm === 'AEC1') {
+    if (cSem !== '1') return false;
+    return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && dept === 'ENGLISH';
+  }
+  if (norm === 'AEC2') {
+    if (cSem !== '1') return false;
+    return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+  }
+  if (norm === 'AEC3') {
+    if (cSem !== '2') return false;
+    return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && dept === 'ENGLISH';
+  }
+  if (norm === 'AEC4') {
+    if (cSem !== '2') return false;
+    return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+  }
+
+  // 4. VAC match
+  if (norm === 'VAC1') {
+    if (cSem !== '3') return false;
+    return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && dept === 'ENGLISH';
+  }
+  if (norm === 'VAC2') {
+    if (cSem !== '4') return false;
+    return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && dept === 'ENGLISH';
+  }
+  if (norm === 'VAC3') {
+    if (cSem !== '4') return false;
+    return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+  }
+
+  // 5. SEC match
+  if (norm === 'SEC') {
+    if (cSem !== '4') return false;
+    return (cat === 'SEC' || cCode.includes('SEC') || cCode.includes('FS')) && dept === 'ENGLISH';
+  }
+
+  return false;
+}
+
+function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) {
+  if (!lock) return false;
+  if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
+  if (String(lock.period).trim() !== String(period).trim()) return false;
+
+  const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+  const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+
+  // If lock is semester-specific, course must match that semester
+  if (courseSem && lockSem && lockSem !== 'all' && lockSem !== courseSem) {
+    return false;
+  }
+
+  const normLabel = (lock.label || '').toUpperCase().trim();
+  const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
+
+  // If the label is NOT one of the specific common subjects (i.e. 'Other' or custom activity label),
+  // then the whole section corresponding to this semester is locked!
+  if (!commonCodes.includes(normLabel)) {
+    return true;
+  }
+
+  // If label IS a common subject (e.g. MDC, AEC, VAC, SEC):
+  // 1. Direct match with this course:
+  if (course && courseMatchesCommonSubject(course, normLabel, commonBatches)) {
+    return true;
+  }
+
+  // 2. Check if the department offers ANY course matching this common subject for this semester:
+  const dept = (course && course.department) || (state.currentUser && state.currentUser.departmentName) || '';
+  const deptCoursesForSem = (state.courses || []).filter(c => {
+    const cDept = (c.department || '').toUpperCase().trim();
+    const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    const matchesDept = !dept || cDept === dept.toUpperCase().trim();
+    const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
+    return matchesDept && matchesSem;
+  });
+
+  const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
+    courseMatchesCommonSubject(c, normLabel, commonBatches)
+  );
+
+  if (hasMatchingCourseInDept) {
+    // Department HAS a matching course for this common subject, so other major courses are NOT locked
+    return false;
+  }
+
+  // If the department does NOT offer any course for this common subject in this semester:
+  // Place the corresponding section lock on all courses of this semester, just like "Other"!
+  return true;
+}
+
 // Renders the interactive contents of a grid cell
 function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = null) {
-  // Check if period is flagged by Admin for this course's semester
+  // Check if period is flagged by Admin for this course's semester & subject
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
-  const courseSem = String((courseT && courseT.semester) || (courseP && courseP.semester) || '').replace(/^Sem(ester)?\s*/i, '').trim();
+  const currentCourse = courseT || courseP || (state.courses && state.courses.find(c => c.code === baseCode));
+  const courseSem = String((courseT && courseT.semester) || (courseP && courseP.semester) || (currentCourse && currentCourse.semester) || '').replace(/^Sem(ester)?\s*/i, '').trim();
   const courseSemNum = parseInt(courseSem.replace(/\D+/g, ''), 10) || 0;
-  const matchingLocks = globalLocks.filter(l => {
-    if (l.day.toUpperCase() !== day.toUpperCase()) return false;
-    if (String(l.period).trim() !== String(period).trim()) return false;
-    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-    if (!lockSem || lockSem === 'all' || lockSem === '') return true;
-    return lockSem === courseSem.toLowerCase();
-  });
+  
+  const matchingLocks = globalLocks.filter(l => 
+    isPeriodLockedForCourse(l, currentCourse, day, period, state.commonBatches || [])
+  );
   // Prefer specific semester match over 'all'
   const globalLock = matchingLocks.find(l => {
     const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
@@ -1370,15 +1560,63 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   if (mergedAssigned.length > 0) {
     classes += ' slot-has-assignments';
   }
+  let lockFlagBadge = '';
   if (globalLock) {
     classes += ' slot-admin-flagged';
-  }
+    
+    const currentDeptUpper = ((currentCourse && currentCourse.department) || (state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
+    const lockLabelNorm = (globalLock.label || '').trim().toUpperCase();
+    const lockClean = lockLabelNorm.replace(/[^A-Z0-9]/g, '');
 
-  const lockFlagBadge = globalLock ? `
-    <div class="admin-lock-tag" title="Admin Flag: ${globalLock.label || 'Locked Period'}" style="font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
-      <i class="fa-solid fa-lock" style="font-size: 9px;"></i> ${globalLock.label || 'Admin Flag'}
-    </div>
-  ` : '';
+    const matchingDeptBatches = (state.commonBatches || []).filter(b => {
+      const bSubj = (b.subjectCode || '').trim().toUpperCase();
+      const bClean = bSubj.replace(/[^A-Z0-9]/g, '');
+      const matchSubj = (bSubj === lockLabelNorm) || (bClean && bClean === lockClean) || (bSubj && lockLabelNorm.includes(bSubj)) || (lockLabelNorm && bSubj.includes(lockLabelNorm));
+      const matchSem = (!globalLock.semester || globalLock.semester === 'all' || String(globalLock.semester) === String(b.semester)) &&
+                       (!courseSem || String(courseSem) === String(b.semester));
+      if (!matchSubj || !matchSem) return false;
+
+      const bDepts = Array.isArray(b.departments) && b.departments.length > 0
+        ? b.departments.map(d => String(d).trim().toUpperCase())
+        : [(b.department || '').trim().toUpperCase()];
+      const isOffering = (b.department || '').trim().toUpperCase() === currentDeptUpper;
+      const isParticipating = bDepts.includes(currentDeptUpper);
+      return isOffering || isParticipating;
+    });
+
+    if (matchingDeptBatches.length > 0) {
+      const batchesCards = matchingDeptBatches.map(b => {
+        const isExternal = (b.department || '').trim().toUpperCase() !== currentDeptUpper;
+        const offeringNotice = isExternal && b.department ? `<div style="font-size: 8px; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="fa-solid fa-school" style="font-size: 7px;"></i> From ${escapeHtml(b.department)}</div>` : '';
+        return `
+          <div class="common-batch-slot-card" style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 4px; padding: 2px 4px; margin-top: 2px; text-align: left; font-size: 9.5px; line-height: 1.25;" title="Batch: ${escapeHtml(b.batchName)} | Course: ${escapeHtml(b.courseCode || '')}${b.courseName ? ' - ' + escapeHtml(b.courseName) : ''} | Faculty: ${escapeHtml(b.teacherName || b.teacherCode || '')}">
+            <div style="font-weight: 700; color: #1d4ed8; display: flex; align-items: center; justify-content: space-between; gap: 2px;">
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72%;"><i class="fa-solid fa-users-rectangle" style="font-size: 8px;"></i> ${escapeHtml(b.batchName)}</span>
+              <span style="font-size: 8px; background: #dbeafe; color: #1e40af; padding: 0 3px; border-radius: 2px; font-weight: 600;">${escapeHtml(b.courseCode || b.subjectCode || '')}</span>
+            </div>
+            <div style="color: #1e3a8a; font-size: 8.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <i class="fa-solid fa-chalkboard-user" style="font-size: 7.5px;"></i> ${escapeHtml(b.teacherName || b.teacherCode || 'TBD')}
+            </div>
+            ${offeringNotice}
+          </div>
+        `;
+      }).join('');
+
+      lockFlagBadge = `
+        <div class="admin-lock-tag" title="Common Activity: ${globalLock.label || 'Locked Period'}" style="font-size: 9px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; display: flex; align-items: center; justify-content: space-between;">
+          <span><i class="fa-solid fa-lock" style="font-size: 8px;"></i> ${globalLock.label}</span>
+          <span style="font-size: 8px; background: #fde68a; padding: 0 3px; border-radius: 2px;">${matchingDeptBatches.length} Batch${matchingDeptBatches.length === 1 ? '' : 'es'}</span>
+        </div>
+        ${batchesCards}
+      `;
+    } else {
+      lockFlagBadge = `
+        <div class="admin-lock-tag" title="Admin Flag: ${globalLock.label || 'Locked Period'}" style="font-size: 10px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">
+          <i class="fa-solid fa-lock" style="font-size: 9px;"></i> ${globalLock.label || 'Admin Flag'}
+        </div>
+      `;
+    }
+  }
   
   const html = `
     <div class="cell-slot" onclick="activateSlot(this, '${baseCode}', '${activeCourseCode}', '${day}', '${period}')">
@@ -1417,25 +1655,17 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
   const course = state.courses.find(c => c.code === activeCourseCode) || state.courses.find(c => c.code === baseCode);
   const courseSem = course ? String(course.semester).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
   const courseSemNum = course ? (parseInt(String(course.semester).replace(/\D+/g, ''), 10) || 0) : 0;
-  const matchingLocks = globalLocks.filter(l => {
-    if (l.day.toUpperCase() !== day.toUpperCase() || String(l.period).trim() !== String(period).trim()) return false;
-    const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-    if (!lockSem || lockSem === 'all' || lockSem === '') return true;
-    return lockSem === courseSem;
-  });
+  
+  const matchingLocks = globalLocks.filter(l => 
+    isPeriodLockedForCourse(l, course, day, period, state.commonBatches || [])
+  );
   const globalLock = matchingLocks.find(l => {
     const lockSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
     return lockSem === courseSem;
   }) || matchingLocks[0];
 
   if (globalLock) {
-    showModalConfirm(
-      'Admin Flagged Period',
-      `This period (${day} Period ${period}) is flagged institution-wide by Central Admin: "${globalLock.label || 'College Common Activity'}".\n\nDo you want to manually assign a faculty member to this slot?`,
-      () => {
-        openSelector();
-      }
-    );
+    openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSelector);
     return;
   }
 
@@ -2554,6 +2784,59 @@ function computeFacultyWeeklySchedules(deptName) {
     });
   });
 
+  // Include Common Batches in faculty schedules for locked periods
+  const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+  const commonBatches = state.commonBatches || [];
+  
+  commonBatches.forEach(b => {
+    const bSubj = (b.subjectCode || '').trim().toUpperCase();
+    const bSem = String(b.semester || '').trim();
+    
+    const matchingLocks = globalLocks.filter(l => {
+      const lUpper = (l.label || '').trim().toUpperCase();
+      const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+      const matchLabel = (lUpper === bSubj) || (bSubj && lUpper.includes(bSubj)) || (lUpper && bSubj.includes(lUpper));
+      const matchSem = (!lSem || lSem === 'all' || lSem === bSem.toLowerCase());
+      return matchLabel && matchSem;
+    });
+
+    // Collect teacher codes
+    const teacherCodes = Array.isArray(b.teachers) && b.teachers.length > 0
+      ? b.teachers
+      : (b.teacherCode ? b.teacherCode.split(',').map(s => s.trim()) : []);
+
+    matchingLocks.forEach(l => {
+      const dayUpper = (l.day || '').toUpperCase();
+      const period = String(l.period || '').trim();
+      if (!dayUpper || !period) return;
+
+      teacherCodes.forEach(tCode => {
+        if (schedules[tCode]) {
+          if (!schedules[tCode].slots[dayUpper]) {
+            schedules[tCode].slots[dayUpper] = {};
+          }
+          if (!schedules[tCode].slots[dayUpper][period]) {
+            schedules[tCode].slots[dayUpper][period] = [];
+          }
+          const already = schedules[tCode].slots[dayUpper][period].some(x => x.courseCode === (b.courseCode || b.subjectCode) && x.batchName === b.batchName);
+          if (!already) {
+            schedules[tCode].slots[dayUpper][period].push({
+              courseCode: b.courseCode || b.subjectCode,
+              courseName: `${b.batchName}: ${b.courseName || b.courseCode || b.subjectCode}`,
+              courseAlias: `${b.batchName} (${b.subjectCode})`,
+              semester: b.semester,
+              category: b.subjectCode || 'MDC',
+              type: 'T',
+              batchName: b.batchName
+            });
+            schedules[tCode].totalHours++;
+            schedules[tCode].theoryHours++;
+          }
+        }
+      });
+    });
+  });
+
   return schedules;
 }
 
@@ -3041,6 +3324,9 @@ function bindAdvancedFeaturesModalEvents() {
     });
   }
 
+  // Common Subject Mapping Controls
+  bindCommonSubjectMappingEvents();
+
   // Auto Generator Controls
   const autoGenProgSelect = document.getElementById('auto-gen-program-select');
   const autoGenCoursesProg = document.getElementById('auto-gen-courses-program');
@@ -3147,6 +3433,7 @@ function openAdvancedFeaturesModal(initialPaneId = 'adv-pane-teacher-unavail') {
 function closeAdvancedFeaturesModal() {
   const modal = document.getElementById('modal-advanced-features');
   if (modal) modal.classList.add('hidden');
+  selectedCommonSubjectCode = null;
 }
 
 function switchAdvancedFeaturesTab(paneId) {
@@ -3175,6 +3462,8 @@ function switchAdvancedFeaturesTab(paneId) {
     renderTeacherAvailabilityEditor();
   } else if (paneId === 'adv-pane-subject-mapping') {
     renderSubjectMappingTiles();
+  } else if (paneId === 'adv-pane-common-subject-mapping') {
+    renderCommonSubjectMappingTiles();
   } else if (paneId === 'adv-pane-auto-generate') {
     initAutoGeneratorPane();
   } else if (paneId === 'adv-pane-teacher-timetable') {
@@ -4320,6 +4609,1022 @@ async function saveAllSubjectMappings() {
 }
 
 // -------------------------------------------------------------
+// TAB: Common Subject Mapping & Locked Period Inspection
+// -------------------------------------------------------------
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const COMMON_SUBJECT_DEFINITIONS = [
+  // Semester 1
+  {
+    code: 'AEC1',
+    name: 'Ability Enhancement Course 1 (AEC1)',
+    semester: '1',
+    departments: ['ENGLISH'],
+    desc: 'Offered exclusively by English Department for Semester 1 students.'
+  },
+  {
+    code: 'AEC2',
+    name: 'Ability Enhancement Course 2 (AEC2)',
+    semester: '1',
+    departments: ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'],
+    desc: 'Language & Ability course for Semester 1 students across Malayalam, English, Hindi, and Sanskrit.'
+  },
+  {
+    code: 'MDC1',
+    name: 'Multi-Disciplinary Course 1 (MDC1)',
+    semester: '1',
+    departments: 'ALL',
+    desc: 'Institution-wide multidisciplinary course for all Semester 1 students across all departments.'
+  },
+  // Semester 2
+  {
+    code: 'AEC3',
+    name: 'Ability Enhancement Course 3 (AEC3)',
+    semester: '2',
+    departments: ['ENGLISH'],
+    desc: 'Offered exclusively by English Department for Semester 2 students.'
+  },
+  {
+    code: 'AEC4',
+    name: 'Ability Enhancement Course 4 (AEC4)',
+    semester: '2',
+    departments: ['ENGLISH', 'MALAYALAM', 'HINDI', 'SANSKRIT'],
+    desc: 'Language & Ability course for Semester 2 students across English, Malayalam, Hindi, and Sanskrit.'
+  },
+  {
+    code: 'MDC-2',
+    name: 'Multi-Disciplinary Course 2 (MDC-2)',
+    semester: '2',
+    departments: 'ALL',
+    desc: 'Institution-wide multidisciplinary course for all Semester 2 students across all departments.'
+  },
+  // Semester 3
+  {
+    code: 'VAC1',
+    name: 'Value Addition Course 1 (VAC1)',
+    semester: '3',
+    departments: ['ENGLISH'],
+    desc: 'Value Addition Course for Semester 3 students, offered by English Department.'
+  },
+  {
+    code: 'MDC3',
+    name: 'Multi-Disciplinary Course 3 (MDC3)',
+    semester: '3',
+    departments: ['ENGLISH'],
+    desc: 'Multi-Disciplinary Course for Semester 3 students, offered by English Department.'
+  },
+  // Semester 4
+  {
+    code: 'VAC2',
+    name: 'Value Addition Course 2 (VAC2)',
+    semester: '4',
+    departments: ['ENGLISH'],
+    desc: 'Value Addition Course for Semester 4 students, offered by English Department.'
+  },
+  {
+    code: 'SEC',
+    name: 'Skill Enhancement Course (SEC)',
+    semester: '4',
+    departments: ['ENGLISH'],
+    desc: 'Skill Enhancement Course for Semester 4 students, offered by English Department.'
+  },
+  {
+    code: 'VAC3',
+    name: 'Value Addition Course 3 (VAC3)',
+    semester: '4',
+    departments: ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'],
+    desc: 'Value Addition Course for Semester 4 students across Malayalam, English, Hindi, and Sanskrit.'
+  }
+];
+
+let selectedCommonSubjectCode = null;
+
+function getVisibleCommonSubjects() {
+  const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').trim().toUpperCase();
+  return COMMON_SUBJECT_DEFINITIONS.filter(def => {
+    if (def.departments === 'ALL') return true;
+    return def.departments.some(d => d.toUpperCase() === userDept);
+  });
+}
+
+function findAutoMappedCourse(subjectCode, semester, department) {
+  if (!department) return null;
+  const deptUpper = department.trim().toUpperCase();
+  const semStr = String(semester || '').trim();
+  const subjUpper = (subjectCode || '').trim().toUpperCase();
+
+  const deptCourses = (state.courses || []).filter(c => (c.department || '').trim().toUpperCase() === deptUpper);
+  const sameSemCourses = deptCourses.filter(c => String(c.semester || '').trim() === semStr);
+
+  const scoreCourse = (c) => {
+    const cat = (c.category || '').toUpperCase();
+    const code = (c.code || '').toUpperCase();
+    const name = (c.name || '').toUpperCase();
+
+    if (subjUpper.startsWith('MDC')) {
+      if (cat === 'MDC') return 100;
+      if (code.includes('FM') || code.includes('MDC')) return 90;
+      if (name.includes('MDC') || name.includes('MULTIDISCIPLINARY')) return 80;
+    }
+    if (subjUpper.startsWith('AEC')) {
+      if (cat === 'AEC') return 100;
+      if (code.includes('FA') || code.includes('AEC')) return 90;
+      if (name.includes('AEC') || name.includes('ABILITY ENHANCEMENT')) return 80;
+    }
+    if (subjUpper.startsWith('VAC')) {
+      if (cat === 'VAC') return 100;
+      if (code.includes('FV') || code.includes('VAC')) return 90;
+      if (name.includes('VAC') || name.includes('VALUE ADDITION')) return 80;
+    }
+    if (subjUpper.startsWith('SEC')) {
+      if (cat === 'SEC') return 100;
+      if (code.includes('FS') || code.includes('SEC')) return 90;
+      if (name.includes('SEC') || name.includes('SKILL ENHANCEMENT')) return 80;
+    }
+    if (code.includes(subjUpper) || name.includes(subjUpper)) return 70;
+    return 0;
+  };
+
+  let bestMatch = null;
+  let bestScore = 0;
+  sameSemCourses.forEach(c => {
+    const s = scoreCourse(c);
+    if (s > bestScore) {
+      bestScore = s;
+      bestMatch = c;
+    }
+  });
+
+  if (bestMatch && bestScore > 0) return bestMatch;
+
+  deptCourses.forEach(c => {
+    const s = scoreCourse(c);
+    if (s > bestScore) {
+      bestScore = s;
+      bestMatch = c;
+    }
+  });
+
+  if (bestMatch && bestScore > 0) return bestMatch;
+  return sameSemCourses[0] || deptCourses[0] || null;
+}
+
+function renderCommonSubjectMappingTiles() {
+  const mainView = document.getElementById('common-subjects-main-view');
+  const detailView = document.getElementById('common-subject-detail-view');
+  const container = document.getElementById('common-subjects-tiles-grid');
+  const deptBadge = document.getElementById('common-current-dept-badge');
+  const semFilter = document.getElementById('common-sem-filter');
+  if (!container) return;
+
+  // If currently in detail view, re-render detail view instead
+  if (selectedCommonSubjectCode) {
+    openCommonSubjectDetail(selectedCommonSubjectCode);
+    return;
+  }
+
+  if (mainView) mainView.classList.remove('hidden');
+  if (detailView) detailView.classList.add('hidden');
+
+  const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').trim().toUpperCase();
+  if (deptBadge) deptBadge.textContent = userDept || 'DEPARTMENT';
+
+  let visibleSubjects = getVisibleCommonSubjects();
+  const selectedSem = semFilter ? semFilter.value : '';
+  if (selectedSem) {
+    if (selectedSem === 'odd') {
+      visibleSubjects = visibleSubjects.filter(subj => parseInt(String(subj.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (selectedSem === 'even') {
+      visibleSubjects = visibleSubjects.filter(subj => parseInt(String(subj.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else {
+      visibleSubjects = visibleSubjects.filter(subj => String(subj.semester) === String(selectedSem));
+    }
+  }
+
+  const allBatches = state.commonBatches || [];
+
+  if (visibleSubjects.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 36px 20px; text-align: center; background: #ffffff; border: 1.5px dashed var(--border); border-radius: var(--radius-md);">
+        <i class="fa-solid fa-layer-group text-muted" style="font-size: 28px; margin-bottom: 8px;"></i>
+        <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700;">No Common Subjects Found</h4>
+        <p class="text-muted text-xs mb-0">${selectedSem ? `No common subjects found for Semester ${selectedSem}.` : `No common subjects assigned to ${userDept}.`}</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = visibleSubjects.map(subj => {
+    const subjBatches = allBatches.filter(b => (b.subjectCode || '').toUpperCase() === subj.code.toUpperCase());
+    const eligibleDeptStr = Array.isArray(subj.departments) ? subj.departments.join(', ') : 'All Departments';
+
+    return `
+      <div class="common-subject-card" onclick="openCommonSubjectDetail('${subj.code}')">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="subject-code-badge">${subj.code}</span>
+            <span class="subject-sem-tag">Sem ${subj.semester}</span>
+          </div>
+          <h4 class="subject-card-title">${escapeHtml(subj.name)}</h4>
+          <span class="text-xs text-muted" style="font-size: 11px; display: block;">${eligibleDeptStr}</span>
+        </div>
+
+        <div class="subject-card-meta">
+          <span class="badge ${subjBatches.length > 0 ? 'badge-info' : ''}" style="${subjBatches.length === 0 ? 'background: #f1f5f9; color: #64748b;' : ''}">
+            <i class="fa-solid fa-users"></i> ${subjBatches.length} Batch${subjBatches.length === 1 ? '' : 'es'}
+          </span>
+          <span class="action-indicator">
+            Manage Batches <i class="fa-solid fa-arrow-right"></i>
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.openCommonSubjectDetail = function(subjectCode) {
+  selectedCommonSubjectCode = subjectCode;
+  const mainView = document.getElementById('common-subjects-main-view');
+  const detailView = document.getElementById('common-subject-detail-view');
+  if (mainView) mainView.classList.add('hidden');
+  if (detailView) detailView.classList.remove('hidden');
+
+  const subj = COMMON_SUBJECT_DEFINITIONS.find(s => s.code.toUpperCase() === subjectCode.toUpperCase()) || {
+    code: subjectCode,
+    name: subjectCode,
+    semester: '1',
+    departments: 'ALL'
+  };
+
+  const codeBadge = document.getElementById('detail-subject-code-badge');
+  const titleEl = document.getElementById('detail-subject-title');
+  const semTag = document.getElementById('detail-subject-sem-tag');
+  const countPill = document.getElementById('detail-batches-count-pill');
+  const container = document.getElementById('detail-subject-batches-container');
+
+  if (codeBadge) codeBadge.textContent = subj.code;
+  if (titleEl) titleEl.textContent = subj.name;
+  if (semTag) semTag.textContent = `Semester ${subj.semester}`;
+
+  const allBatches = state.commonBatches || [];
+  const subjBatches = allBatches.filter(b => (b.subjectCode || '').toUpperCase() === subj.code.toUpperCase());
+  const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').trim().toUpperCase();
+
+  if (countPill) {
+    countPill.textContent = `${subjBatches.length} Batch${subjBatches.length === 1 ? '' : 'es'}`;
+  }
+
+  if (container) {
+    if (subjBatches.length === 0) {
+      container.innerHTML = `
+        <div style="background: #ffffff; border: 1.5px dashed var(--border); border-radius: var(--radius-md); padding: 36px 20px; text-align: center;">
+          <i class="fa-solid fa-folder-open text-muted" style="font-size: 32px; margin-bottom: 10px;"></i>
+          <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700;">No Batches Configured Yet</h4>
+          <p class="text-muted text-xs mb-3">Create a batch to assign courses and faculty members for ${subj.code}.</p>
+          <button type="button" class="btn btn-primary btn-sm" onclick="openCreateCommonBatchModal('${subj.code}', '${subj.semester}')">
+            <i class="fa-solid fa-plus"></i> Create First Batch
+          </button>
+        </div>
+      `;
+    } else {
+      container.innerHTML = subjBatches.map(b => {
+        const batchDepts = Array.isArray(b.departments) && b.departments.length > 0 
+          ? b.departments 
+          : (b.department ? b.department.split(',').map(s => s.trim()) : []);
+        const isOwnDept = batchDepts.some(d => d.toUpperCase() === userDept) || (b.department || '').toUpperCase() === userDept;
+        return `
+          <div class="common-batch-item-card ${isOwnDept ? 'is-own-dept' : ''}">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                <strong style="font-size: 14px; color: var(--text-main);">${escapeHtml(b.batchName)}</strong>
+                ${batchDepts.map(d => `<span class="badge badge-info" style="font-size: 10px; padding: 2px 6px;">${escapeHtml(d)}</span>`).join(' ')}
+                ${isOwnDept ? `<span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;"><i class="fa-solid fa-check"></i> Your Dept</span>` : ''}
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span>Course: <strong style="color: var(--text-main);">${escapeHtml(b.courseCode || '')}${b.courseName ? ` &mdash; ${escapeHtml(b.courseName)}` : ''}</strong></span>
+                <span>&bull;</span>
+                <span>Faculty: <strong style="color: var(--primary);">${escapeHtml(b.teacherName || b.teacherCode || '')}</strong></span>
+                ${b.department && batchDepts.length > 1 ? `<span>&bull;</span><span>Offering: <strong style="color: var(--text-main);">${escapeHtml(b.department)}</strong></span>` : ''}
+              </div>
+            </div>
+
+            <div>
+              ${isOwnDept ? `
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <button type="button" class="btn btn-outline btn-xs" style="color: var(--primary); border-color: #c7d2fe; padding: 4px 8px; border-radius: 4px;" title="Edit this batch / course mapping" onclick="editCommonBatch('${b.id}')">
+                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                  </button>
+                  <button type="button" class="btn btn-outline btn-xs" style="color: var(--danger); border-color: #fca5a5; padding: 4px 8px; border-radius: 4px;" title="Delete this batch" onclick="deleteCommonBatch('${b.id}')">
+                    <i class="fa-solid fa-trash-can"></i> Delete
+                  </button>
+                </div>
+              ` : `
+                <span class="text-muted text-xs">External Dept</span>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+};
+
+window.closeCommonSubjectDetail = function() {
+  selectedCommonSubjectCode = null;
+  const mainView = document.getElementById('common-subjects-main-view');
+  const detailView = document.getElementById('common-subject-detail-view');
+  if (detailView) detailView.classList.add('hidden');
+  if (mainView) mainView.classList.remove('hidden');
+  renderCommonSubjectMappingTiles();
+};
+
+window.editCommonBatch = function(batchId) {
+  const batch = (state.commonBatches || []).find(b => b.id === batchId);
+  if (!batch) return;
+  openCreateCommonBatchModal(batch.subjectCode, batch.semester, batchId);
+};
+
+window.openCreateCommonBatchModal = function(subjectCode, semester, editingBatchId = null) {
+  const modal = document.getElementById('modal-create-common-batch');
+  if (!modal) return;
+
+  const codeToUse = subjectCode || selectedCommonSubjectCode || 'MDC1';
+  const subjDef = COMMON_SUBJECT_DEFINITIONS.find(s => s.code.toUpperCase() === codeToUse.toUpperCase()) || {
+    code: codeToUse,
+    name: codeToUse,
+    semester: semester || '1',
+    departments: 'ALL'
+  };
+
+  const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').trim().toUpperCase();
+  const existingBatch = editingBatchId ? (state.commonBatches || []).find(b => b.id === editingBatchId) : null;
+
+  document.getElementById('common-batch-id').value = editingBatchId || '';
+  document.getElementById('common-batch-subject-code').value = subjDef.code;
+  document.getElementById('common-batch-semester').value = subjDef.semester;
+  document.getElementById('common-batch-label-display').textContent = `${subjDef.code} \u2014 ${subjDef.name}`;
+  document.getElementById('common-batch-sem-badge').textContent = `Semester ${subjDef.semester}`;
+
+  const titleEl = document.getElementById('modal-common-batch-title');
+  if (titleEl) {
+    titleEl.textContent = existingBatch ? 'Edit Batch' : 'Create Batch';
+  }
+
+  const nameInput = document.getElementById('common-batch-name-input');
+  if (existingBatch) {
+    nameInput.value = existingBatch.batchName || '';
+  } else {
+    const subjBatches = (state.commonBatches || []).filter(b => (b.subjectCode || '').toUpperCase() === subjDef.code.toUpperCase());
+    nameInput.value = `Batch ${subjBatches.length + 1}`;
+  }
+
+  const courseSelect = document.getElementById('common-batch-course-select');
+  const selectedCourseCodeInput = document.getElementById('common-batch-selected-course-code');
+  const courseConfirmEl = document.getElementById('common-batch-course-confirmation');
+  const courseMetaEl = document.getElementById('common-batch-course-meta');
+  const editMappingWrapper = document.getElementById('wrapper-edit-course-mapping');
+  const btnToggleEditCourse = document.getElementById('btn-toggle-edit-course-mapping');
+
+  if (editMappingWrapper) {
+    editMappingWrapper.classList.add('hidden');
+  }
+
+  // Auto-fetch offering department from logged-in department (or existing batch's offering dept)
+  const offeringDept = (existingBatch && existingBatch.department) ? existingBatch.department.toUpperCase() : (userDept || 'ENGLISH');
+  const offeringDeptDisplay = document.getElementById('common-batch-offering-dept-display');
+  const offeringDeptVal = document.getElementById('common-batch-offering-dept-val');
+  if (offeringDeptDisplay) offeringDeptDisplay.textContent = offeringDept;
+  if (offeringDeptVal) offeringDeptVal.value = offeringDept;
+
+  // Always include all departments across the institution for participating departments selection
+  let allDepts = [];
+  if (Array.isArray(state.departments) && state.departments.length > 0) {
+    allDepts = state.departments.map(d => typeof d === 'string' ? d : d.name).filter(Boolean);
+  }
+  if (allDepts.length === 0) {
+    allDepts = ['BOTANY', 'CHEMISTRY', 'COMMERCE', 'COMPUTER SCIENCE', 'ECONOMICS', 'ELECTRONICS', 'ENGLISH', 'HINDI', 'HISTORY', 'MALAYALAM', 'MATHEMATICS', 'PHYSICS', 'POLITICAL SCIENCE', 'PSYCHOLOGY', 'SANSKRIT', 'STATISTICS', 'ZOOLOGY'];
+  }
+  const eligibleDepts = Array.from(new Set(allDepts.map(d => d.trim().toUpperCase()))).sort();
+
+  // Determine initial selected participating departments
+  let initialSelectedDepts = [];
+  if (existingBatch) {
+    initialSelectedDepts = Array.isArray(existingBatch.departments) && existingBatch.departments.length > 0 
+      ? existingBatch.departments 
+      : (existingBatch.department ? [existingBatch.department] : [offeringDept]);
+  } else {
+    initialSelectedDepts = offeringDept && eligibleDepts.includes(offeringDept) ? [offeringDept] : [eligibleDepts[0]];
+  }
+
+  // Department Searchable Multi-Select Dropdown Controls
+  const deptsBtn = document.getElementById('common-batch-depts-dropdown-btn');
+  const deptsMenu = document.getElementById('common-batch-depts-dropdown-menu');
+  const deptsChevron = document.getElementById('common-batch-depts-chevron');
+  const deptsTriggerText = document.getElementById('common-batch-depts-trigger-text');
+  const deptsSearchInput = document.getElementById('common-batch-depts-search-input');
+  const deptsList = document.getElementById('common-batch-depts-list');
+  const deptsCountBadge = document.getElementById('common-batch-depts-count-badge');
+  const deptsModalCount = document.getElementById('common-batch-depts-modal-count');
+  const btnDeptsSelectAll = document.getElementById('btn-batch-depts-select-all');
+  const btnDeptsClearAll = document.getElementById('btn-batch-depts-clear-all');
+  const btnDeptsDone = document.getElementById('btn-batch-depts-done');
+
+  if (deptsMenu) deptsMenu.classList.add('hidden');
+  if (deptsChevron) deptsChevron.style.transform = 'rotate(0deg)';
+  if (deptsSearchInput) deptsSearchInput.value = '';
+
+  if (deptsList) {
+    deptsList.innerHTML = eligibleDepts.map(d => {
+      const isChecked = initialSelectedDepts.some(x => x.toUpperCase() === d.toUpperCase());
+      return `
+        <label class="dropdown-check-item dropdown-dept-item" data-name="${escapeHtml(d)}">
+          <input type="checkbox" class="common-batch-dept-cb" value="${escapeHtml(d)}" ${isChecked ? 'checked' : ''}>
+          <span>${escapeHtml(d)}</span>
+        </label>
+      `;
+    }).join('');
+  }
+
+  const updateSelectedDeptsUI = () => {
+    const checkedCbs = deptsList ? Array.from(deptsList.querySelectorAll('.common-batch-dept-cb:checked')) : [];
+    const checkedDepts = checkedCbs.map(cb => cb.value);
+
+    if (deptsCountBadge) deptsCountBadge.textContent = `${checkedDepts.length} Selected`;
+    if (deptsModalCount) deptsModalCount.textContent = `${checkedDepts.length} of ${eligibleDepts.length} selected`;
+
+    if (deptsTriggerText) {
+      if (checkedDepts.length === 0) {
+        deptsTriggerText.innerHTML = '<span class="text-muted">Select participating departments...</span>';
+      } else if (checkedDepts.length === 1) {
+        deptsTriggerText.innerHTML = `<span style="font-weight: 600; color: var(--text-main);">${escapeHtml(checkedDepts[0])}</span>`;
+      } else if (checkedDepts.length <= 3) {
+        deptsTriggerText.innerHTML = `<span style="font-weight: 600; color: var(--text-main);">${checkedDepts.map(d => escapeHtml(d)).join(', ')}</span>`;
+      } else {
+        deptsTriggerText.innerHTML = `
+          <span class="badge badge-info" style="font-size: 10px; padding: 2px 6px; font-weight: 700;">${checkedDepts.length} Departments Selected</span>
+          <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${escapeHtml(checkedDepts.slice(0, 2).join(', '))}, +${checkedDepts.length - 2} more)</span>
+        `;
+      }
+    }
+  };
+
+  if (deptsSearchInput && deptsList) {
+    deptsSearchInput.oninput = () => {
+      const q = deptsSearchInput.value.trim().toUpperCase();
+      deptsList.querySelectorAll('.dropdown-dept-item').forEach(lbl => {
+        const name = (lbl.getAttribute('data-name') || '').toUpperCase();
+        lbl.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
+      });
+    };
+  }
+
+  if (deptsList) {
+    deptsList.onchange = updateSelectedDeptsUI;
+  }
+  if (btnDeptsSelectAll && deptsList) {
+    btnDeptsSelectAll.onclick = () => {
+      deptsList.querySelectorAll('.dropdown-dept-item').forEach(lbl => {
+        if (lbl.style.display !== 'none') {
+          const cb = lbl.querySelector('input');
+          if (cb) cb.checked = true;
+        }
+      });
+      updateSelectedDeptsUI();
+    };
+  }
+  if (btnDeptsClearAll && deptsList) {
+    btnDeptsClearAll.onclick = () => {
+      deptsList.querySelectorAll('.common-batch-dept-cb').forEach(cb => { cb.checked = false; });
+      updateSelectedDeptsUI();
+    };
+  }
+  if (deptsBtn && deptsMenu) {
+    deptsBtn.onclick = (e) => {
+      e.stopPropagation();
+      const isClosed = deptsMenu.classList.contains('hidden');
+      const teachersMenuEl = document.getElementById('common-batch-teachers-dropdown-menu');
+      const teachersChevronEl = document.getElementById('common-batch-teachers-chevron');
+      if (teachersMenuEl) {
+        teachersMenuEl.classList.add('hidden');
+        if (teachersChevronEl) teachersChevronEl.style.transform = 'rotate(0deg)';
+      }
+      if (isClosed) {
+        deptsMenu.classList.remove('hidden');
+        if (deptsChevron) deptsChevron.style.transform = 'rotate(180deg)';
+        if (deptsSearchInput) {
+          deptsSearchInput.value = '';
+          deptsSearchInput.focus();
+          deptsList.querySelectorAll('.dropdown-dept-item').forEach(lbl => { lbl.style.display = 'flex'; });
+        }
+      } else {
+        deptsMenu.classList.add('hidden');
+        if (deptsChevron) deptsChevron.style.transform = 'rotate(0deg)';
+      }
+    };
+  }
+  if (btnDeptsDone && deptsMenu) {
+    btnDeptsDone.onclick = (e) => {
+      e.stopPropagation();
+      deptsMenu.classList.add('hidden');
+      if (deptsChevron) deptsChevron.style.transform = 'rotate(0deg)';
+    };
+  }
+  updateSelectedDeptsUI();
+
+  const updateCourseConfirmationDisplay = (course) => {
+    if (!course) {
+      if (courseConfirmEl) courseConfirmEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> No matching course found</span>`;
+      if (courseMetaEl) courseMetaEl.textContent = 'Please click "Change Course" to select a course manually.';
+      if (selectedCourseCodeInput) selectedCourseCodeInput.value = '';
+      if (editMappingWrapper) editMappingWrapper.classList.remove('hidden');
+      return;
+    }
+
+    if (selectedCourseCodeInput) selectedCourseCodeInput.value = course.code;
+    if (courseConfirmEl) {
+      courseConfirmEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span class="badge badge-info" style="font-size: 11px; padding: 3px 8px; font-weight: 700;">${escapeHtml(course.code)}</span>
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">${escapeHtml(course.name || course.code)}</span>
+        </div>
+      `;
+    }
+    if (courseMetaEl) {
+      courseMetaEl.innerHTML = `Semester ${course.semester || subjDef.semester} &bull; Category: <strong>${escapeHtml(course.category || 'MDC')}</strong> &bull; <span class="text-success"><i class="fa-solid fa-circle-check"></i> Ready for batch</span>`;
+    }
+  };
+
+  // Populate Courses offered by this offering department
+  const deptCourses = state.courses.filter(c => (c.department || '').trim().toUpperCase() === offeringDept);
+  deptCourses.sort((a, b) => {
+    const aMatch = String(a.semester) === String(subjDef.semester) ? 0 : 1;
+    const bMatch = String(b.semester) === String(subjDef.semester) ? 0 : 1;
+    if (aMatch !== bMatch) return aMatch - bMatch;
+    return (a.code || '').localeCompare(b.code || '');
+  });
+
+  if (deptCourses.length === 0) {
+    courseSelect.innerHTML = `<option value="">No courses found for ${offeringDept}</option>`;
+  } else {
+    courseSelect.innerHTML = deptCourses.map(c => `
+      <option value="${c.code}" data-title="${escapeHtml(c.name || '')}" data-category="${escapeHtml(c.category || '')}" data-sem="${c.semester || ''}">
+        ${c.code} - ${escapeHtml(c.name || '')} (Sem ${c.semester || '?'}, ${c.category || 'Course'})
+      </option>
+    `).join('');
+  }
+
+  // Determine initial mapped course
+  let targetCourse = null;
+  if (existingBatch && existingBatch.courseCode) {
+    targetCourse = deptCourses.find(c => c.code === existingBatch.courseCode);
+  }
+  if (!targetCourse) {
+    targetCourse = findAutoMappedCourse(subjDef.code, subjDef.semester, offeringDept);
+  }
+
+  if (targetCourse) {
+    courseSelect.value = targetCourse.code;
+    updateCourseConfirmationDisplay(targetCourse);
+  } else {
+    updateCourseConfirmationDisplay(deptCourses[0] || null);
+  }
+
+  // Populate Teachers (Multi-select) from the offering department
+  const deptFaculty = state.faculty.filter(f => (f.department || '').trim().toUpperCase() === offeringDept);
+  deptFaculty.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  let initialSelectedTeachers = [];
+  if (existingBatch) {
+    if (Array.isArray(existingBatch.teachers) && existingBatch.teachers.length > 0) {
+      initialSelectedTeachers = existingBatch.teachers;
+    } else if (existingBatch.teacherCode) {
+      initialSelectedTeachers = existingBatch.teacherCode.split(',').map(s => s.trim());
+    }
+  }
+
+  // Teacher Searchable Multi-Select Dropdown Controls
+  const teachersBtn = document.getElementById('common-batch-teachers-dropdown-btn');
+  const teachersMenu = document.getElementById('common-batch-teachers-dropdown-menu');
+  const teachersChevron = document.getElementById('common-batch-teachers-chevron');
+  const teachersTriggerText = document.getElementById('common-batch-teachers-trigger-text');
+  const teachersSearchInput = document.getElementById('common-batch-teachers-search-input');
+  const teachersList = document.getElementById('common-batch-teachers-list');
+  const teachersCountBadge = document.getElementById('common-batch-teachers-count-badge');
+  const teachersModalCount = document.getElementById('common-batch-teachers-modal-count');
+  const btnTeachersSelectAll = document.getElementById('btn-batch-teachers-select-all');
+  const btnTeachersClearAll = document.getElementById('btn-batch-teachers-clear-all');
+  const btnTeachersDone = document.getElementById('btn-batch-teachers-done');
+
+  if (teachersMenu) teachersMenu.classList.add('hidden');
+  if (teachersChevron) teachersChevron.style.transform = 'rotate(0deg)';
+  if (teachersSearchInput) teachersSearchInput.value = '';
+
+  if (teachersList) {
+    if (deptFaculty.length === 0) {
+      teachersList.innerHTML = `<span class="text-muted text-xs p-2">No faculty found in ${escapeHtml(offeringDept)}</span>`;
+    } else {
+      teachersList.innerHTML = deptFaculty.map(f => {
+        const isChecked = initialSelectedTeachers.includes(f.code);
+        return `
+          <label class="dropdown-check-item dropdown-teacher-item" data-name="${escapeHtml(f.name || f.code)}" data-code="${escapeHtml(f.code)}">
+            <input type="checkbox" class="common-batch-teacher-cb" value="${escapeHtml(f.code)}" data-name="${escapeHtml(f.name || f.code)}" ${isChecked ? 'checked' : ''}>
+            <strong style="color: var(--primary); min-width: 32px; font-size: 11px;">${escapeHtml(f.code)}</strong>
+            <span>${escapeHtml(f.name || f.code)}</span>
+          </label>
+        `;
+      }).join('');
+    }
+  }
+
+  const updateSelectedTeachersUI = () => {
+    const checkedCbs = teachersList ? Array.from(teachersList.querySelectorAll('.common-batch-teacher-cb:checked')) : [];
+    const checkedNames = checkedCbs.map(cb => cb.getAttribute('data-name') || cb.value);
+
+    if (teachersCountBadge) teachersCountBadge.textContent = `${checkedCbs.length} Selected`;
+    if (teachersModalCount) teachersModalCount.textContent = `${checkedCbs.length} of ${deptFaculty.length} selected`;
+
+    if (teachersTriggerText) {
+      if (checkedCbs.length === 0) {
+        teachersTriggerText.innerHTML = '<span class="text-muted">Select faculty members...</span>';
+      } else if (checkedCbs.length === 1) {
+        teachersTriggerText.innerHTML = `<span style="font-weight: 600; color: var(--text-main);">${escapeHtml(checkedNames[0])}</span>`;
+      } else if (checkedCbs.length <= 2) {
+        teachersTriggerText.innerHTML = `<span style="font-weight: 600; color: var(--text-main);">${checkedNames.map(n => escapeHtml(n)).join(', ')}</span>`;
+      } else {
+        teachersTriggerText.innerHTML = `
+          <span class="badge badge-info" style="font-size: 10px; padding: 2px 6px; font-weight: 700;">${checkedCbs.length} Faculty Selected</span>
+          <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${escapeHtml(checkedNames.slice(0, 2).join(', '))}, +${checkedCbs.length - 2} more)</span>
+        `;
+      }
+    }
+  };
+
+  if (teachersSearchInput && teachersList) {
+    teachersSearchInput.oninput = () => {
+      const q = teachersSearchInput.value.trim().toUpperCase();
+      teachersList.querySelectorAll('.dropdown-teacher-item').forEach(lbl => {
+        const name = (lbl.getAttribute('data-name') || '').toUpperCase();
+        const code = (lbl.getAttribute('data-code') || '').toUpperCase();
+        lbl.style.display = (!q || name.includes(q) || code.includes(q)) ? 'flex' : 'none';
+      });
+    };
+  }
+
+  if (teachersList) {
+    teachersList.onchange = updateSelectedTeachersUI;
+  }
+  if (btnTeachersSelectAll && teachersList) {
+    btnTeachersSelectAll.onclick = () => {
+      teachersList.querySelectorAll('.dropdown-teacher-item').forEach(lbl => {
+        if (lbl.style.display !== 'none') {
+          const cb = lbl.querySelector('input');
+          if (cb) cb.checked = true;
+        }
+      });
+      updateSelectedTeachersUI();
+    };
+  }
+  if (btnTeachersClearAll && teachersList) {
+    btnTeachersClearAll.onclick = () => {
+      teachersList.querySelectorAll('.common-batch-teacher-cb').forEach(cb => { cb.checked = false; });
+      updateSelectedTeachersUI();
+    };
+  }
+  if (teachersBtn && teachersMenu) {
+    teachersBtn.onclick = (e) => {
+      e.stopPropagation();
+      const isClosed = teachersMenu.classList.contains('hidden');
+      const deptsMenuEl = document.getElementById('common-batch-depts-dropdown-menu');
+      const deptsChevronEl = document.getElementById('common-batch-depts-chevron');
+      if (deptsMenuEl) {
+        deptsMenuEl.classList.add('hidden');
+        if (deptsChevronEl) deptsChevronEl.style.transform = 'rotate(0deg)';
+      }
+      if (isClosed) {
+        teachersMenu.classList.remove('hidden');
+        if (teachersChevron) teachersChevron.style.transform = 'rotate(180deg)';
+        if (teachersSearchInput) {
+          teachersSearchInput.value = '';
+          teachersSearchInput.focus();
+          teachersList.querySelectorAll('.dropdown-teacher-item').forEach(lbl => { lbl.style.display = 'flex'; });
+        }
+      } else {
+        teachersMenu.classList.add('hidden');
+        if (teachersChevron) teachersChevron.style.transform = 'rotate(0deg)';
+      }
+    };
+  }
+  if (btnTeachersDone && teachersMenu) {
+    btnTeachersDone.onclick = (e) => {
+      e.stopPropagation();
+      teachersMenu.classList.add('hidden');
+      if (teachersChevron) teachersChevron.style.transform = 'rotate(0deg)';
+    };
+  }
+  updateSelectedTeachersUI();
+
+  // Close dropdowns when clicking outside
+  modal.onclick = (e) => {
+    if (deptsMenu && !deptsMenu.contains(e.target) && deptsBtn && !deptsBtn.contains(e.target)) {
+      deptsMenu.classList.add('hidden');
+      if (deptsChevron) deptsChevron.style.transform = 'rotate(0deg)';
+    }
+    if (teachersMenu && !teachersMenu.contains(e.target) && teachersBtn && !teachersBtn.contains(e.target)) {
+      teachersMenu.classList.add('hidden');
+      if (teachersChevron) teachersChevron.style.transform = 'rotate(0deg)';
+    }
+  };
+
+  if (btnToggleEditCourse) {
+    btnToggleEditCourse.onclick = (e) => {
+      e.preventDefault();
+      if (editMappingWrapper) {
+        editMappingWrapper.classList.toggle('hidden');
+      }
+    };
+  }
+
+  courseSelect.onchange = () => {
+    const chosenCode = courseSelect.value;
+    const courseObj = state.courses.find(c => c.code === chosenCode);
+    updateCourseConfirmationDisplay(courseObj);
+  };
+
+  modal.classList.remove('hidden');
+};
+
+window.deleteCommonBatch = async function(batchId) {
+  showModalConfirm('Delete Batch', 'Are you sure you want to delete this batch?', async () => {
+    try {
+      const res = await authFetch(`${API_BASE}/common-batches/${batchId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        state.commonBatches = data.batches || state.commonBatches.filter(b => b.id !== batchId);
+        if (selectedCommonSubjectCode) {
+          openCommonSubjectDetail(selectedCommonSubjectCode);
+        } else {
+          renderCommonSubjectMappingTiles();
+        }
+      } else {
+        showModalAlert('Error', data.message || 'Failed to delete batch', 'danger');
+      }
+    } catch (e) {
+      console.error(e);
+      showModalAlert('Error', 'Connection error while deleting batch', 'danger');
+    }
+  });
+};
+
+function bindCommonSubjectMappingEvents() {
+  const semFilter = document.getElementById('common-sem-filter');
+  const btnBack = document.getElementById('btn-back-to-common-subjects');
+  const btnOpenCreate = document.getElementById('btn-open-create-batch');
+  const btnSubmitBatch = document.getElementById('btn-submit-common-batch');
+  const btnCloseBatchModal = document.getElementById('btn-close-common-batch-modal');
+  const btnCancelBatchModal = document.getElementById('btn-cancel-common-batch');
+  const modalBatch = document.getElementById('modal-create-common-batch');
+
+  if (semFilter) {
+    semFilter.addEventListener('change', () => {
+      renderCommonSubjectMappingTiles();
+    });
+  }
+
+  if (btnBack) {
+    btnBack.addEventListener('click', closeCommonSubjectDetail);
+  }
+
+  if (btnOpenCreate) {
+    btnOpenCreate.addEventListener('click', () => {
+      if (selectedCommonSubjectCode) {
+        const subj = COMMON_SUBJECT_DEFINITIONS.find(s => s.code.toUpperCase() === selectedCommonSubjectCode.toUpperCase());
+        openCreateCommonBatchModal(selectedCommonSubjectCode, subj ? subj.semester : '1');
+      }
+    });
+  }
+
+  const closeBatchModal = () => {
+    if (modalBatch) modalBatch.classList.add('hidden');
+  };
+
+  if (btnCloseBatchModal) btnCloseBatchModal.onclick = closeBatchModal;
+  if (btnCancelBatchModal) btnCancelBatchModal.onclick = closeBatchModal;
+
+  if (btnSubmitBatch) {
+    btnSubmitBatch.onclick = async () => {
+      const batchId = document.getElementById('common-batch-id').value;
+      const subjectCode = document.getElementById('common-batch-subject-code').value;
+      const semester = document.getElementById('common-batch-semester').value;
+      const offeringDept = (document.getElementById('common-batch-offering-dept-val')?.value || (state.currentUser && state.currentUser.departmentName) || 'ENGLISH').trim().toUpperCase();
+      const courseSelect = document.getElementById('common-batch-course-select');
+      const selectedCourseCodeInput = document.getElementById('common-batch-selected-course-code');
+      const nameInput = document.getElementById('common-batch-name-input');
+
+      const batchName = nameInput.value.trim();
+      if (!batchName) {
+        showModalAlert('Required Field', 'Please enter a name for the batch.', 'warning');
+        nameInput.focus();
+        return;
+      }
+
+      const courseCode = (selectedCourseCodeInput && selectedCourseCodeInput.value) || courseSelect.value;
+      if (!courseCode) {
+        showModalAlert('Required Field', 'Please select or map a course that the department offers.', 'warning');
+        return;
+      }
+
+      const teachersList = document.getElementById('common-batch-teachers-list');
+      const checkedTeacherCbs = teachersList ? Array.from(teachersList.querySelectorAll('.common-batch-teacher-cb:checked')) : [];
+      if (checkedTeacherCbs.length === 0) {
+        showModalAlert('Required Field', 'Please select at least one assigned faculty member.', 'warning');
+        return;
+      }
+
+      const selectedTeacherCodes = checkedTeacherCbs.map(cb => cb.value);
+      const selectedTeacherNames = checkedTeacherCbs.map(cb => cb.getAttribute('data-name') || cb.value);
+
+      const courseObj = state.courses.find(c => c.code === courseCode);
+      const courseName = courseObj ? courseObj.name : (courseSelect.options[courseSelect.selectedIndex]?.getAttribute('data-title') || '');
+
+      const deptsList = document.getElementById('common-batch-depts-list');
+      const checkedDepts = deptsList ? Array.from(deptsList.querySelectorAll('.common-batch-dept-cb:checked')).map(cb => cb.value) : [];
+
+      if (checkedDepts.length === 0) {
+        showModalAlert('Required Field', 'Please select at least one participating department.', 'warning');
+        return;
+      }
+
+      const batchData = {
+        subjectCode,
+        semester,
+        department: offeringDept,
+        departments: checkedDepts,
+        courseCode,
+        courseName,
+        teacherCode: selectedTeacherCodes.join(', '),
+        teacherName: selectedTeacherNames.join(', '),
+        teachers: selectedTeacherCodes,
+        batchName
+      };
+
+      if (batchId) {
+        batchData.id = batchId;
+      }
+
+      try {
+        const res = await authFetch(`${API_BASE}/common-batches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch: batchData })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          state.commonBatches = data.batches || [];
+          closeBatchModal();
+          if (selectedCommonSubjectCode) {
+            openCommonSubjectDetail(selectedCommonSubjectCode);
+          } else {
+            renderCommonSubjectMappingTiles();
+          }
+          showModalAlert('Success', `Batch "${batchName}" successfully ${batchId ? 'updated' : 'created'}.`, 'success');
+        } else {
+          showModalAlert('Error', data.message || 'Failed to save batch', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Error', 'Failed to save batch due to connection error.', 'danger');
+      }
+    };
+  }
+}
+
+function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSelector) {
+  const modal = document.getElementById('modal-locked-period-details');
+  if (!modal) {
+    if (confirm(`This period (${day} Period ${period}) is locked institution-wide: "${globalLock.label || 'College Common Activity'}". Do you want to manually assign faculty?`)) {
+      openSelector();
+    }
+    return;
+  }
+
+  const slotInfo = document.getElementById('locked-period-slot-info');
+  const semBadge = document.getElementById('locked-period-sem-badge');
+  const labelBadge = document.getElementById('locked-period-label-badge');
+  const countBadge = document.getElementById('locked-period-batches-count');
+  const container = document.getElementById('locked-period-batches-container');
+  const btnMapping = document.getElementById('btn-locked-period-open-mapping');
+  const btnManual = document.getElementById('btn-locked-period-manual-assign');
+  const btnClose = document.getElementById('btn-locked-period-close');
+  const btnCloseX = document.getElementById('btn-close-locked-period-modal');
+
+  const lockLabel = (globalLock.label || 'College Activity').trim();
+  const lockSem = globalLock.semester && globalLock.semester !== 'all' ? globalLock.semester : (courseSem || 'All');
+
+  if (slotInfo) slotInfo.innerHTML = `<strong>${day}</strong> &bull; Period ${period}`;
+  if (semBadge) semBadge.textContent = lockSem === 'All' ? 'All Semesters' : `Semester ${lockSem}`;
+  if (labelBadge) labelBadge.textContent = lockLabel;
+
+  // Filter matching common batches
+  const batches = state.commonBatches || [];
+  const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+  
+  // Find batches that match the label or subject code
+  const lUpper = lockLabel.toUpperCase();
+  const lClean = lUpper.replace(/[^A-Z0-9]/g, '');
+  const matchingBatches = batches.filter(b => {
+    const bCode = (b.subjectCode || '').toUpperCase();
+    const bClean = bCode.replace(/[^A-Z0-9]/g, '');
+    const codeMatches = (bCode === lUpper) || (bClean && bClean === lClean) || (b.subjectCode && lUpper.includes(bCode)) || (lUpper && bCode.includes(lUpper));
+    const semMatches = !lockSem || lockSem === 'All' || lockSem === 'all' || !b.semester || String(b.semester) === String(lockSem);
+    return codeMatches && semMatches;
+  });
+
+  if (countBadge) {
+    countBadge.textContent = `${matchingBatches.length} Batch${matchingBatches.length === 1 ? '' : 'es'}`;
+  }
+
+  if (container) {
+    if (matchingBatches.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 20px; background: #ffffff; border: 1.5px dashed var(--border); border-radius: 8px; text-align: center;">
+          <p class="text-muted text-xs mb-1" style="font-weight: 600;"><i class="fa-solid fa-circle-info text-primary"></i> No batches configured yet for "${escapeHtml(lockLabel)}".</p>
+          <span class="text-muted" style="font-size: 11px;">You can configure batches under <strong>Common Subject Mapping</strong>.</span>
+        </div>
+      `;
+    } else {
+      container.innerHTML = matchingBatches.map(b => {
+        const isOffering = (b.department || '').toUpperCase() === userDept;
+        const bDepts = Array.isArray(b.departments) && b.departments.length > 0
+          ? b.departments.map(d => String(d).trim())
+          : [(b.department || '').trim()];
+        const isParticipating = bDepts.some(d => d.toUpperCase() === userDept);
+
+        return `
+          <div style="background: ${(isOffering || isParticipating) ? '#f8faff' : '#ffffff'}; border: 1.5px solid ${(isOffering || isParticipating) ? '#bfdbfe' : 'var(--border)'}; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
+                <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(b.batchName || 'Batch')}</strong>
+                <span class="badge badge-info" style="font-size: 9px; padding: 1px 5px;" title="Offering Department">Offered by: ${escapeHtml(b.department || 'TBD')}</span>
+                ${isOffering ? `<span class="badge badge-success" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-check"></i> Your Dept (Offering)</span>` : ''}
+                ${(!isOffering && isParticipating) ? `<span class="badge badge-primary" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-users"></i> Your Dept (Participating)</span>` : ''}
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px;">
+                <span>Course: <strong style="color: var(--text-main);">${escapeHtml(b.courseCode || '')}${b.courseName ? ` - ${escapeHtml(b.courseName)}` : ''}</strong></span>
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                <span>Participating:</span>
+                ${bDepts.map(d => `<span style="background: #e2e8f0; color: #334155; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: 600;">${escapeHtml(d)}</span>`).join('')}
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <span class="fac-pill" style="margin: 0; font-weight: 600; font-size: 11px;" title="Teacher(s): ${escapeHtml(b.teacherName || '')} (${escapeHtml(b.teacherCode || '')})">
+                <i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(b.teacherName || b.teacherCode || 'TBD')}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+  };
+
+  if (btnClose) btnClose.onclick = closeModal;
+  if (btnCloseX) btnCloseX.onclick = closeModal;
+
+  if (btnMapping) {
+    btnMapping.onclick = () => {
+      closeModal();
+      openAdvancedFeaturesModal('adv-pane-common-subject-mapping');
+      if (matchingBatches.length > 0 && matchingBatches[0].subjectCode) {
+        openCommonSubjectDetail(matchingBatches[0].subjectCode);
+      }
+    };
+  }
+
+  if (btnManual) {
+    btnManual.onclick = () => {
+      closeModal();
+      openSelector();
+    };
+  }
+
+  modal.classList.remove('hidden');
+}
+
+// -------------------------------------------------------------
 // TAB 3: Auto Timetable Generator Pane Controller
 // -------------------------------------------------------------
 function populateAutoGenSemFilter() {
@@ -4332,7 +5637,11 @@ function populateAutoGenSemFilter() {
   const selectedProg = progSelect ? progSelect.value : '';
 
   const curVal = semSelect.value;
-  semSelect.innerHTML = '<option value="">All Semesters in Department</option>';
+  semSelect.innerHTML = `
+    <option value="">All Semesters in Department</option>
+    <option value="odd">Odd Semesters (1, 3, 5)</option>
+    <option value="even">Even Semesters (2, 4)</option>
+  `;
 
   if (selectedProg === 'UG') {
     const sems = Array.from(new Set(deptCourses.filter(c => (c.programType || 'UG') === 'UG').map(c => c.semester))).sort((a,b) => parseInt(a||0) - parseInt(b||0));
@@ -4417,10 +5726,14 @@ function renderAutoGeneratorBindings() {
     deptCourses = deptCourses.filter(c => (c.programType || 'UG') === targetProg);
   }
 
-  // Filter by Semester (supports simple sem '1' or combined '1_UG' / '1_PG')
+  // Filter by Semester (supports simple sem '1', odd, even, or combined '1_UG' / '1_PG')
   const targetSem = semSelect ? semSelect.value : '';
   if (targetSem) {
-    if (targetSem.includes('_')) {
+    if (targetSem === 'odd') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (targetSem === 'even') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else if (targetSem.includes('_')) {
       const [sNum, sProg] = targetSem.split('_');
       deptCourses = deptCourses.filter(c => String(c.semester) === String(sNum) && (c.programType || 'UG') === sProg);
     } else {

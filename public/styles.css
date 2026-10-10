@@ -2024,3 +2024,213 @@ input:checked + .slider:before {
   font-weight: 600;
 }
 
+/* ==========================================================================
+   Common Subject Mapping - Modern Cards & Detail Section
+   ========================================================================== */
+.common-subject-card {
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 180px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.common-subject-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary);
+  box-shadow: 0 12px 24px -6px rgba(99, 102, 241, 0.12), 0 4px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+.common-subject-card .subject-code-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: var(--primary);
+  border: 1.5px solid #c7d2fe;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+.common-subject-card .subject-sem-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.common-subject-card .subject-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 12px 0 6px 0;
+  line-height: 1.35;
+}
+
+.common-subject-card .subject-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.common-subject-card .action-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.common-subject-card:hover .action-indicator {
+  transform: translateX(4px);
+}
+
+/* Common Subject Detail View */
+.common-detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.common-detail-header-card {
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.common-batch-item-card {
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  transition: all 0.2s ease;
+}
+
+.common-batch-item-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.common-batch-item-card.is-own-dept {
+  background: #f8faff;
+  border-color: #bfdbfe;
+}
+
+.dept-checkbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-main);
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.dept-checkbox-chip:hover {
+  border-color: var(--primary);
+}
+
+.dept-checkbox-chip.active {
+  background: var(--primary-muted-light, #eef2ff);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Searchable Multi-Select Dropdown Controls */
+.dropdown-select-trigger {
+  width: 100%;
+  min-height: 38px;
+  background: #ffffff;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.dropdown-select-trigger:hover,
+.dropdown-select-trigger:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.dropdown-select-trigger.active {
+  border-color: var(--primary);
+}
+
+.dropdown-select-popover {
+  animation: fadeIn 0.15s ease-out;
+  background: #ffffff;
+  border: 1.5px solid var(--primary);
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.dropdown-check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11.5px;
+  transition: background-color 0.15s ease;
+  user-select: none;
+  margin: 0;
+}
+
+.dropdown-check-item:hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+.dropdown-check-item input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+
+
+

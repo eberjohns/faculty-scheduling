@@ -129,7 +129,13 @@ export function generateDepartmentSchedule({
   // 1. Filter department courses
   let deptCourses = (db.courses || []).filter(c => c.department.toUpperCase() === deptUpper);
   if (semester && semester !== 'all') {
-    deptCourses = deptCourses.filter(c => String(c.semester).trim() === String(semester).trim());
+    if (semester === 'odd') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (semester === 'even') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else {
+      deptCourses = deptCourses.filter(c => String(c.semester).trim() === String(semester).trim());
+    }
   }
 
   // Selective courses filter
@@ -578,13 +584,113 @@ export function generateDepartmentSchedule({
   const validSlots1Hour = getContiguousSlots(periodBlocks, 1);
   const validSlotsPractical = getContiguousSlots(periodBlocks, practicalBlockSize);
 
-  // Helper: check Admin Global Lock with Semester Scoping
-  function isGlobalLocked(day, period, courseSemester) {
+  function courseMatchesCommonSubject(course, subjectCode, commonBatches = []) {
+    if (!course) return false;
+    const norm = (subjectCode || '').toUpperCase().trim();
+    const cCode = (course.code || course.courseCode || '').toUpperCase().trim();
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const cat = (course.category || '').toUpperCase().trim();
+    const name = (course.name || course.courseName || '').toUpperCase().trim();
+    const dept = (course.department || '').toUpperCase().trim();
+    const cSem = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+    if (Array.isArray(commonBatches)) {
+      const hasBatch = commonBatches.some(b => {
+        const bSubj = (b.subjectCode || '').toUpperCase().trim();
+        const bCourse = (b.courseCode || '').toUpperCase().trim();
+        const bBase = bCourse.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        if (bSubj !== norm && !(norm.startsWith('MDC') && bSubj.startsWith('MDC'))) return false;
+        return bCourse === cCode || bBase === baseCode || cCode.startsWith(bCourse) || bCourse.startsWith(baseCode);
+      });
+      if (hasBatch) return true;
+    }
+
+    if (norm.startsWith('MDC')) {
+      if (norm === 'MDC1' && cSem !== '1') return false;
+      if ((norm === 'MDC-2' || norm === 'MDC2') && cSem !== '2') return false;
+      if (norm === 'MDC3' && cSem !== '3') return false;
+      const isMdc = cat === 'MDC' || cat.includes('MDC') || cat.includes('MULTI') || 
+                    cCode.includes('FM') || cCode.includes('MDC') || 
+                    name.includes('MDC') || name.includes('MULTIDISCIPLINARY') || name.includes('MULTI-DISCIPLINARY');
+      return isMdc;
+    }
+    if (norm === 'AEC1') {
+      if (cSem !== '1') return false;
+      return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && dept === 'ENGLISH';
+    }
+    if (norm === 'AEC2') {
+      if (cSem !== '1') return false;
+      return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+    }
+    if (norm === 'AEC3') {
+      if (cSem !== '2') return false;
+      return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && dept === 'ENGLISH';
+    }
+    if (norm === 'AEC4') {
+      if (cSem !== '2') return false;
+      return (cat === 'AEC' || cCode.includes('FA') || cCode.includes('AEC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+    }
+    if (norm === 'VAC1') {
+      if (cSem !== '3') return false;
+      return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && dept === 'ENGLISH';
+    }
+    if (norm === 'VAC2') {
+      if (cSem !== '4') return false;
+      return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && dept === 'ENGLISH';
+    }
+    if (norm === 'VAC3') {
+      if (cSem !== '4') return false;
+      return (cat === 'VAC' || cCode.includes('FV') || cCode.includes('VAC')) && ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'].includes(dept);
+    }
+    if (norm === 'SEC') {
+      if (cSem !== '4') return false;
+      return (cat === 'SEC' || cCode.includes('SEC') || cCode.includes('FS')) && dept === 'ENGLISH';
+    }
+    return false;
+  }
+
+  // Helper: check Admin Global Lock with Semester Scoping & Subject Selective Locking
+  function isGlobalLocked(day, period, courseSemester, courseObj = null) {
     return globalLocks.some(lock => {
       if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
       if (String(lock.period) !== String(period)) return false;
-      if (!lock.semester || lock.semester === 'all') return true;
-      return String(lock.semester).trim() === String(courseSemester).trim();
+      const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+      const cSem = String(courseSemester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+      if (lockSem && lockSem !== 'all' && lockSem !== cSem) {
+        return false;
+      }
+      const normLabel = (lock.label || '').toUpperCase().trim();
+      const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
+      if (!commonCodes.includes(normLabel)) {
+        return true; // 'Other' or custom label locks entire semester
+      }
+      if (!courseObj) return true;
+
+      // 1. Direct match with course
+      if (courseMatchesCommonSubject(courseObj, normLabel, db.commonBatches || [])) {
+        return true;
+      }
+
+      // 2. Check if department offers any course matching this common subject for this semester
+      const dept = (courseObj.department || '').toUpperCase().trim();
+      const deptCoursesForSem = (db.courses || []).filter(c => {
+        const cDept = (c.department || '').toUpperCase().trim();
+        const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+        const matchesDept = !dept || cDept === dept;
+        const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
+        return matchesDept && matchesSem;
+      });
+
+      const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
+        courseMatchesCommonSubject(c, normLabel, db.commonBatches || [])
+      );
+
+      if (hasMatchingCourseInDept) {
+        return false;
+      }
+
+      // Fallback: place section lock just like other!
+      return true;
     });
   }
 
@@ -632,9 +738,10 @@ export function generateDepartmentSchedule({
    * Constraint Checker (Strict vs Relaxed vs DeepRelaxed)
    */
   function canPlaceCard(allocState, card, day, periodsGroup, isRelaxed = false, deepRelaxed = false) {
-    // 1. Admin Global Locks (with semester check) - Always strictly enforced
+    // 1. Admin Global Locks (with semester check & selective subject scoping) - Always strictly enforced
+    const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     for (const p of periodsGroup) {
-      if (isGlobalLocked(day, p, card.semester)) {
+      if (isGlobalLocked(day, p, card.semester, courseObj)) {
         recordRejection('GLOBAL_LOCK', card);
         return false;
       }
@@ -741,8 +848,9 @@ export function generateDepartmentSchedule({
    */
   function getAvailableCandidatesForCard(allocState, card, day, periodsGroup, courseFacultyHoursState, isRelaxed = false, deepRelaxed = false) {
     // 1. Course-level checks (Global Lock, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
+    const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     for (const p of periodsGroup) {
-      if (isGlobalLocked(day, p, card.semester)) {
+      if (isGlobalLocked(day, p, card.semester, courseObj)) {
         recordRejection('GLOBAL_LOCK', card);
         return [];
       }
