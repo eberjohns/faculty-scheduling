@@ -248,7 +248,8 @@ app.get('/api/config', (req, res) => {
     semesterType: db.config.semesterType,
     semesterLabels: db.config.semesterLabels,
     periods: db.periods || ["1", "2", "3", "LB", "4", "5", "6"],
-    globalLockedPeriods: db.config.globalLockedPeriods || []
+    globalLockedPeriods: db.config.globalLockedPeriods || [],
+    commonBatches: db.commonBatches || []
   });
 });
 
@@ -278,6 +279,50 @@ app.post('/api/admin/global-locked-periods', requireAdmin, (req, res) => {
   db.config.globalLockedPeriods = locks;
   writeDb(db);
   res.json({ success: true, message: 'Global locked periods updated successfully.' });
+});
+
+// Common Subject Batches Endpoints
+app.get('/api/common-batches', requireUser, (req, res) => {
+  const db = readDb();
+  res.json(db.commonBatches || []);
+});
+
+app.post('/api/common-batches', requireUser, (req, res) => {
+  const { batch, batches } = req.body;
+  const db = readDb();
+  if (!db.commonBatches) db.commonBatches = [];
+
+  if (Array.isArray(batches)) {
+    db.commonBatches = batches;
+  } else if (batch && typeof batch === 'object') {
+    if (!batch.id) {
+      batch.id = 'cb_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    }
+    const idx = db.commonBatches.findIndex(b => b.id === batch.id);
+    if (idx >= 0) {
+      db.commonBatches[idx] = { ...db.commonBatches[idx], ...batch };
+    } else {
+      db.commonBatches.push(batch);
+    }
+  } else {
+    return res.status(400).json({ success: false, message: 'Invalid batch data provided.' });
+  }
+
+  writeDb(db);
+  res.json({ success: true, message: 'Common batches saved successfully.', batches: db.commonBatches });
+});
+
+app.delete('/api/common-batches/:id', requireUser, (req, res) => {
+  const { id } = req.params;
+  const db = readDb();
+  if (!db.commonBatches) db.commonBatches = [];
+  const initialLen = db.commonBatches.length;
+  db.commonBatches = db.commonBatches.filter(b => b.id !== id);
+
+  if (db.commonBatches.length !== initialLen) {
+    writeDb(db);
+  }
+  res.json({ success: true, message: 'Batch removed successfully.', batches: db.commonBatches });
 });
 
 // -------------------------------------------------------------
@@ -1557,7 +1602,13 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
   const deptAlloc = db.allocations[deptUpper] || {};
   let deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptUpper);
   if (semester && semester !== 'all') {
-    deptCourses = deptCourses.filter(c => String(c.semester).trim() === String(semester).trim());
+    if (semester === 'odd') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (semester === 'even') {
+      deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else {
+      deptCourses = deptCourses.filter(c => String(c.semester).trim() === String(semester).trim());
+    }
   }
 
   const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
@@ -1573,9 +1624,10 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
 
   db.allocations[deptUpper] = deptAlloc;
   writeDb(db);
+  const semLabel = semester === 'odd' ? 'Odd Semesters' : (semester === 'even' ? 'Even Semesters' : (semester && semester !== 'all' ? `Semester ${semester}` : 'all semesters'));
   res.json({ 
     success: true, 
-    message: `Allocations cleared for ${semester && semester !== 'all' ? `Semester ${semester}` : 'all semesters'} (${clearedCount} course allocations removed).` 
+    message: `Allocations cleared for ${semLabel} (${clearedCount} course allocations removed).` 
   });
 });
 

@@ -13,7 +13,7 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Core Stylesheet with Cache Busting -->
-  <link rel="stylesheet" href="styles.css?v=2.7">
+  <link rel="stylesheet" href="styles.css?v=2.8">
 </head>
 <body>
   
@@ -130,8 +130,8 @@
           </div>
           <div class="placeholder-span" id="full-week-header-label" style="display: none;"><h3 class="text-primary"><i class="fa-solid fa-calendar-week"></i> Full Week Timetable Matrix</h3></div>
           
-          <!-- Filters (Program, Semester and Category) -->
-          <div class="filters-group flex-row gap-2">
+          <!-- Filters (Program, Term Switcher, Semester and Category) -->
+          <div class="filters-group flex-row items-center gap-2 flex-wrap">
             <div class="filter-item">
               <select id="filter-program" class="form-control form-control-sm">
                 <option value="">All Programs</option>
@@ -140,9 +140,19 @@
                 <option value="INT">INT (Integrated)</option>
               </select>
             </div>
+            <!-- Quick Term Switcher: All / Odd / Even -->
+            <div class="filter-item" style="display: flex; align-items: center;">
+              <div class="term-toggle-container" id="term-quick-toggle" style="display: inline-flex; background: #e2e8f0; border-radius: 6px; padding: 2px; gap: 2px;">
+                <button type="button" class="btn btn-xs active-term-btn" data-term="" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 5px; background: #ffffff; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); cursor: pointer;">All Sems</button>
+                <button type="button" class="btn btn-xs" data-term="odd" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Odd Sems</button>
+                <button type="button" class="btn btn-xs" data-term="even" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Even Sems</button>
+              </div>
+            </div>
             <div class="filter-item">
               <select id="filter-semester" class="form-control form-control-sm">
                 <option value="">All Semesters</option>
+                <option value="odd">Odd Semesters (1, 3, 5)</option>
+                <option value="even">Even Semesters (2, 4)</option>
               </select>
             </div>
             <div class="filter-item">
@@ -559,6 +569,10 @@
               <i class="fa-solid fa-diagram-project text-primary"></i>
               <span>Subject Teacher Mapping</span>
             </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-common-subject-mapping">
+              <i class="fa-solid fa-layer-group text-primary"></i>
+              <span>Common Subject Mapping</span>
+            </button>
             <button type="button" class="adv-tab-btn" data-pane="adv-pane-auto-generate">
               <i class="fa-solid fa-wand-magic-sparkles text-primary"></i>
               <span>Auto Generate</span>
@@ -830,6 +844,276 @@
                 <!-- Dynamically populated teacher schedule grids -->
               </div>
             </div>
+
+            <!-- TAB 5: COMMON SUBJECT MAPPING -->
+            <div id="adv-pane-common-subject-mapping" class="adv-pane hidden">
+              <!-- Sub-view A: Subject Cards Grid -->
+              <div id="common-subjects-main-view">
+                <!-- Clean Toolbar Header -->
+                <div class="flex-row justify-between items-center mb-4 flex-wrap gap-3" style="background: #ffffff; padding: 14px 18px; border-radius: var(--radius-md); border: 1.5px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                  <div>
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main);">
+                      <i class="fa-solid fa-layer-group text-primary" style="margin-right: 6px;"></i> Common Subject Mapping
+                    </h3>
+                    <p class="text-muted text-xs mb-0 mt-1">Select a subject to view and configure department batches.</p>
+                  </div>
+                  
+                  <div class="flex-row items-center gap-2">
+                    <label for="common-sem-filter" class="text-xs bold text-muted mb-0" style="white-space: nowrap;">Semester:</label>
+                    <select id="common-sem-filter" class="form-control form-control-sm" style="font-size: 12px; font-weight: 600; width: 145px; height: 32px; border-radius: 6px;">
+                      <option value="">All Semesters</option>
+                      <option value="odd">Odd Semesters (1, 3)</option>
+                      <option value="even">Even Semesters (2, 4)</option>
+                      <option value="1">Semester 1</option>
+                      <option value="2">Semester 2</option>
+                      <option value="3">Semester 3</option>
+                      <option value="4">Semester 4</option>
+                    </select>
+                    <span class="badge" style="background: var(--background); border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; padding: 4px 8px;" id="common-current-dept-badge">DEPARTMENT</span>
+                  </div>
+                </div>
+
+                <!-- Grid of Subject Cards -->
+                <div id="common-subjects-tiles-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                  <!-- Populated dynamically as clickable cards -->
+                </div>
+              </div>
+
+              <!-- Sub-view B: Subject Batches Detail View (Opened when a subject is clicked) -->
+              <div id="common-subject-detail-view" class="common-detail-view hidden">
+                <div class="common-detail-header-card">
+                  <div class="flex-row items-center gap-3">
+                    <button type="button" id="btn-back-to-common-subjects" class="btn btn-outline btn-sm" style="font-size: 12px; padding: 5px 12px; border-radius: 6px;">
+                      <i class="fa-solid fa-arrow-left"></i> Back
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span class="subject-code-badge" id="detail-subject-code-badge">AEC4</span>
+                      <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--text-main);" id="detail-subject-title">Ability Enhancement Course 4</h3>
+                      <span class="subject-sem-tag" id="detail-subject-sem-tag">Semester 2</span>
+                    </div>
+                  </div>
+
+                  <div class="flex-row items-center gap-2">
+                    <span class="text-xs text-muted" id="detail-batches-count-pill" style="font-weight: 600; margin-right: 4px;">0 Batches</span>
+                    <button type="button" id="btn-open-create-batch" class="btn btn-primary btn-sm" style="font-size: 12px; padding: 6px 14px; border-radius: 6px;">
+                      <i class="fa-solid fa-plus"></i> Create Batch
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Batches List Area -->
+                <div id="detail-subject-batches-container" style="display: flex; flex-direction: column; gap: 10px;">
+                  <!-- Populated dynamically -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATE / EDIT COMMON BATCH MODAL -->
+    <div id="modal-create-common-batch" class="modal flex-center hidden no-print" style="z-index: 9999;">
+      <div class="modal-content modal-md" style="max-width: 480px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
+          <div class="flex-row items-center gap-2">
+            <i class="fa-solid fa-folder-plus text-primary" style="font-size: 18px;"></i>
+            <div>
+              <h3 style="margin: 0; font-size: 16px; font-weight: 700;" id="modal-common-batch-title">Create Batch</h3>
+              <span class="text-muted text-xs" id="modal-common-batch-subtitle">Common Subject Allocation</span>
+            </div>
+          </div>
+          <button type="button" id="btn-close-common-batch-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <form id="form-create-common-batch" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 12px;">
+          <input type="hidden" id="common-batch-subject-code">
+          <input type="hidden" id="common-batch-semester">
+          <input type="hidden" id="common-batch-id">
+
+          <!-- Target Subject Chip -->
+          <div style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">
+            <strong style="color: var(--primary); font-size: 13px;" id="common-batch-label-display">AEC4</strong>
+            <span class="subject-sem-tag" id="common-batch-sem-badge">Semester 2</span>
+          </div>
+
+          <!-- Offering Department (Auto Fetched from Current Department) -->
+          <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span class="text-xs text-muted bold"><i class="fa-solid fa-school text-primary" style="margin-right: 4px;"></i> Offering Department:</span>
+            <strong id="common-batch-offering-dept-display" style="color: var(--primary); font-size: 13px;">-</strong>
+            <input type="hidden" id="common-batch-offering-dept-val">
+          </div>
+
+          <!-- Department Selection (Searchable Multi-Select Dropdown) -->
+          <div class="form-group mb-0">
+            <div class="flex-row justify-between items-center mb-1">
+              <label class="text-xs text-muted bold" style="margin-bottom: 0;">
+                <i class="fa-solid fa-building-columns text-primary"></i> Participating Departments:
+              </label>
+              <span id="common-batch-depts-count-badge" class="badge badge-info" style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
+            </div>
+            
+            <!-- Dropdown Trigger Button -->
+            <div id="common-batch-depts-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
+              <span id="common-batch-depts-trigger-text" class="text-muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select participating departments...</span>
+              <i id="common-batch-depts-chevron" class="fa-solid fa-chevron-down text-muted" style="font-size: 10px; transition: transform 0.2s;"></i>
+            </div>
+
+            <!-- Dropdown Menu Box -->
+            <div id="common-batch-depts-dropdown-menu" class="dropdown-select-popover hidden">
+              <!-- Search & Quick Action Header -->
+              <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+                <div style="flex: 1; position: relative;">
+                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
+                  <input type="text" id="common-batch-depts-search-input" class="form-control" placeholder="Search departments..." style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
+                </div>
+                <button type="button" id="btn-batch-depts-select-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
+                <button type="button" id="btn-batch-depts-clear-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
+              </div>
+
+              <!-- Scrollable Checklist -->
+              <div id="common-batch-depts-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
+                <!-- Populated dynamically with checkboxes -->
+              </div>
+
+              <!-- Footer with Done button -->
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+                <span id="common-batch-depts-modal-count" class="text-xs text-muted" style="font-weight: 600;">0 selected</span>
+                <button type="button" id="btn-batch-depts-done" class="btn btn-primary btn-xs" style="font-size: 10px; padding: 2px 10px;">Done</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto-Mapped Course Confirmation Box -->
+          <div id="common-batch-mapped-course-card" style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span class="text-xs text-muted bold" style="text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px;">
+                <i class="fa-solid fa-link text-primary" style="margin-right: 4px;"></i> Course Mapping
+              </span>
+              <button type="button" id="btn-toggle-edit-course-mapping" class="btn btn-outline btn-xs" style="font-size: 11px; padding: 2px 8px; border-radius: 4px;" title="Change or customize course mapping">
+                <i class="fa-solid fa-pen-to-square"></i> Change Course
+              </button>
+            </div>
+            <div id="common-batch-course-confirmation" style="font-size: 13px; font-weight: 600; color: var(--text-main);">
+              <!-- Dynamic: Code & Name -->
+            </div>
+            <div id="common-batch-course-meta" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              <!-- Dynamic: Category, Sem, etc. -->
+            </div>
+          </div>
+
+          <!-- Hidden input storing chosen courseCode -->
+          <input type="hidden" id="common-batch-selected-course-code">
+
+          <!-- Optional Course Selector Dropdown (Shown on Edit Mapping click) -->
+          <div id="wrapper-edit-course-mapping" class="form-group mb-0 hidden" style="background: #ffffff; border: 1px dashed var(--border); border-radius: 6px; padding: 10px; margin-top: 2px;">
+            <label for="common-batch-course-select" class="text-xs text-muted bold" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span>Select Department Course to Map</span>
+              <span class="text-xs text-muted" style="font-weight: normal;">(Choose offered course)</span>
+            </label>
+            <select id="common-batch-course-select" class="form-control" style="font-size: 12px; height: 34px;">
+              <!-- Populated dynamically with courses from selected department -->
+            </select>
+          </div>
+
+          <!-- Batch Name -->
+          <div class="form-group mb-0">
+            <label for="common-batch-name-input" class="text-xs text-muted bold" style="display: block; margin-bottom: 4px;">Batch Name</label>
+            <input type="text" id="common-batch-name-input" class="form-control" placeholder="e.g. Batch 1, Section A" style="font-size: 13px; height: 36px;" required>
+          </div>
+
+          <!-- Faculty Selector (Searchable Multi-Select Dropdown) -->
+          <div class="form-group mb-0">
+            <div class="flex-row justify-between items-center mb-1">
+              <label class="text-xs text-muted bold" style="margin-bottom: 0;">
+                <i class="fa-solid fa-user-tie text-primary"></i> Assigned Faculty:
+              </label>
+              <span id="common-batch-teachers-count-badge" class="badge badge-info" style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
+            </div>
+
+            <!-- Dropdown Trigger Button -->
+            <div id="common-batch-teachers-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
+              <span id="common-batch-teachers-trigger-text" class="text-muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select faculty members...</span>
+              <i id="common-batch-teachers-chevron" class="fa-solid fa-chevron-down text-muted" style="font-size: 10px; transition: transform 0.2s;"></i>
+            </div>
+
+            <!-- Dropdown Menu Box -->
+            <div id="common-batch-teachers-dropdown-menu" class="dropdown-select-popover hidden">
+              <!-- Search & Quick Action Header -->
+              <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
+                <div style="flex: 1; position: relative;">
+                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
+                  <input type="text" id="common-batch-teachers-search-input" class="form-control" placeholder="Search faculty by name or code..." style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
+                </div>
+                <button type="button" id="btn-batch-teachers-select-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
+                <button type="button" id="btn-batch-teachers-clear-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
+              </div>
+
+              <!-- Scrollable Checklist -->
+              <div id="common-batch-teachers-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
+                <!-- Populated dynamically with checkboxes -->
+              </div>
+
+              <!-- Footer with Done button -->
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+                <span id="common-batch-teachers-modal-count" class="text-xs text-muted" style="font-weight: 600;">0 selected</span>
+                <button type="button" id="btn-batch-teachers-done" class="btn btn-primary btn-xs" style="font-size: 10px; padding: 2px 10px;">Done</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions flex-row justify-end gap-2 mt-3 pt-3" style="border-top: 1px solid var(--border);">
+            <button type="button" id="btn-cancel-common-batch" class="btn btn-outline" style="font-size: 13px;">Cancel</button>
+            <button type="button" id="btn-submit-common-batch" class="btn btn-primary" style="font-size: 13px;"><i class="fa-solid fa-save"></i> Save Batch</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- LOCKED PERIOD COMMON SUBJECT INSPECTION MODAL -->
+    <div id="modal-locked-period-details" class="modal flex-center hidden no-print" style="z-index: 9999;">
+      <div class="modal-content modal-md" style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
+          <div class="flex-row items-center gap-2">
+            <div style="width: 30px; height: 30px; border-radius: 6px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706;">
+              <i class="fa-solid fa-lock" style="font-size: 14px;"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 15px; font-weight: 700;">Locked Period Batches</h3>
+              <span class="text-muted text-xs">Concurrent Institution Batches</span>
+            </div>
+          </div>
+          <button type="button" id="btn-close-locked-period-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- Slot Information Banner -->
+        <div style="background: var(--background); border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <strong style="font-size: 13px; color: var(--text-main);" id="locked-period-slot-info">Tuesday &bull; Period 3</strong>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="subject-sem-tag" id="locked-period-sem-badge">Semester 2</span>
+            <span class="badge" style="background: #b45309; color: white; font-weight: 700;" id="locked-period-label-badge">MDC-2</span>
+          </div>
+        </div>
+
+        <!-- Concurrent Batches List -->
+        <div>
+          <div class="flex-row justify-between items-center mb-2">
+            <span class="text-xs text-muted bold"><i class="fa-solid fa-users text-primary"></i> Concurrent Batches:</span>
+            <span class="text-xs text-muted" id="locked-period-batches-count" style="font-weight: 600;">0 Batches</span>
+          </div>
+
+          <div id="locked-period-batches-container" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <div class="actions flex-row justify-between items-center mt-3 pt-3" style="border-top: 1px solid var(--border);">
+          <button type="button" id="btn-locked-period-open-mapping" class="btn btn-outline btn-sm" style="font-size: 12px;"><i class="fa-solid fa-layer-group text-primary"></i> Open Mapping</button>
+          <div class="flex-row gap-2">
+            <button type="button" id="btn-locked-period-manual-assign" class="btn btn-outline btn-sm" style="font-size: 12px; color: var(--primary);"><i class="fa-solid fa-user-plus"></i> Manual Assign</button>
+            <button type="button" id="btn-locked-period-close" class="btn btn-primary btn-sm" style="font-size: 12px;">Close</button>
           </div>
         </div>
       </div>
@@ -840,6 +1124,6 @@
   <!-- SheetJS Library via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Frontend Javascript Orchestrator with Cache Busting -->
-  <script src="js/app.js?v=2.8"></script>
+  <script src="js/app.js?v=3.6"></script>
 </body>
 </html>

@@ -2924,10 +2924,22 @@ function renderGlobalLocksGrid() {
   thead.innerHTML = headerHtml;
   
   const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+  const nonLbPeriods = rawPeriods.filter(p => String(p).trim().toUpperCase() !== 'LB').map(p => String(p).trim());
   let bodyHtml = '';
   
   weekdays.forEach(day => {
-    bodyHtml += `<tr><td style="font-weight: 700; text-align: center; background-color: var(--background);">${day}</td>`;
+    const lockedCountForDay = nonLbPeriods.filter(pStr => 
+      localGlobalLocks.some(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr)
+    ).length;
+    const isEntireDayLocked = lockedCountForDay === nonLbPeriods.length;
+
+    bodyHtml += `<tr>
+      <td style="font-weight: 700; text-align: center; background-color: var(--background); vertical-align: middle; padding: 6px 8px;">
+        <div style="font-size: 13px; margin-bottom: 4px;">${day}</div>
+        <button type="button" class="btn btn-xs ${isEntireDayLocked ? 'btn-outline text-danger' : 'btn-outline'} btn-day-lock-toggle" data-day="${day}" style="font-size: 10px; padding: 2px 6px; white-space: nowrap; width: 100%; border-radius: 4px;" title="${isEntireDayLocked ? `Unlock all periods on ${day}` : `Lock all periods on ${day}`}">
+          <i class="fa-solid ${isEntireDayLocked ? 'fa-lock-open' : 'fa-lock'}"></i> ${isEntireDayLocked ? 'Unlock Day' : 'Lock Day'}
+        </button>
+      </td>`;
     
     rawPeriods.forEach(p => {
       const pStr = String(p).trim();
@@ -2990,22 +3002,92 @@ function renderGlobalLocksGrid() {
       openGlobalLockModal(day, period);
     });
   });
+
+  table.querySelectorAll('.btn-day-lock-toggle').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const day = btn.getAttribute('data-day');
+      const defaultGlobalLabel = (document.getElementById('global-lock-default-label') && document.getElementById('global-lock-default-label').value.trim()) || 'College Assembly / Common Hour';
+      const nonLbPeriods = rawPeriods.filter(p => String(p).trim().toUpperCase() !== 'LB').map(p => String(p).trim());
+      const lockedCountForDay = nonLbPeriods.filter(pStr => 
+        localGlobalLocks.some(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === pStr)
+      ).length;
+      const isEntireDayLocked = lockedCountForDay === nonLbPeriods.length;
+
+      if (isEntireDayLocked) {
+        localGlobalLocks = localGlobalLocks.filter(l => l.day.toUpperCase() !== day.toUpperCase());
+      } else {
+        nonLbPeriods.forEach(p => {
+          localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(p)));
+          localGlobalLocks.push({ day, period: p, label: defaultGlobalLabel, semester: 'all' });
+        });
+      }
+
+      if (state.config) state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+      renderGlobalLocksGrid();
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+        const alertBox = document.getElementById('global-locks-alert');
+        if (alertBox) {
+          alertBox.textContent = isEntireDayLocked ? `Unlocked all periods for ${day}.` : `Locked all periods for ${day}.`;
+          alertBox.classList.remove('hidden');
+          setTimeout(() => alertBox.classList.add('hidden'), 3500);
+        }
+      } catch (err) {
+        console.error('Failed to update day lock:', err);
+      }
+    });
+  });
+}
+
+function getSemesterLabelOptions(semVal) {
+  const semStr = String(semVal || '').toLowerCase();
+  if (semStr === '1') {
+    return ['MDC1', 'AEC1', 'AEC2', 'Other'];
+  } else if (semStr === '2') {
+    return ['MDC-2', 'AEC3', 'AEC4', 'Other'];
+  } else if (semStr === '3') {
+    return ['VAC1', 'MDC3', 'Other'];
+  } else if (semStr === '4') {
+    return ['VAC2', 'SEC', 'VAC3', 'Other'];
+  } else if (semStr === 'all') {
+    return ['College Activity', 'Assembly', 'Exam', 'Other'];
+  } else {
+    return ['College Activity', 'Assembly', 'Exam', 'Other'];
+  }
 }
 
 function createLockSemRowHtml(semVal = 'all', labelVal = '') {
   const sems = ['1', '2', '3', '4', '5', '6'];
+  const opts = getSemesterLabelOptions(semVal);
+  const isPredefined = opts.includes(labelVal) && labelVal !== 'Other';
+  const selectedOpt = isPredefined ? labelVal : (labelVal ? 'Other' : opts[0]);
+  const customValue = (selectedOpt === 'Other') ? labelVal : '';
+
   return `
     <div class="lock-sem-row flex-row items-center gap-2" style="background: var(--background); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
-      <div style="flex: 0 0 150px;">
+      <div style="flex: 0 0 130px;">
         <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Select Sem</label>
         <select class="form-control form-control-sm lock-row-sem-select" style="font-size: 12px; height: 32px;">
           <option value="all" ${semVal === 'all' || !semVal ? 'selected' : ''}>All Semesters</option>
           ${sems.map(s => `<option value="${s}" ${String(semVal) === s ? 'selected' : ''}>Semester ${s}</option>`).join('')}
         </select>
       </div>
+      <div style="flex: 0 0 130px;">
+        <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Subject Option</label>
+        <select class="form-control form-control-sm lock-row-label-select" style="font-size: 12px; height: 32px;">
+          ${opts.map(o => `<option value="${o}" ${o === selectedOpt ? 'selected' : ''}>${o}</option>`).join('')}
+        </select>
+      </div>
       <div style="flex: 1;">
-        <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Subject / Activity Name</label>
-        <input type="text" class="form-control form-control-sm lock-row-label-input" placeholder="e.g. Physical Education, Ethics" style="font-size: 12px; height: 32px;" value="${labelVal ? labelVal.replace(/"/g, '&quot;') : ''}" required>
+        <label class="text-xs text-muted bold" style="display: block; margin-bottom: 2px;">Custom / Label Name</label>
+        <input type="text" class="form-control form-control-sm lock-row-label-input" placeholder="Type custom name" style="font-size: 12px; height: 32px;" value="${customValue ? customValue.replace(/"/g, '&quot;') : (selectedOpt !== 'Other' ? selectedOpt : '')}" ${selectedOpt !== 'Other' ? 'disabled' : ''}>
       </div>
       <div style="flex: 0 0 32px; padding-top: 16px;">
         <button type="button" class="btn btn-outline btn-xs btn-remove-lock-row" style="color: var(--danger); border-color: #fca5a5; height: 32px; width: 32px; display: flex; align-items: center; justify-content: center;" title="Remove this semester lock">
@@ -3037,23 +3119,54 @@ function updateAddOtherSemVisibility() {
 
 function bindLockRowEvents(rowEl) {
   const semSel = rowEl.querySelector('.lock-row-sem-select');
+  const labelSel = rowEl.querySelector('.lock-row-label-select');
+  const labelInput = rowEl.querySelector('.lock-row-label-input');
   const removeBtn = rowEl.querySelector('.btn-remove-lock-row');
   const container = document.getElementById('modal-lock-rows-container');
 
+  const updateLabelOptionsForSem = () => {
+    const sem = semSel.value;
+    const opts = getSemesterLabelOptions(sem);
+    const curVal = labelSel.value;
+    labelSel.innerHTML = opts.map(o => `<option value="${o}">${o}</option>`).join('');
+    if (opts.includes(curVal)) {
+      labelSel.value = curVal;
+    } else {
+      labelSel.value = opts[0];
+    }
+    handleLabelSelectChange();
+    updateAddOtherSemVisibility();
+  };
+
+  const handleLabelSelectChange = () => {
+    if (labelSel.value === 'Other') {
+      labelInput.disabled = false;
+      labelInput.placeholder = 'Type custom activity name';
+      const allKnownSubjects = ['MDC1', 'AEC1', 'AEC2', 'MDC-2', 'AEC3', 'AEC4', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3', 'College Activity', 'Assembly', 'Exam'];
+      if (allKnownSubjects.includes(labelInput.value)) {
+        labelInput.value = '';
+      }
+      labelInput.focus();
+    } else {
+      labelInput.value = labelSel.value;
+      labelInput.disabled = true;
+    }
+  };
+
   if (semSel) {
-    semSel.addEventListener('change', () => {
-      updateAddOtherSemVisibility();
-    });
+    semSel.addEventListener('change', updateLabelOptionsForSem);
+  }
+
+  if (labelSel) {
+    labelSel.addEventListener('change', handleLabelSelectChange);
   }
 
   if (removeBtn) {
     removeBtn.addEventListener('click', () => {
       const allRows = container.querySelectorAll('.lock-sem-row');
       if (allRows.length <= 1) {
-        // Reset last row to 'all' with empty subject
         semSel.value = 'all';
-        const labelInput = rowEl.querySelector('.lock-row-label-input');
-        if (labelInput) labelInput.value = '';
+        updateLabelOptionsForSem();
       } else {
         rowEl.remove();
       }
@@ -3075,9 +3188,49 @@ function openGlobalLockModal(day, period) {
 
   dayInput.value = day;
   periodInput.value = period;
-  if (dayPeriodSpan) dayPeriodSpan.textContent = `${day} Period ${period}`;
 
+  const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
   const matchingLocks = localGlobalLocks.filter(l => l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period));
+
+  // Determine which weekdays currently share this lock configuration
+  let initialDays = [day.toUpperCase()];
+  if (matchingLocks.length > 0) {
+    const lockSig = matchingLocks.map(l => `${l.semester || 'all'}:${(l.label || '').trim()}`).sort().join('|');
+    const sameSigDays = weekdays.filter(d => {
+      const dLocks = localGlobalLocks.filter(l => l.day.toUpperCase() === d && String(l.period) === String(period));
+      const dSig = dLocks.map(l => `${l.semester || 'all'}:${(l.label || '').trim()}`).sort().join('|');
+      return dSig === lockSig && lockSig !== '';
+    });
+    if (sameSigDays.length > 0) {
+      initialDays = sameSigDays;
+    }
+  }
+
+  modal.setAttribute('data-init-days', JSON.stringify(initialDays));
+
+  // Set day checkboxes
+  const dayCbs = modal.querySelectorAll('.lock-day-cb');
+  dayCbs.forEach(cb => {
+    cb.checked = initialDays.includes(cb.value.toUpperCase());
+  });
+
+  const updateModalDayTitle = () => {
+    const checkedDays = Array.from(modal.querySelectorAll('.lock-day-cb:checked')).map(cb => cb.value.toUpperCase());
+    let dayText = day;
+    if (checkedDays.length === 5) {
+      dayText = 'All Weekdays';
+    } else if (checkedDays.length > 0) {
+      dayText = checkedDays.map(v => v.charAt(0) + v.slice(1, 3).toLowerCase()).join(', ');
+    } else {
+      dayText = 'No days selected';
+    }
+    if (dayPeriodSpan) dayPeriodSpan.textContent = `${dayText} - Period ${period}`;
+  };
+  updateModalDayTitle();
+
+  dayCbs.forEach(cb => {
+    cb.onchange = updateModalDayTitle;
+  });
 
   container.innerHTML = '';
   if (matchingLocks.length > 0) {
@@ -3120,6 +3273,108 @@ function bindGlobalLocksEvents() {
   const btnAddRow = document.getElementById('btn-add-lock-sem-row');
   const container = document.getElementById('modal-lock-rows-container');
 
+  // Day buttons inside modal
+  const btnLockDaysAll = document.getElementById('btn-lock-days-all');
+  const btnLockDaysCurrent = document.getElementById('btn-lock-days-current');
+  if (btnLockDaysAll && modal) {
+    btnLockDaysAll.addEventListener('click', () => {
+      const dayCbs = modal.querySelectorAll('.lock-day-cb');
+      dayCbs.forEach(cb => { cb.checked = true; });
+      if (dayCbs.length > 0 && dayCbs[0].onchange) dayCbs[0].onchange();
+    });
+  }
+  if (btnLockDaysCurrent && modal) {
+    btnLockDaysCurrent.addEventListener('click', () => {
+      const curDay = (document.getElementById('modal-lock-target-day').value || '').toUpperCase();
+      const dayCbs = modal.querySelectorAll('.lock-day-cb');
+      dayCbs.forEach(cb => {
+        cb.checked = (cb.value.toUpperCase() === curDay);
+      });
+      if (dayCbs.length > 0 && dayCbs[0].onchange) dayCbs[0].onchange();
+    });
+  }
+
+  // Quick toolbar day lock controls
+  const btnQuickDayLock = document.getElementById('btn-apply-quick-day-lock');
+  const btnQuickDayUnlock = document.getElementById('btn-apply-quick-day-unlock');
+  const selectQuickDay = document.getElementById('select-quick-day-lock');
+
+  if (btnQuickDayLock) {
+    btnQuickDayLock.addEventListener('click', async () => {
+      const selectedDay = selectQuickDay ? selectQuickDay.value : '';
+      if (!selectedDay) {
+        showAdminAlert('Day Selection Required', 'Please select a day or All Weekdays from the dropdown.', 'warning');
+        return;
+      }
+
+      const defaultGlobalLabel = (document.getElementById('global-lock-default-label') && document.getElementById('global-lock-default-label').value.trim()) || 'College Assembly / Common Hour';
+      const rawPeriods = (state.config && state.config.periods) || ['1', '2', '3', 'LB', '4', '5', '6'];
+      const nonLbPeriods = rawPeriods.filter(p => String(p).trim().toUpperCase() !== 'LB').map(p => String(p).trim());
+      const targetDays = selectedDay === 'ALL' ? ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'] : [selectedDay];
+
+      targetDays.forEach(d => {
+        nonLbPeriods.forEach(p => {
+          localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === d.toUpperCase() && String(l.period) === String(p)));
+          localGlobalLocks.push({ day: d, period: p, label: defaultGlobalLabel, semester: 'all' });
+        });
+      });
+
+      if (state.config) state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+      renderGlobalLocksGrid();
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+        if (alertBox) {
+          alertBox.textContent = `Successfully locked all periods for ${selectedDay === 'ALL' ? 'all weekdays' : selectedDay}.`;
+          alertBox.classList.remove('hidden');
+          setTimeout(() => alertBox.classList.add('hidden'), 3500);
+        }
+      } catch (e) {
+        console.error('Failed to autosave day lock:', e);
+      }
+    });
+  }
+
+  if (btnQuickDayUnlock) {
+    btnQuickDayUnlock.addEventListener('click', async () => {
+      const selectedDay = selectQuickDay ? selectQuickDay.value : '';
+      if (!selectedDay) {
+        showAdminAlert('Day Selection Required', 'Please select a day or All Weekdays from the dropdown.', 'warning');
+        return;
+      }
+
+      const targetDays = selectedDay === 'ALL' ? ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'] : [selectedDay];
+
+      targetDays.forEach(d => {
+        localGlobalLocks = localGlobalLocks.filter(l => l.day.toUpperCase() !== d.toUpperCase());
+      });
+
+      if (state.config) state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
+      renderGlobalLocksGrid();
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        await fetch(`${API_BASE}/admin/global-locked-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': token },
+          body: JSON.stringify({ locks: localGlobalLocks })
+        });
+        if (alertBox) {
+          alertBox.textContent = `Successfully unlocked all periods for ${selectedDay === 'ALL' ? 'all weekdays' : selectedDay}.`;
+          alertBox.classList.remove('hidden');
+          setTimeout(() => alertBox.classList.add('hidden'), 3500);
+        }
+      } catch (e) {
+        console.error('Failed to autosave day unlock:', e);
+      }
+    });
+  }
+
   if (btnCloseModal) btnCloseModal.addEventListener('click', closeGlobalLockModal);
   if (btnCancelModal) btnCancelModal.addEventListener('click', closeGlobalLockModal);
 
@@ -3151,41 +3406,67 @@ function bindGlobalLocksEvents() {
   // Modal Save Lock button
   if (btnSaveModal) {
     btnSaveModal.addEventListener('click', async () => {
-      const day = document.getElementById('modal-lock-target-day').value;
+      const initialDay = (document.getElementById('modal-lock-target-day').value || '').toUpperCase();
       const period = document.getElementById('modal-lock-target-period').value;
       if (!container) return;
 
+      const checkedDayBoxes = Array.from(modal.querySelectorAll('.lock-day-cb:checked'));
+      const selectedDays = checkedDayBoxes.length > 0 ? checkedDayBoxes.map(cb => cb.value.toUpperCase()) : [initialDay];
+
+      let initDays = [];
+      try {
+        initDays = JSON.parse(modal.getAttribute('data-init-days') || '[]');
+      } catch (e) {
+        initDays = [initialDay];
+      }
+
       const rows = container.querySelectorAll('.lock-sem-row');
-      const newLocks = [];
+      const rowConfigs = [];
 
       rows.forEach(r => {
         const sem = r.querySelector('.lock-row-sem-select').value;
-        const label = r.querySelector('.lock-row-label-input').value.trim() || 'College Activity';
-        newLocks.push({ day, period, label, semester: sem });
+        const labelSel = r.querySelector('.lock-row-label-select');
+        const labelInput = r.querySelector('.lock-row-label-input');
+        let label = 'College Activity';
+        if (labelSel && labelSel.value !== 'Other') {
+          label = labelSel.value;
+        } else if (labelInput) {
+          label = labelInput.value.trim() || 'College Activity';
+        }
+        rowConfigs.push({ sem, label });
       });
 
-      if (newLocks.length === 0) {
+      if (rowConfigs.length === 0) {
         closeGlobalLockModal();
         return;
       }
 
-      // Remove existing locks for this day and period
-      localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
+      // 1. Remove locks from any day that was originally part of this lock group but is now unchecked
+      const unselectedDays = initDays.filter(d => !selectedDays.includes(d));
+      unselectedDays.forEach(d => {
+        localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === d && String(l.period) === String(period)));
+      });
 
-      // If any row is 'all', only keep the 'all' lock
-      const allLock = newLocks.find(l => l.semester === 'all');
-      if (allLock) {
-        localGlobalLocks.push(allLock);
-      } else {
-        // Prevent duplicate semester entries
-        const addedSems = new Set();
-        newLocks.forEach(l => {
-          if (!addedSems.has(l.semester)) {
-            addedSems.add(l.semester);
-            localGlobalLocks.push(l);
-          }
-        });
-      }
+      // 2. Apply the lock to all selected days
+      selectedDays.forEach(day => {
+        // Remove existing locks for this day and period
+        localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
+
+        // If any row is 'all', only keep the 'all' lock
+        const allLock = rowConfigs.find(rc => rc.sem === 'all');
+        if (allLock) {
+          localGlobalLocks.push({ day, period, label: allLock.label, semester: 'all' });
+        } else {
+          // Prevent duplicate semester entries
+          const addedSems = new Set();
+          rowConfigs.forEach(rc => {
+            if (!addedSems.has(rc.sem)) {
+              addedSems.add(rc.sem);
+              localGlobalLocks.push({ day, period, label: rc.label, semester: rc.sem });
+            }
+          });
+        }
+      });
 
       if (state.config) {
         state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
@@ -3202,6 +3483,11 @@ function bindGlobalLocksEvents() {
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
           body: JSON.stringify({ locks: localGlobalLocks })
         });
+        if (alertBox) {
+          alertBox.textContent = `Saved Period ${period} lock across ${selectedDays.length} day(s) (${selectedDays.join(', ')}).`;
+          alertBox.classList.remove('hidden');
+          setTimeout(() => alertBox.classList.add('hidden'), 3500);
+        }
       } catch (e) {
         console.error('Failed to autosave global locks:', e);
       }
@@ -3211,10 +3497,25 @@ function bindGlobalLocksEvents() {
   // Modal Unlock button
   if (btnUnlockModal) {
     btnUnlockModal.addEventListener('click', async () => {
-      const day = document.getElementById('modal-lock-target-day').value;
+      const initialDay = (document.getElementById('modal-lock-target-day').value || '').toUpperCase();
       const period = document.getElementById('modal-lock-target-period').value;
 
-      localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day.toUpperCase() && String(l.period) === String(period)));
+      const checkedDayBoxes = Array.from(modal.querySelectorAll('.lock-day-cb:checked'));
+      const selectedDays = checkedDayBoxes.length > 0 ? checkedDayBoxes.map(cb => cb.value.toUpperCase()) : [initialDay];
+
+      let initDays = [];
+      try {
+        initDays = JSON.parse(modal.getAttribute('data-init-days') || '[]');
+      } catch (e) {
+        initDays = [initialDay];
+      }
+
+      const daysToUnlock = Array.from(new Set([...selectedDays, ...initDays, initialDay]));
+
+      daysToUnlock.forEach(day => {
+        localGlobalLocks = localGlobalLocks.filter(l => !(l.day.toUpperCase() === day && String(l.period) === String(period)));
+      });
+
       if (state.config) {
         state.config.globalLockedPeriods = JSON.parse(JSON.stringify(localGlobalLocks));
       }
@@ -3232,7 +3533,7 @@ function bindGlobalLocksEvents() {
         });
         if (res.ok) {
           if (alertBox) {
-            alertBox.textContent = `Unlocked ${day} Period ${period} across all departments.`;
+            alertBox.textContent = `Unlocked Period ${period} across ${daysToUnlock.join(', ')}.`;
             alertBox.classList.remove('hidden');
             setTimeout(() => alertBox.classList.add('hidden'), 3500);
           }
