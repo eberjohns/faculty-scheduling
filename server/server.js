@@ -542,6 +542,135 @@ app.post('/api/courses/class-config', requireUser, (req, res) => {
   });
 });
 
+// -------------------------------------------------------------
+// Curriculum & Recommended Slots Allocation Endpoint
+// -------------------------------------------------------------
+app.post('/api/curriculum-slots', requireUser, (req, res) => {
+  const { departmentName, semester, courseRecommendations, semesterBlocks } = req.body;
+  if (!departmentName) {
+    return res.status(400).json({ success: false, message: 'Department name is required.' });
+  }
+
+  const db = readDb();
+  const deptUpper = departmentName.toUpperCase();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  // 1. Update course recommendations
+  if (courseRecommendations && typeof courseRecommendations === 'object') {
+    Object.keys(courseRecommendations).forEach(courseCode => {
+      const recs = courseRecommendations[courseCode];
+      const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const coursesToUpdate = db.courses.filter(c => {
+        const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        return (c.code === courseCode || cBase === baseCode) && c.department.toUpperCase() === deptUpper;
+      });
+
+      coursesToUpdate.forEach(c => {
+        if (!c.masterRecommendations) {
+          c.masterRecommendations = JSON.parse(JSON.stringify(c.recommendations || {}));
+        }
+        c.recommendations = JSON.parse(JSON.stringify(recs));
+      });
+    });
+  }
+
+  // 2. Update semester blocked periods if provided
+  if (Array.isArray(semesterBlocks) && semester) {
+    if (!db.config.globalLockedPeriods) db.config.globalLockedPeriods = [];
+    const semStr = String(semester).replace(/^Sem(ester)?\s*/i, '').trim();
+    // Remove existing "Blocked" locks for this department's semester
+    db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
+      const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      const isBlockedLabel = (l.label || '').toUpperCase().startsWith('BLOCKED');
+      return !(lSem === semStr && isBlockedLabel);
+    });
+
+    // Add new blocks
+    semesterBlocks.forEach(b => {
+      if (b && b.day && b.period) {
+        db.config.globalLockedPeriods.push({
+          day: b.day.toUpperCase(),
+          period: String(b.period),
+          semester: semStr,
+          label: 'Blocked'
+        });
+      }
+    });
+  }
+
+  writeDb(db);
+  res.json({
+    success: true,
+    message: 'Curriculum recommended slots and blocked periods saved successfully.',
+    courses: db.courses,
+    globalLockedPeriods: db.config.globalLockedPeriods
+  });
+});
+
+// -------------------------------------------------------------
+// Reset Curriculum & Recommended Slots to Master Baseline
+// -------------------------------------------------------------
+app.post('/api/curriculum-slots/reset', requireUser, (req, res) => {
+  const { departmentName, semester, courseFilter } = req.body;
+  if (!departmentName) {
+    return res.status(400).json({ success: false, message: 'Department name is required.' });
+  }
+
+  const db = readDb();
+  const deptUpper = departmentName.toUpperCase();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  const semStr = String(semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+  // Find courses to reset
+  const coursesToReset = db.courses.filter(c => {
+    const cDept = (c.department || '').toUpperCase();
+    const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+    const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const matchDept = cDept === deptUpper;
+    const matchSem = !semStr || cSem === semStr;
+    const matchCourse = (!courseFilter || courseFilter === 'ALL' || cBase === courseFilter || c.code === courseFilter);
+    return matchDept && matchSem && matchCourse;
+  });
+
+  coursesToReset.forEach(c => {
+    if (c.masterRecommendations) {
+      c.recommendations = JSON.parse(JSON.stringify(c.masterRecommendations));
+    }
+  });
+
+  // If resetting whole semester (courseFilter is 'ALL'), remove user-created semester blocked periods for this semester
+  if (!courseFilter || courseFilter === 'ALL') {
+    if (db.config.globalLockedPeriods) {
+      db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
+        const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
+        return !(lSem === semStr && isBlocked);
+      });
+    }
+  }
+
+  writeDb(db);
+  res.json({
+    success: true,
+    message: 'Curriculum allocations reset to master timetable recommended slots.',
+    courses: db.courses,
+    globalLockedPeriods: db.config.globalLockedPeriods
+  });
+});
+
 
 app.get('/api/faculty', requireUser, (req, res) => {
   const { department } = req.query;
@@ -1658,10 +1787,6 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       forceRelaxed: !!req.body.forceRelaxed
     });
 
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
-
     res.json(result);
   } catch (err) {
     console.error("Auto-generate error:", err);
@@ -2571,6 +2696,21 @@ try {
       console.log(`Consolidated ${db.courses.length} courses down to ${uniqueCourses.length} unique courses.`);
       db.courses = uniqueCourses;
       writeDb(db);
+    }
+  }
+
+  // Ensure masterRecommendations baseline is permanently preserved on all courses
+  const dbMaster = readDb();
+  if (Array.isArray(dbMaster.courses)) {
+    let changedMaster = false;
+    dbMaster.courses.forEach(c => {
+      if (!c.masterRecommendations) {
+        c.masterRecommendations = JSON.parse(JSON.stringify(c.recommendations || {}));
+        changedMaster = true;
+      }
+    });
+    if (changedMaster) {
+      writeDb(dbMaster);
     }
   }
 } catch (err) {
