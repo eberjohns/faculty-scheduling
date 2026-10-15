@@ -40,6 +40,14 @@ export function getPeriodBlocks(periodsList) {
         currentBlock = [];
       }
     } else {
+      // Intervals exist between periods 2 & 3 and between periods 3 & 4
+      if (pStr === '3' && currentBlock.includes('2')) {
+        blocks.push(currentBlock);
+        currentBlock = [];
+      } else if (pStr === '4' && currentBlock.includes('3')) {
+        blocks.push(currentBlock);
+        currentBlock = [];
+      }
       currentBlock.push(pStr);
     }
   });
@@ -123,11 +131,21 @@ export function generateDepartmentSchedule({
   const rawPeriods = db.periods || ['1', '2', '3', 'LB', '4', '5', '6'];
   const allRealPeriods = rawPeriods.filter(p => !isBreakPeriod(p));
   const periodBlocks = getPeriodBlocks(rawPeriods);
+  const validSlots1Hour = getContiguousSlots(periodBlocks, 1);
+  const validSlotsPractical = getContiguousSlots(periodBlocks, practicalBlockSize).filter(slotGroup => {
+    // Strictly prevent practical blocks across the intervals: between 2 & 3, between 3 & 4, and Period 3
+    const has2 = slotGroup.includes('2');
+    const has3 = slotGroup.includes('3');
+    const has4 = slotGroup.includes('4');
+    if ((has2 && has3) || (has3 && has4) || slotGroup.includes('3')) return false;
+    return true;
+  });
   const globalLocks = db.config.globalLockedPeriods || [];
   const teacherUnavail = db.teacherUnavailability || {};
 
   // 1. Filter department courses
-  let deptCourses = (db.courses || []).filter(c => c.department.toUpperCase() === deptUpper);
+  const allDeptCourses = (db.courses || []).filter(c => c.department.toUpperCase() === deptUpper);
+  let deptCourses = allDeptCourses;
   if (semester && semester !== 'all') {
     if (semester === 'odd') {
       deptCourses = deptCourses.filter(c => parseInt(String(c.semester).replace(/\D+/g, ''), 10) % 2 === 1);
@@ -143,7 +161,7 @@ export function generateDepartmentSchedule({
   let targetCourses = deptCourses;
   if (isSelective) {
     const selectedSet = new Set(selectedCourseCodes.map(code => code.trim().toUpperCase()));
-    targetCourses = deptCourses.filter(c => {
+    targetCourses = allDeptCourses.filter(c => {
       const base = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
       return selectedSet.has(c.code.toUpperCase()) || selectedSet.has(base.toUpperCase());
     });
@@ -358,6 +376,43 @@ export function generateDepartmentSchedule({
     let remainingHours = Math.max(0, neededHours - pinnedCount);
     courseTotalHours[courseCode] = neededHours;
 
+    // Count available curriculum recommendation slots for this course
+    let recPBlocks = 0;
+    let recTSlots = 0;
+    if (course.recommendations) {
+      WEEKDAYS.forEach(d => {
+        validSlotsPractical.forEach(slotGroup => {
+          if (slotGroup.every(p => course.recommendations[d] && course.recommendations[d][p] === 'P')) {
+            recPBlocks++;
+          }
+        });
+        validSlots1Hour.forEach(slotGroup => {
+          if (slotGroup.every(p => course.recommendations[d] && (course.recommendations[d][p] === 'T' || course.recommendations[d][p] === 'M'))) {
+            recTSlots++;
+          }
+        });
+      });
+    }
+
+    // Deduct any pinned slots that already occupy recommended periods
+    let pinnedPCount = 0;
+    let pinnedTCount = 0;
+    WEEKDAYS.forEach(d => {
+      if (coursePinned[d]) {
+        Object.keys(coursePinned[d]).forEach(p => {
+          if (course.recommendations && course.recommendations[d]) {
+            if (course.recommendations[d][p] === 'P') pinnedPCount++;
+            if (course.recommendations[d][p] === 'T' || course.recommendations[d][p] === 'M') pinnedTCount++;
+          }
+        });
+      }
+    });
+    recPBlocks = Math.max(0, recPBlocks - Math.floor(pinnedPCount / (practicalBlockSize || 2)));
+    recTSlots = Math.max(0, recTSlots - pinnedTCount);
+
+    let recPRemaining = recPBlocks;
+    let recTRemaining = recTSlots;
+
     if (isPractical) {
       let practicalNeed = parseInt(cfg.practicalHours !== undefined ? cfg.practicalHours : (savedMapping && savedMapping.practicalHours !== undefined ? savedMapping.practicalHours : course.practicalHours));
       let theoryNeed = parseInt(cfg.theoryHours !== undefined ? cfg.theoryHours : (savedMapping && savedMapping.theoryHours !== undefined ? savedMapping.theoryHours : course.theoryHours));
@@ -402,6 +457,9 @@ export function generateDepartmentSchedule({
       const blockSize = Math.min(practicalBlockSize, Math.max(1, practicalNeed));
       while (practicalNeed > 0) {
         const curDuration = Math.min(blockSize, practicalNeed);
+        const isRecCard = (recPRemaining > 0);
+        if (recPRemaining > 0) recPRemaining--;
+
         cards.push({
           id: `${courseCode}_P_${cards.length}`,
           courseCode,
@@ -415,12 +473,16 @@ export function generateDepartmentSchedule({
           facultyPool: pracTeachers,
           teacherHours: null,
           batches: mappedBatches,
-          recommendations: course.recommendations || {}
+          recommendations: course.recommendations || {},
+          isRecommended: isRecCard
         });
         practicalNeed -= curDuration;
       }
 
       while (theoryNeed > 0) {
+        const isRecCard = (recTRemaining > 0);
+        if (recTRemaining > 0) recTRemaining--;
+
         cards.push({
           id: `${courseCode}_T_${cards.length}`,
           courseCode,
@@ -434,12 +496,16 @@ export function generateDepartmentSchedule({
           facultyPool: thTeachers,
           teacherHours: thTeacherHours,
           batches: mappedBatches,
-          recommendations: course.recommendations || {}
+          recommendations: course.recommendations || {},
+          isRecommended: isRecCard
         });
         theoryNeed -= 1;
       }
     } else {
       while (remainingHours > 0) {
+        const isRecCard = (recTRemaining > 0);
+        if (recTRemaining > 0) recTRemaining--;
+
         cards.push({
           id: `${courseCode}_T_${cards.length}`,
           courseCode,
@@ -453,7 +519,8 @@ export function generateDepartmentSchedule({
           facultyPool: assignedFacs,
           teacherHours: binding.teacherHours || null,
           batches: mappedBatches,
-          recommendations: course.recommendations || {}
+          recommendations: course.recommendations || {},
+          isRecommended: isRecCard
         });
         remainingHours -= 1;
       }
@@ -472,11 +539,15 @@ export function generateDepartmentSchedule({
     return count;
   }
 
-  // Sort cards by MRV (Most Constrained Variable):
-  // 1. Practicals first (large contiguous blocks hardest to place)
-  // 2. Courses with specific curriculum recommendations first (tightest domain)
-  // 3. Single-teacher before multi-teacher (fewer faculty choices)
+  // Sort cards by Phase and MRV (Most Constrained Variable):
+  // 1. Recommended cards ALWAYS first (Phase 1 Priority)
+  // 2. Practicals first (large contiguous blocks hardest to place)
+  // 3. Courses with specific curriculum recommendations first (tightest domain)
+  // 4. Single-teacher before multi-teacher (fewer faculty choices)
   cards.sort((a, b) => {
+    if (a.isRecommended && !b.isRecommended) return -1;
+    if (!a.isRecommended && b.isRecommended) return 1;
+
     if (b.duration !== a.duration) return b.duration - a.duration;
     const aRec = countRecommendations(a);
     const bRec = countRecommendations(b);
@@ -492,7 +563,7 @@ export function generateDepartmentSchedule({
 
   // 5. Pre-fill with existing pinned slots and existing unselected courses
   const initialAllocation = {};
-  deptCourses.forEach(c => {
+  allDeptCourses.forEach(c => {
     initialAllocation[c.code] = {};
     WEEKDAYS.forEach(d => {
       initialAllocation[c.code][d] = {};
@@ -501,7 +572,7 @@ export function generateDepartmentSchedule({
 
   // If selective mode or pinning enabled, preserve existing allocations
   const currentDeptAlloc = db.allocations[deptUpper] || {};
-  deptCourses.forEach(c => {
+  allDeptCourses.forEach(c => {
     const isTarget = targetCourses.some(tc => tc.code === c.code);
     if (!isTarget) {
       // Unselected course: preserve its allocations as static obstacles
@@ -540,7 +611,8 @@ export function generateDepartmentSchedule({
       LAB_OCCUPIED: 0,
       SAME_DAY_STACKING: 0,
       SAME_PERIOD_REPETITION: 0,
-      SHIFT_BALANCE: 0
+      SHIFT_BALANCE: 0,
+      INTERVAL_CROSSING: 0
     },
     bottleneckFaculty: {},
     bottleneckCourses: {}
@@ -580,9 +652,6 @@ export function generateDepartmentSchedule({
       diagnostics.bottleneckCourses[card.courseCode] = (diagnostics.bottleneckCourses[card.courseCode] || 0) + 1;
     }
   }
-
-  const validSlots1Hour = getContiguousSlots(periodBlocks, 1);
-  const validSlotsPractical = getContiguousSlots(periodBlocks, practicalBlockSize);
 
   function courseMatchesCommonSubject(course, subjectCode, commonBatches = []) {
     if (!course) return false;
@@ -817,6 +886,14 @@ export function generateDepartmentSchedule({
 
     // 5. Single Computer Lab Constraint - Strictly enforced (NO parallel lab / practical hours)
     if (card.type === 'P') {
+      const has2 = periodsGroup.includes('2');
+      const has3 = periodsGroup.includes('3');
+      const has4 = periodsGroup.includes('4');
+      if ((has2 && has3) || (has3 && has4) || periodsGroup.includes('3')) {
+        recordRejection('INTERVAL_CROSSING', card);
+        return false;
+      }
+
       for (const p of periodsGroup) {
         if (externalLabUsage[day] && externalLabUsage[day][p]) {
           recordRejection('LAB_OCCUPIED', card);
@@ -849,6 +926,16 @@ export function generateDepartmentSchedule({
   function getAvailableCandidatesForCard(allocState, card, day, periodsGroup, courseFacultyHoursState, isRelaxed = false, deepRelaxed = false) {
     // 1. Course-level checks (Global Lock, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+    if (card.type === 'P') {
+      const has2 = periodsGroup.includes('2');
+      const has3 = periodsGroup.includes('3');
+      const has4 = periodsGroup.includes('4');
+      if ((has2 && has3) || (has3 && has4) || periodsGroup.includes('3')) {
+        recordRejection('INTERVAL_CROSSING', card);
+        return [];
+      }
+    }
+
     for (const p of periodsGroup) {
       if (isGlobalLocked(day, p, card.semester, courseObj)) {
         recordRejection('GLOBAL_LOCK', card);
@@ -1029,8 +1116,8 @@ export function generateDepartmentSchedule({
         }
       });
 
-      // +50 points per recommended slot placed!
-      score += (recMatches * 50);
+      // High reward for matching Curriculum Recommendations
+      score += (recMatches * 150);
 
       // Reward spreading theory across distinct days (1 hr/day mandatory distribution)
       if (!isPractical) {
@@ -1100,37 +1187,69 @@ export function generateDepartmentSchedule({
     return hours;
   }
 
-  // -----------------------------------------------------------
-  // Backtracking Solver
-  // -----------------------------------------------------------
-  let bestSolution = null;
-  let bestScore = -Infinity;
-  let stepsCount = 0;
-  let mostCardsPlacedAlloc = null;
-  let maxCardsPlaced = -1;
-  const MAX_STEPS = 20000;
   let currentCourseFacultyHours = initializeCourseFacultyHours();
 
+  // Pre-compute maps of all recommended periods across targetCourses to enforce strict Practical vs Theory separation
+  const semesterPracticalSlots = {};
+  const semesterTheorySlots = {};
+
+  targetCourses.forEach(c => {
+    const sem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toUpperCase();
+    if (!semesterPracticalSlots[sem]) semesterPracticalSlots[sem] = {};
+    if (!semesterTheorySlots[sem]) semesterTheorySlots[sem] = {};
+
+    WEEKDAYS.forEach(d => {
+      if (!semesterPracticalSlots[sem][d]) semesterPracticalSlots[sem][d] = new Set();
+      if (!semesterTheorySlots[sem][d]) semesterTheorySlots[sem][d] = new Set();
+
+      const recs = c.recommendations && c.recommendations[d];
+      if (recs) {
+        Object.keys(recs).forEach(p => {
+          const val = String(recs[p]).toUpperCase().trim();
+          if (val === 'P') {
+            semesterPracticalSlots[sem][d].add(String(p));
+          } else if (val === 'T' || val === 'M') {
+            semesterTheorySlots[sem][d].add(String(p));
+          }
+        });
+      }
+    });
+  });
+
+  function isTheoryDesignated(day, period, card) {
+    const pStr = String(period);
+    if (card.recommendations && card.recommendations[day] && (card.recommendations[day][pStr] === 'T' || card.recommendations[day][pStr] === 'M')) {
+      return true;
+    }
+    const sem = String(card.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toUpperCase();
+    if (semesterTheorySlots[sem] && semesterTheorySlots[sem][day] && semesterTheorySlots[sem][day].has(pStr)) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPracticalDesignated(day, period, card) {
+    const pStr = String(period);
+    if (card.recommendations && card.recommendations[day] && card.recommendations[day][pStr] === 'P') {
+      return true;
+    }
+    const sem = String(card.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toUpperCase();
+    if (semesterPracticalSlots[sem] && semesterPracticalSlots[sem][day] && semesterPracticalSlots[sem][day].has(pStr)) {
+      return true;
+    }
+    return false;
+  }
+
   /**
-   * Generates strictly prioritized candidate placements (day & slotGroup) for a card.
+   * Generates candidate placements for a card.
    * 
-   * Strict Allocation Flow:
-   * 1. Theory courses are spread across different days of the week (mandatory).
-   * 2. The same subject will not have more than 1 hour in a day. (Practicals are exempt).
-   * 3. Priority order for Theory:
-   *    - Tier 1: Days with 0 hours today on Curriculum Recommended 'T' slots.
-   *    - Tier 2: Days with 0 hours today on Neutral / Non-recommended slots.
-   *    - Tier 3: Days with 0 hours today on other available slots.
-   *    - Tier 4: Days with 1 hour today on Recommended 'T' slots (Balance/overflow hours only).
-   *    - Tier 5: Days with 1 hour today on Neutral slots (Balance/overflow hours only).
-   *    - Tier 6: Days with 1 hour today on other slots.
-   *    - Tier 7: Deep relaxed fallback (days with >= 2 hours).
-   * 4. Priority order for Practical (exempt from 1 hr/day):
-   *    - Tier 1: Curriculum Recommended 'P' slots.
-   *    - Tier 2: Neutral slots.
-   *    - Tier 3: Other fallback slots.
+   * Strict Rules:
+   * 1. In Phase 1: Only curriculum-recommended slots are explored.
+   * 2. Practical cards are STRICTLY prohibited from taking Theory designated slots.
+   * 3. Theory cards are STRICTLY prohibited from taking Practical designated slots.
+   * 4. In Phase 2: Balance/overflow cards pick neutral slots that do not clash with practical/theory slots.
    */
-  function getPrioritizedCandidatePlacements(allocState, card, isRelaxed = false, deepRelaxed = false) {
+  function getPrioritizedCandidatePlacements(allocState, card, isRelaxed = false, deepRelaxed = false, phase = 2) {
     const isPractical = (card.duration > 1);
     const candidateSlots = isPractical ? validSlotsPractical : validSlots1Hour;
     
@@ -1141,63 +1260,80 @@ export function generateDepartmentSchedule({
     });
 
     if (isPractical) {
-      const tier1 = []; // Recommended 'P'
-      const tier2 = []; // Neutral slots
-      const tier3 = []; // Other fallback
+      const tier1 = []; // Curriculum Recommended 'P' slots
+      const tier2 = []; // Neutral slots (Strictly NO theory conflict!)
 
       WEEKDAYS.forEach(day => {
         candidateSlots.forEach(slotGroup => {
-          const isRecP = slotGroup.every(p => card.recommendations[day] && card.recommendations[day][p] === 'P');
-          const isRecT = slotGroup.some(p => card.recommendations[day] && card.recommendations[day][p] === 'T');
+          const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
+          
+          // Strict Practical/Theory separation: Disqualify any slot with Theory recommendation!
+          const hasTheoryConflict = slotGroup.some(p => isTheoryDesignated(day, p, card));
+          if (hasTheoryConflict) {
+            return;
+          }
 
-          if (isRecP && !isRecT) {
+          if (isOwnRecP) {
             tier1.push({ day, slotGroup });
-          } else if (!isRecT) {
+          } else if (phase !== 1) {
+            // Neutral slots only allowed in Phase 2
             tier2.push({ day, slotGroup });
-          } else {
-            tier3.push({ day, slotGroup });
           }
         });
       });
 
       tier1.sort(() => Math.random() - 0.5);
       tier2.sort(() => Math.random() - 0.5);
-      tier3.sort(() => Math.random() - 0.5);
 
-      return [...tier1, ...tier2, ...tier3];
+      if (phase === 1) {
+        return tier1;
+      }
+      return [...tier1, ...tier2];
     }
 
     // Theory courses:
     const tier1 = []; // 0 hours today + Recommended 'T'
-    const tier2 = []; // 0 hours today + Neutral
-    const tier3 = []; // 0 hours today + Fallback
-    const tier4 = []; // 1 hour today + Recommended 'T' (balance hours)
-    const tier5 = []; // 1 hour today + Neutral (balance hours)
-    const tier6 = []; // 1 hour today + Fallback
-    const tier7 = []; // >= 2 hours today (deep relaxation only)
+    const tier2 = []; // 0 hours today + Neutral (Strictly NO practical conflict!)
+    const tier4 = []; // 1 hour today + Recommended 'T' (multi-hour placement if needed)
+    const tier5 = []; // 1 hour today + Neutral (Strictly NO practical conflict!)
+    const tier7 = []; // Relaxation (Strictly NO practical conflict!)
 
     WEEKDAYS.forEach(day => {
       const hoursToday = placedOnDays[day];
 
       candidateSlots.forEach(slotGroup => {
-        const isRecT = slotGroup.some(p => card.recommendations[day] && card.recommendations[day][p] === 'T');
-        const isRecP = slotGroup.some(p => card.recommendations[day] && card.recommendations[day][p] === 'P');
+        const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
 
+        // Strict Practical/Theory separation: Disqualify any slot with Practical recommendation!
+        const hasPracticalConflict = slotGroup.some(p => isPracticalDesignated(day, p, card));
+        if (hasPracticalConflict) {
+          return;
+        }
+
+        if (phase === 1) {
+          // Phase 1: STRICTLY only recommended 'T' slots!
+          if (isOwnRecT) {
+            if (hoursToday === 0) {
+              tier1.push({ day, slotGroup });
+            } else if (hoursToday === 1) {
+              tier4.push({ day, slotGroup });
+            }
+          }
+          return;
+        }
+
+        // Phase 2: Balance hours on neutral or leftover recommended slots
         if (hoursToday === 0) {
-          if (isRecT && !isRecP) {
+          if (isOwnRecT) {
             tier1.push({ day, slotGroup });
-          } else if (!isRecP) {
-            tier2.push({ day, slotGroup });
           } else {
-            tier3.push({ day, slotGroup });
+            tier2.push({ day, slotGroup });
           }
         } else if (hoursToday === 1) {
-          if (isRecT && !isRecP) {
+          if (isOwnRecT) {
             tier4.push({ day, slotGroup });
-          } else if (!isRecP) {
-            tier5.push({ day, slotGroup });
           } else {
-            tier6.push({ day, slotGroup });
+            tier5.push({ day, slotGroup });
           }
         } else if (deepRelaxed || isRelaxed) {
           tier7.push({ day, slotGroup });
@@ -1219,132 +1355,250 @@ export function generateDepartmentSchedule({
 
     sortTierSlots(tier1);
     sortTierSlots(tier2);
-    sortTierSlots(tier3);
     sortTierSlots(tier4);
     sortTierSlots(tier5);
-    sortTierSlots(tier6);
     sortTierSlots(tier7);
 
-    return [...tier1, ...tier2, ...tier3, ...tier4, ...tier5, ...tier6, ...tier7];
+    if (phase === 1) {
+      return [...tier1, ...tier4];
+    }
+    return [...tier1, ...tier2, ...tier4, ...tier5, ...tier7];
   }
 
-  function backtrack(cardIndex, currentAlloc, isRelaxed = false, deepRelaxed = false) {
-    stepsCount++;
-    if (stepsCount > MAX_STEPS) return false;
+  // -----------------------------------------------------------
+  // Backtracking Solver Engine
+  // -----------------------------------------------------------
+  function runBacktrackingSolver(cardsList, baseAlloc, phase, isRelaxed, deepRelaxed) {
+    let localBestSolution = null;
+    let localBestScore = -Infinity;
+    let localSteps = 0;
+    let localMostPlacedAlloc = null;
+    let localMaxCardsPlaced = -1;
+    const MAX_SOLVER_STEPS = 20000;
 
-    if (cardIndex > maxCardsPlaced) {
-      maxCardsPlaced = cardIndex;
-      mostCardsPlacedAlloc = JSON.parse(JSON.stringify(currentAlloc));
-    }
+    function backtrackRecursive(cardIndex, currentAlloc) {
+      localSteps++;
+      if (localSteps > MAX_SOLVER_STEPS) return false;
 
-    if (cardIndex >= cards.length) {
-      const score = evaluateScheduleScore(currentAlloc);
-      if (score > bestScore) {
-        bestScore = score;
-        bestSolution = JSON.parse(JSON.stringify(currentAlloc));
+      if (cardIndex > localMaxCardsPlaced) {
+        localMaxCardsPlaced = cardIndex;
+        localMostPlacedAlloc = JSON.parse(JSON.stringify(currentAlloc));
       }
-      return true;
-    }
 
-    const card = cards[cardIndex];
-    const candidatePlacements = getPrioritizedCandidatePlacements(currentAlloc, card, isRelaxed, deepRelaxed);
+      if (cardIndex >= cardsList.length) {
+        const score = evaluateScheduleScore(currentAlloc);
+        if (score > localBestScore) {
+          localBestScore = score;
+          localBestSolution = JSON.parse(JSON.stringify(currentAlloc));
+        }
+        return true;
+      }
 
-    for (const { day, slotGroup } of candidatePlacements) {
-      if (card.isDistributed && card.facultyPool && card.facultyPool.length > 1) {
-        const availableTeachers = getAvailableCandidatesForCard(currentAlloc, card, day, slotGroup, currentCourseFacultyHours, isRelaxed, deepRelaxed);
-        if (availableTeachers.length > 0) {
-          for (const chosenFac of availableTeachers) {
+      const card = cardsList[cardIndex];
+      const candidatePlacements = getPrioritizedCandidatePlacements(currentAlloc, card, isRelaxed, deepRelaxed, phase);
+
+      for (const { day, slotGroup } of candidatePlacements) {
+        if (card.isDistributed && card.facultyPool && card.facultyPool.length > 1) {
+          const availableTeachers = getAvailableCandidatesForCard(currentAlloc, card, day, slotGroup, currentCourseFacultyHours, isRelaxed, deepRelaxed);
+          if (availableTeachers.length > 0) {
+            for (const chosenFac of availableTeachers) {
+              slotGroup.forEach(p => {
+                currentAlloc[card.courseCode][day][p] = [chosenFac];
+                if (card.type === 'P') {
+                  occupiedLabSlots[day][p] = card.courseCode;
+                }
+              });
+              if (!currentCourseFacultyHours[card.courseCode]) currentCourseFacultyHours[card.courseCode] = {};
+              currentCourseFacultyHours[card.courseCode][chosenFac] = (currentCourseFacultyHours[card.courseCode][chosenFac] || 0) + card.duration;
+
+              const success = backtrackRecursive(cardIndex + 1, currentAlloc);
+              if (success && localBestScore > 1400) {
+                return true;
+              }
+
+              currentCourseFacultyHours[card.courseCode][chosenFac] -= card.duration;
+              slotGroup.forEach(p => {
+                delete currentAlloc[card.courseCode][day][p];
+                if (card.type === 'P') {
+                  delete occupiedLabSlots[day][p];
+                }
+              });
+
+              if (availableTeachers.length > 2) break;
+            }
+          }
+        } else {
+          if (canPlaceCard(currentAlloc, card, day, slotGroup, isRelaxed, deepRelaxed)) {
             slotGroup.forEach(p => {
-              currentAlloc[card.courseCode][day][p] = [chosenFac];
+              currentAlloc[card.courseCode][day][p] = card.assignedFaculty;
               if (card.type === 'P') {
                 occupiedLabSlots[day][p] = card.courseCode;
               }
             });
-            if (!currentCourseFacultyHours[card.courseCode]) currentCourseFacultyHours[card.courseCode] = {};
-            currentCourseFacultyHours[card.courseCode][chosenFac] = (currentCourseFacultyHours[card.courseCode][chosenFac] || 0) + card.duration;
 
-            const success = backtrack(cardIndex + 1, currentAlloc, isRelaxed, deepRelaxed);
-            if (success && bestScore > 1350) {
+            const success = backtrackRecursive(cardIndex + 1, currentAlloc);
+            if (success && localBestScore > 1400) {
               return true;
             }
 
-            currentCourseFacultyHours[card.courseCode][chosenFac] -= card.duration;
             slotGroup.forEach(p => {
               delete currentAlloc[card.courseCode][day][p];
               if (card.type === 'P') {
                 delete occupiedLabSlots[day][p];
               }
             });
-
-            if (availableTeachers.length > 2) break;
           }
-        }
-      } else {
-        if (canPlaceCard(currentAlloc, card, day, slotGroup, isRelaxed, deepRelaxed)) {
-          slotGroup.forEach(p => {
-            currentAlloc[card.courseCode][day][p] = card.assignedFaculty;
-            if (card.type === 'P') {
-              occupiedLabSlots[day][p] = card.courseCode;
-            }
-          });
-
-          const success = backtrack(cardIndex + 1, currentAlloc, isRelaxed, deepRelaxed);
-          if (success && bestScore > 1350) {
-            return true;
-          }
-
-          slotGroup.forEach(p => {
-            delete currentAlloc[card.courseCode][day][p];
-            if (card.type === 'P') {
-              delete occupiedLabSlots[day][p];
-            }
-          });
         }
       }
+
+      return false;
     }
 
-    return false;
+    const workingAlloc = JSON.parse(JSON.stringify(baseAlloc));
+    backtrackRecursive(0, workingAlloc);
+
+    return {
+      solution: localBestSolution,
+      mostPlaced: localMostPlacedAlloc,
+      maxPlacedCount: localMaxCardsPlaced,
+      bestScore: localBestScore
+    };
   }
 
-  // Phase 1: Strict Execution (only if not forcing relaxed generation directly)
-  const workingAlloc = JSON.parse(JSON.stringify(initialAllocation));
-  currentCourseFacultyHours = initializeCourseFacultyHours();
-  resetOccupiedLabSlots();
-  if (!forceRelaxed) {
-    backtrack(0, workingAlloc, false, false);
+  // Synchronize internal tracking state (faculty hours and lab slots) from an allocation
+  function syncStateFromAllocation(baseAlloc) {
+    currentCourseFacultyHours = initializeCourseFacultyHours();
+    WEEKDAYS.forEach(day => {
+      occupiedLabSlots[day] = {};
+    });
+
+    Object.keys(baseAlloc).forEach(cCode => {
+      const meta = courseMetaMap[cCode] || targetCourses.find(tc => tc.code === cCode);
+      const isPrac = meta && (meta.courseType === 'P' || meta.code.endsWith('-P'));
+      const cDays = baseAlloc[cCode] || {};
+      WEEKDAYS.forEach(d => {
+        const pMap = cDays[d] || {};
+        Object.keys(pMap).forEach(p => {
+          const facs = pMap[p] || [];
+          facs.forEach(f => {
+            if (!currentCourseFacultyHours[cCode]) currentCourseFacultyHours[cCode] = {};
+            currentCourseFacultyHours[cCode][f] = (currentCourseFacultyHours[cCode][f] || 0) + 1;
+          });
+          if (isPrac && facs.length > 0) {
+            occupiedLabSlots[d][p] = cCode;
+          }
+        });
+      });
+    });
   }
 
+  // -----------------------------------------------------------
+  // Two-Phase Execution Pipeline:
+  // Phase 1: Lock Curriculum Recommended Slots First
+  // Phase 2: Allocate Balance & Overflow Hours into Neutral Slots
+  // -----------------------------------------------------------
+  const phase1Cards = cards.filter(c => c.isRecommended);
+  const phase2Cards = cards.filter(c => !c.isRecommended);
+
+  let phase1Alloc = JSON.parse(JSON.stringify(initialAllocation));
+  let unplacedPhase1Cards = [];
+
+  if (phase1Cards.length > 0) {
+    syncStateFromAllocation(phase1Alloc);
+    const p1Result = runBacktrackingSolver(phase1Cards, phase1Alloc, 1, false, false);
+    const chosenP1 = p1Result.solution || p1Result.mostPlaced;
+    if (chosenP1) {
+      phase1Alloc = chosenP1;
+    }
+
+    // Identify which Phase 1 cards were successfully locked vs unplaced due to hard conflicts
+    const placedHoursPerCourse = {};
+    targetCourses.forEach(c => {
+      placedHoursPerCourse[c.code] = 0;
+      WEEKDAYS.forEach(d => {
+        placedHoursPerCourse[c.code] += Object.keys((phase1Alloc[c.code] && phase1Alloc[c.code][d]) || {}).length;
+      });
+      let pinned = 0;
+      const cPinned = pinnedSlots[c.code] || {};
+      WEEKDAYS.forEach(d => {
+        pinned += Object.keys(cPinned[d] || {}).length;
+      });
+      placedHoursPerCourse[c.code] = Math.max(0, placedHoursPerCourse[c.code] - pinned);
+    });
+
+    const accountedHours = {};
+    phase1Cards.forEach(card => {
+      accountedHours[card.courseCode] = accountedHours[card.courseCode] || 0;
+      if (accountedHours[card.courseCode] + card.duration <= (placedHoursPerCourse[card.courseCode] || 0)) {
+        accountedHours[card.courseCode] += card.duration;
+      } else {
+        // Hard conflict on recommended slot, deferred to Phase 2
+        unplacedPhase1Cards.push(card);
+      }
+    });
+  }
+
+  const remainingPhase2Cards = [...unplacedPhase1Cards, ...phase2Cards];
+  remainingPhase2Cards.sort((a, b) => {
+    if (b.duration !== a.duration) return b.duration - a.duration;
+    const aFacCount = (a.facultyPool && a.facultyPool.length) || a.assignedFaculty.length || 0;
+    const bFacCount = (b.facultyPool && b.facultyPool.length) || b.assignedFaculty.length || 0;
+    return aFacCount - bFacCount;
+  });
+
+  let bestSolution = null;
+  let bestScore = -Infinity;
   let isRelaxedSolution = false;
   const loggedExceptions = [];
 
-  // Phase 2: Relaxed Fallback Pass if strict search failed or forceRelaxed requested
-  if (!bestSolution && (allowRelaxedFallback || forceRelaxed)) {
-    stepsCount = 0;
-    currentCourseFacultyHours = initializeCourseFacultyHours();
-    resetOccupiedLabSlots();
-    const relaxedWorkingAlloc = JSON.parse(JSON.stringify(initialAllocation));
-    backtrack(0, relaxedWorkingAlloc, true, false);
-    if (bestSolution) {
-      isRelaxedSolution = true;
+  if (remainingPhase2Cards.length === 0) {
+    bestSolution = phase1Alloc;
+    bestScore = evaluateScheduleScore(bestSolution);
+  } else {
+    // Phase 2 Pass 1: Strict allocation for balance cards (Phase 1 recommended slots locked!)
+    syncStateFromAllocation(phase1Alloc);
+    if (!forceRelaxed) {
+      const p2Result = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, false, false);
+      if (p2Result.solution) {
+        bestSolution = p2Result.solution;
+        bestScore = p2Result.bestScore;
+      }
     }
-  }
 
-  // Phase 3: Deep Relaxation Pass (handles tight teacher availability and extended rest limits)
-  if (!bestSolution && forceRelaxed) {
-    stepsCount = 0;
-    currentCourseFacultyHours = initializeCourseFacultyHours();
-    resetOccupiedLabSlots();
-    const deepRelaxedAlloc = JSON.parse(JSON.stringify(initialAllocation));
-    backtrack(0, deepRelaxedAlloc, true, true);
-    if (bestSolution) {
-      isRelaxedSolution = true;
+    // Phase 2 Pass 2: Relaxed fallback if strict search failed or forceRelaxed requested
+    if (!bestSolution && (allowRelaxedFallback || forceRelaxed)) {
+      syncStateFromAllocation(phase1Alloc);
+      const p2Relaxed = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, true, false);
+      if (p2Relaxed.solution) {
+        bestSolution = p2Relaxed.solution;
+        bestScore = p2Relaxed.bestScore;
+        isRelaxedSolution = true;
+      } else if (p2Relaxed.mostPlaced) {
+        bestSolution = p2Relaxed.mostPlaced;
+        bestScore = evaluateScheduleScore(bestSolution);
+        isRelaxedSolution = true;
+      }
     }
-  }
 
-  // Phase 4: Best-effort complete allocation guarantee
-  if (!bestSolution && forceRelaxed && mostCardsPlacedAlloc) {
-    bestSolution = mostCardsPlacedAlloc;
-    isRelaxedSolution = true;
+    // Phase 2 Pass 3: Deep relaxation pass
+    if (!bestSolution && forceRelaxed) {
+      syncStateFromAllocation(phase1Alloc);
+      const p2Deep = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, true, true);
+      if (p2Deep.solution) {
+        bestSolution = p2Deep.solution;
+        bestScore = p2Deep.bestScore;
+        isRelaxedSolution = true;
+      } else if (p2Deep.mostPlaced) {
+        bestSolution = p2Deep.mostPlaced;
+        bestScore = evaluateScheduleScore(bestSolution);
+        isRelaxedSolution = true;
+      }
+    }
+
+    if (!bestSolution) {
+      bestSolution = phase1Alloc;
+      bestScore = evaluateScheduleScore(bestSolution);
+    }
   }
 
   if (bestSolution && isRelaxedSolution) {

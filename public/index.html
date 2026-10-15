@@ -573,6 +573,10 @@
               <i class="fa-solid fa-layer-group text-primary"></i>
               <span>Common Subject Mapping</span>
             </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-curriculum-slots">
+              <i class="fa-solid fa-calendar-check text-primary"></i>
+              <span>Curriculum Slot Allocation</span>
+            </button>
             <button type="button" class="adv-tab-btn" data-pane="adv-pane-auto-generate">
               <i class="fa-solid fa-wand-magic-sparkles text-primary"></i>
               <span>Auto Generate</span>
@@ -907,6 +911,128 @@
                 </div>
               </div>
             </div>
+
+            <!-- TAB: CURRICULUM SLOT ALLOCATION & RECOMMENDED PERIODS -->
+            <div id="adv-pane-curriculum-slots" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;">
+                    <i class="fa-solid fa-calendar-check text-primary"></i> Curriculum & Recommended Slot Allocation
+                  </h3>
+                  <p class="text-muted text-sm mb-0">
+                    Visually configure Theory & Practical recommended slots and blocked periods for each semester. Auto-generation will strictly allocate the assigned subject to these exact slots first before scheduling balance hours.
+                  </p>
+                </div>
+                <div class="flex-row items-center gap-2">
+                  <button type="button" id="btn-reset-curriculum-slots" class="btn btn-outline btn-sm">
+                    <i class="fa-solid fa-rotate-left"></i> Reset
+                  </button>
+                  <button type="button" id="btn-save-curriculum-slots" class="btn btn-primary btn-sm">
+                    <i class="fa-solid fa-save"></i> Save Slot Allocations
+                  </button>
+                </div>
+              </div>
+
+              <!-- Filter and Palette Toolbar Card -->
+              <div class="card bg-slate-50 mb-3" style="padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+                <!-- Row 1: Selectors -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                  <div>
+                    <label for="curriculum-sem-select" class="text-xs bold text-muted" style="display: block; margin-bottom: 4px;">
+                      <i class="fa-solid fa-graduation-cap text-primary"></i> Select Semester:
+                    </label>
+                    <select id="curriculum-sem-select" class="form-control" style="font-size: 13px; height: 36px;">
+                      <!-- Populated dynamically with semesters -->
+                    </select>
+                  </div>
+
+                  <div>
+                    <label for="curriculum-course-filter" class="text-xs bold text-muted" style="display: block; margin-bottom: 4px;">
+                      <i class="fa-solid fa-filter text-primary"></i> View / Filter Course:
+                    </label>
+                    <select id="curriculum-course-filter" class="form-control" style="font-size: 13px; height: 36px;">
+                      <option value="ALL">All Courses in Semester</option>
+                      <!-- Populated dynamically -->
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Row 2: Action Tool Palette & Assign Subject -->
+                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+                  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+                    <span class="text-xs bold text-muted" style="margin-right: 4px;">Slot Action Tool:</span>
+                    
+                    <button type="button" class="curriculum-mode-pill active" data-mode="T" id="tool-mode-theory" style="background: var(--warning-light); border-color: var(--warning); color: var(--warning-dark);" title="Click any cell to mark Theory Recommendation">
+                      <i class="fa-solid fa-book"></i> Theory Rec (TH)
+                    </button>
+
+                    <button type="button" class="curriculum-mode-pill" data-mode="P" id="tool-mode-practical" style="background: var(--success-light); border-color: var(--success); color: var(--success-dark);" title="Click any cell to mark Practical Recommendation">
+                      <i class="fa-solid fa-flask"></i> Practical Rec (PR)
+                    </button>
+
+                    <button type="button" class="curriculum-mode-pill" data-mode="B" id="tool-mode-block" style="background: #fee2e2; border-color: #ef4444; color: #991b1b;" title="Click any cell to Block this slot for the semester">
+                      <i class="fa-solid fa-ban"></i> Block Slot
+                    </button>
+
+                    <button type="button" class="curriculum-mode-pill" data-mode="CLEAR" id="tool-mode-clear" style="background: #f1f5f9; border-color: #cbd5e1; color: var(--text-muted);" title="Click any cell to Clear slot">
+                      <i class="fa-solid fa-eraser"></i> Clear Slot
+                    </button>
+                  </div>
+
+                  <!-- Assign Subject Dropdown (Active when Theory or Practical is selected) -->
+                  <div id="curriculum-assign-subject-wrapper" style="display: flex; align-items: center; gap: 8px; background: #ffffff; padding: 4px 10px; border-radius: 6px; border: 1.5px solid var(--primary);">
+                    <label for="curriculum-target-subject-select" class="text-xs bold" style="color: var(--primary); white-space: nowrap; margin-bottom: 0;">
+                      <i class="fa-solid fa-arrow-pointer"></i> Assign Subject:
+                    </label>
+                    <select id="curriculum-target-subject-select" class="form-control form-control-sm" style="font-size: 12px; height: 28px; min-width: 200px; max-width: 280px; font-weight: 600;">
+                      <!-- Populated dynamically with courses of the selected semester -->
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Instruction & Legend Pill Bar -->
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted);">
+                <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 14px; height: 14px; background: var(--warning-light); border-left: 3px solid var(--warning); border-radius: 2px;"></span>
+                    Theory Rec
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 14px; height: 14px; background: var(--success-light); border-left: 3px solid var(--success); border-radius: 2px;"></span>
+                    Practical Rec
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 14px; height: 14px; background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 4px, #fca5a5 4px, #fca5a5 8px); border: 1px solid #ef4444; border-radius: 2px;"></span>
+                    Semester Blocked
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span style="display: inline-block; width: 14px; height: 14px; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 2px;"></span>
+                    Neutral / Free
+                  </span>
+                </div>
+                <span id="curriculum-slot-summary-stat" class="badge badge-info" style="font-size: 11px; padding: 2px 8px;">
+                  0 Recommended Slots Set
+                </span>
+              </div>
+
+              <!-- Timetable Matrix Grid Table Container -->
+              <div class="table-responsive" style="border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: calc(92vh - 350px); overflow: auto; background: #ffffff;">
+                <table class="table table-bordered text-center curriculum-slot-grid" id="table-curriculum-slots-matrix" style="margin-bottom: 0; min-width: 900px;">
+                  <thead>
+                    <!-- Populated dynamically -->
+                  </thead>
+                  <tbody>
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Course Hours Progress Breakdown Cards -->
+              <div id="curriculum-hours-summary-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1115,6 +1241,45 @@
             <button type="button" id="btn-locked-period-manual-assign" class="btn btn-outline btn-sm" style="font-size: 12px; color: var(--primary);"><i class="fa-solid fa-user-plus"></i> Manual Assign</button>
             <button type="button" id="btn-locked-period-close" class="btn btn-primary btn-sm" style="font-size: 12px;">Close</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PARAMETER CHANGE RE-ALLOCATION CONFIRMATION MODAL -->
+    <div id="modal-param-change-confirm" class="modal flex-center hidden no-print" style="z-index: 10005;">
+      <div class="modal-content modal-md" style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
+          <div class="flex-row items-center gap-2">
+            <div style="width: 34px; height: 34px; border-radius: 8px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706; font-size: 16px;">
+              <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 15.5px; font-weight: 700; color: var(--text-main);">Parameter Changes Detected</h3>
+              <span class="text-muted text-xs">Previously Allocated Subject Modifications</span>
+            </div>
+          </div>
+          <button type="button" id="btn-close-param-change-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <p class="text-sm text-muted mb-2">
+          The following previously allocated subject(s) have detected parameter changes that affect timetable allocation:
+        </p>
+
+        <!-- Container for list of affected courses and exact reason list -->
+        <div id="param-change-courses-list" style="max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;">
+          <!-- Populated dynamically -->
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: var(--text-muted); margin-bottom: 16px;">
+          <i class="fa-solid fa-circle-info text-primary"></i>
+          <strong>Action:</strong> Clicking <strong>Continue & Regenerate</strong> will delete the previous allocations for these changed subjects and re-allocate them along with your new selections. Subjects with unchanged parameters will keep their allocated slots preserved.
+        </div>
+
+        <div class="actions flex-row justify-end gap-2 pt-2" style="border-top: 1px solid var(--border);">
+          <button type="button" id="btn-cancel-param-change" class="btn btn-outline btn-sm" style="font-size: 12.5px;">Cancel</button>
+          <button type="button" id="btn-confirm-regenerate-param-change" class="btn btn-primary btn-sm" style="font-size: 12.5px; background: #d97706; border-color: #b45309;">
+            <i class="fa-solid fa-rotate"></i> Continue & Regenerate
+          </button>
         </div>
       </div>
     </div>

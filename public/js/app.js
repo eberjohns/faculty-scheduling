@@ -32,7 +32,14 @@ let state = {
   groupMappings: {},
   teacherUnavailability: {},
   subjectTeacherMapping: {},
-  commonBatches: []
+  commonBatches: [],
+  allocatedCourseParamSnapshots: (function() {
+    try {
+      return JSON.parse(sessionStorage.getItem('allocatedCourseParamSnapshots') || '{}');
+    } catch (e) {
+      return {};
+    }
+  })()
 };
 
 let autosaveTimer = null;
@@ -3409,6 +3416,9 @@ function bindAdvancedFeaturesModalEvents() {
       }, 350);
     });
   }
+
+  // Curriculum & Recommended Slots Controls
+  bindCurriculumSlotAllocatorEvents();
 }
 
 function openAdvancedFeaturesModal(initialPaneId = 'adv-pane-teacher-unavail') {
@@ -3468,6 +3478,8 @@ function switchAdvancedFeaturesTab(paneId) {
     initAutoGeneratorPane();
   } else if (paneId === 'adv-pane-teacher-timetable') {
     renderTeacherTimetablesTab();
+  } else if (paneId === 'adv-pane-curriculum-slots') {
+    renderCurriculumSlotAllocator();
   }
 }
 
@@ -6059,7 +6071,262 @@ function renderAutoGeneratorBindings() {
 // -------------------------------------------------------------
 // Auto Generation Engine Trigger & In-Section Solver (No Pop-up!)
 // -------------------------------------------------------------
-async function runAutoGeneration(forceRelaxed = false) {
+function getCourseExistingAllocations(cCode) {
+  if (tempGeneratedAllocations && tempGeneratedAllocations[cCode] && hasAllocatedPeriods(tempGeneratedAllocations[cCode])) {
+    return tempGeneratedAllocations[cCode];
+  }
+  if (state.allocations && state.allocations[cCode] && hasAllocatedPeriods(state.allocations[cCode])) {
+    return state.allocations[cCode];
+  }
+  return null;
+}
+
+function hasAllocatedPeriods(alloc) {
+  if (!alloc || typeof alloc !== 'object') return false;
+  return Object.keys(alloc).some(day => {
+    return Object.keys(alloc[day] || {}).some(p => {
+      return Array.isArray(alloc[day][p]) && alloc[day][p].length > 0;
+    });
+  });
+}
+
+function captureCourseParamSnapshot(cCode) {
+  const course = (state.courses || []).find(c => c.code === cCode) || {};
+  const mapping = (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[cCode]) || {};
+  const cfg = (autoGenCourseFacultyConfig && autoGenCourseFacultyConfig[cCode]) || {};
+  const semClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+  // 1. Recommended slots
+  const recs = course.recommendations ? JSON.parse(JSON.stringify(course.recommendations)) : {};
+
+  // 2. Assigned teachers
+  let teachers = [];
+  if (cfg.teachers && Array.isArray(cfg.teachers) && cfg.teachers.length > 0) teachers = cfg.teachers;
+  else if (mapping.teachers && Array.isArray(mapping.teachers) && mapping.teachers.length > 0) teachers = mapping.teachers;
+  else if (autoGenCourseFacultyBindings && autoGenCourseFacultyBindings[cCode]) teachers = autoGenCourseFacultyBindings[cCode];
+  teachers = Array.from(new Set(teachers.filter(Boolean))).sort();
+
+  // 3. Teacher hours split
+  const teacherHours = cfg.teacherHours || mapping.teacherHours || null;
+  const practicalTeachers = (cfg.practicalTeachers || mapping.practicalTeachers || []).slice().sort();
+  const theoryTeachers = (cfg.theoryTeachers || mapping.theoryTeachers || []).slice().sort();
+
+  // 4. Teacher unavailabilities
+  const unavail = {};
+  teachers.forEach(tCode => {
+    if (state.teacherUnavailability && state.teacherUnavailability[tCode]) {
+      unavail[tCode] = JSON.parse(JSON.stringify(state.teacherUnavailability[tCode]));
+    }
+  });
+
+  // 5. Global / semester locked periods
+  const locks = ((state.config && state.config.globalLockedPeriods) || []).filter(l => {
+    const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    return !l.semester || l.semester === 'all' || lSem === semClean.toLowerCase();
+  });
+
+  // 6. Hours and courseType
+  const hours = cfg.hours || mapping.hours || course.hours || 4;
+  const courseType = cfg.courseType || mapping.courseType || course.courseType || 'T';
+
+  return {
+    recs,
+    teachers,
+    teacherHours,
+    practicalTeachers,
+    theoryTeachers,
+    unavail,
+    locks,
+    hours,
+    courseType
+  };
+}
+
+function detectCourseParamChanges(cCode, existingAlloc) {
+  const course = (state.courses || []).find(c => c.code === cCode) || { code: cCode, name: cCode };
+  const currentSnapshot = captureCourseParamSnapshot(cCode);
+  const reasons = [];
+
+  // 1. Snapshot comparison if a prior snapshot was stored
+  const snapshots = state.allocatedCourseParamSnapshots || {};
+  const prevSnapshot = snapshots[cCode];
+
+  if (prevSnapshot) {
+    if (JSON.stringify(prevSnapshot.recs) !== JSON.stringify(currentSnapshot.recs)) {
+      reasons.push('Curriculum recommended slots (Theory / Practical) have been modified');
+    }
+
+    if (JSON.stringify(prevSnapshot.teachers) !== JSON.stringify(currentSnapshot.teachers)) {
+      const prevNames = prevSnapshot.teachers.join(', ') || 'None';
+      const curNames = currentSnapshot.teachers.join(', ') || 'None';
+      reasons.push(`Assigned teacher(s) updated: changed from [${prevNames}] to [${curNames}]`);
+    }
+
+    if (JSON.stringify(prevSnapshot.teacherHours) !== JSON.stringify(currentSnapshot.teacherHours)) {
+      reasons.push('Teacher hours distribution split updated');
+    }
+
+    if (JSON.stringify(prevSnapshot.unavail) !== JSON.stringify(currentSnapshot.unavail)) {
+      reasons.push('Teacher availability or blackout periods modified for assigned faculty');
+    }
+
+    if (JSON.stringify(prevSnapshot.locks) !== JSON.stringify(currentSnapshot.locks)) {
+      reasons.push('Semester blocked periods or institution locks updated');
+    }
+
+    if (prevSnapshot.hours !== currentSnapshot.hours) {
+      reasons.push(`Course workload hours changed from ${prevSnapshot.hours} to ${currentSnapshot.hours} hrs`);
+    }
+  }
+
+  // 2. Real-time invariants check against currently allocated periods
+  // Teacher blackout clash
+  const currentTeachers = currentSnapshot.teachers;
+  Object.keys(existingAlloc).forEach(day => {
+    Object.keys(existingAlloc[day] || {}).forEach(p => {
+      const facs = existingAlloc[day][p] || [];
+      facs.forEach(fCode => {
+        if (state.teacherUnavailability && state.teacherUnavailability[fCode] && state.teacherUnavailability[fCode][day] && state.teacherUnavailability[fCode][day][p]) {
+          const fObj = (state.faculty || []).find(f => f.code === fCode);
+          const fName = fObj ? fObj.name : fCode;
+          const msg = `Teacher ${fName} (${fCode}) is now marked unavailable on ${day} Period ${p}`;
+          if (!reasons.includes(msg)) reasons.push(msg);
+        }
+      });
+    });
+  });
+
+  // Blocked period clash
+  const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+  const cSemClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+  Object.keys(existingAlloc).forEach(day => {
+    Object.keys(existingAlloc[day] || {}).forEach(p => {
+      const isLocked = globalLocks.some(l => {
+        const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+        const semMatch = !l.semester || l.semester === 'all' || lSem === cSemClean;
+        return l.day === day && String(l.period) === String(p) && semMatch;
+      });
+      if (isLocked) {
+        const msg = `Allocated slot ${day} Period ${p} is now blocked for Semester ${course.semester}`;
+        if (!reasons.includes(msg)) reasons.push(msg);
+      }
+    });
+  });
+
+  // Recommended slots missing from allocation
+  if (course.recommendations) {
+    Object.keys(course.recommendations).forEach(day => {
+      Object.keys(course.recommendations[day] || {}).forEach(p => {
+        const recType = course.recommendations[day][p];
+        if (recType === 'T' || recType === 'P') {
+          const isAllocated = existingAlloc[day] && existingAlloc[day][p] && existingAlloc[day][p].length > 0;
+          if (!isAllocated) {
+            const msg = `Recommended slot ${day} Period ${p} (${recType === 'T' ? 'Theory' : 'Practical'}) is not currently scheduled`;
+            if (!reasons.includes(msg)) reasons.push(msg);
+          }
+        }
+      });
+    });
+  }
+
+  // Assigned teachers changed
+  if (currentTeachers.length > 0) {
+    const allocatedTeachers = new Set();
+    Object.keys(existingAlloc).forEach(day => {
+      Object.keys(existingAlloc[day] || {}).forEach(p => {
+        (existingAlloc[day][p] || []).forEach(f => allocatedTeachers.add(f));
+      });
+    });
+    const hasAlienTeacher = Array.from(allocatedTeachers).some(f => !currentTeachers.includes(f));
+    if (hasAlienTeacher) {
+      const msg = `Assigned faculty list changed from currently allocated teachers`;
+      if (!reasons.includes(msg)) reasons.push(msg);
+    }
+  }
+
+  // Workload hours check
+  let allocatedPeriodCount = 0;
+  Object.keys(existingAlloc).forEach(day => {
+    Object.keys(existingAlloc[day] || {}).forEach(p => {
+      if (Array.isArray(existingAlloc[day][p]) && existingAlloc[day][p].length > 0) {
+        allocatedPeriodCount++;
+      }
+    });
+  });
+  if (allocatedPeriodCount > 0 && currentSnapshot.hours && allocatedPeriodCount !== currentSnapshot.hours) {
+    const msg = `Allocated periods count (${allocatedPeriodCount} hrs) does not match required workload (${currentSnapshot.hours} hrs)`;
+    if (!reasons.includes(msg)) reasons.push(msg);
+  }
+
+  return Array.from(new Set(reasons));
+}
+
+function showParamChangeConfirmationModal(coursesWithChanges, coursesToPreserve, forceRelaxed) {
+  const modal = document.getElementById('modal-param-change-confirm');
+  const container = document.getElementById('param-change-courses-list');
+  if (!modal || !container) {
+    const msg = coursesWithChanges.map(c => `${c.cCode} (${c.courseName}):\n- ${c.reasons.join('\n- ')}`).join('\n\n');
+    if (confirm(`Parameter changes detected for previously allocated subjects:\n\n${msg}\n\nContinue and regenerate with updated parameters?`)) {
+      executeAutoGenerationAfterChanges(coursesWithChanges, coursesToPreserve, forceRelaxed);
+    }
+    return;
+  }
+
+  container.innerHTML = coursesWithChanges.map(c => {
+    return `
+      <div style="background: #ffffff; border: 1.5px solid #fed7aa; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+          <strong style="font-size: 13.5px; color: #9a3412;">
+            <i class="fa-solid fa-book" style="margin-right: 4px;"></i> ${escapeHtml(c.cCode)} - ${escapeHtml(c.courseName)}
+          </strong>
+          <span class="badge" style="background: #ea580c; color: white; font-size: 10px; font-weight: 700; padding: 2px 7px;">
+            Re-allocation Required
+          </span>
+        </div>
+        <ul style="margin: 0 0 0 16px; padding: 0; font-size: 11.5px; color: #7c2d12; line-height: 1.5;">
+          ${c.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }).join('');
+
+  modal.classList.remove('hidden');
+
+  const btnConfirm = document.getElementById('btn-confirm-regenerate-param-change');
+  const btnCancel = document.getElementById('btn-cancel-param-change');
+  const btnClose = document.getElementById('btn-close-param-change-modal');
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+  };
+
+  if (btnClose) btnClose.onclick = closeModal;
+  if (btnCancel) btnCancel.onclick = closeModal;
+
+  if (btnConfirm) {
+    btnConfirm.onclick = async () => {
+      closeModal();
+      await executeAutoGenerationAfterChanges(coursesWithChanges, coursesToPreserve, forceRelaxed);
+    };
+  }
+}
+
+async function executeAutoGenerationAfterChanges(coursesWithChanges, coursesToPreserve, forceRelaxed) {
+  // Completely delete / clear assigned periods for courses with parameter changes
+  coursesWithChanges.forEach(({ cCode }) => {
+    if (tempGeneratedAllocations && tempGeneratedAllocations[cCode]) {
+      delete tempGeneratedAllocations[cCode];
+    }
+    if (state.allocations && state.allocations[cCode]) {
+      delete state.allocations[cCode];
+    }
+  });
+
+  // Re-run auto generation with bypassParamCheck = true, keeping unchanged courses pinned!
+  await runAutoGeneration(forceRelaxed, true, coursesToPreserve);
+}
+
+async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false, preservedCodes = null) {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const semSelect = document.getElementById('auto-gen-sem-select');
   const pinSlotsCheck = document.getElementById('auto-gen-pin-slots');
@@ -6086,6 +6353,36 @@ async function runAutoGeneration(forceRelaxed = false) {
     return;
   }
   const selectedCourseCodes = checkedBoxes.map(cb => cb.value);
+
+  // Parameter Change Inspection for previously allocated subjects
+  let coursesToPreserve = Array.isArray(preservedCodes) ? preservedCodes : [];
+  if (!bypassParamCheck) {
+    const coursesWithChanges = [];
+    coursesToPreserve = [];
+
+    selectedCourseCodes.forEach(cCode => {
+      const existingAlloc = getCourseExistingAllocations(cCode);
+      if (existingAlloc) {
+        const reasons = detectCourseParamChanges(cCode, existingAlloc);
+        if (reasons.length > 0) {
+          const cObj = state.courses.find(c => c.code === cCode) || { code: cCode, name: cCode };
+          coursesWithChanges.push({
+            cCode,
+            courseName: cObj.name || cCode,
+            reasons
+          });
+        } else {
+          coursesToPreserve.push(cCode);
+        }
+      }
+    });
+
+    if (coursesWithChanges.length > 0) {
+      // Show confirmation popup with exact reasons and continue button
+      showParamChangeConfirmationModal(coursesWithChanges, coursesToPreserve, forceRelaxed);
+      return;
+    }
+  }
 
   // Collect Course Faculty Map & Config (With Teacher Hours Split)
   const courseFacultyMap = {};
@@ -6124,8 +6421,16 @@ async function runAutoGeneration(forceRelaxed = false) {
   // Collect Pinned Slots
   let pinnedSlots = {};
   if (pinSlotsCheck && pinSlotsCheck.checked) {
-    pinnedSlots = state.allocations || {};
+    pinnedSlots = JSON.parse(JSON.stringify(state.allocations || {}));
   }
+
+  // Preserve allocated slots for courses with unchanged parameters
+  coursesToPreserve.forEach(cCode => {
+    const existingAlloc = getCourseExistingAllocations(cCode);
+    if (existingAlloc) {
+      pinnedSlots[cCode] = JSON.parse(JSON.stringify(existingAlloc));
+    }
+  });
 
   btnRun.disabled = true;
   btnRun.innerHTML = forceRelaxed 
@@ -6155,6 +6460,15 @@ async function runAutoGeneration(forceRelaxed = false) {
 
     if (res.ok && result.success) {
       tempGeneratedAllocations = result.allocations;
+
+      // Update snapshots for all selected courses that were generated/preserved
+      if (!state.allocatedCourseParamSnapshots) state.allocatedCourseParamSnapshots = {};
+      selectedCourseCodes.forEach(cCode => {
+        state.allocatedCourseParamSnapshots[cCode] = captureCourseParamSnapshot(cCode);
+      });
+      try {
+        sessionStorage.setItem('allocatedCourseParamSnapshots', JSON.stringify(state.allocatedCourseParamSnapshots));
+      } catch (e) {}
       
       const resultsMsg = document.getElementById('auto-gen-results-msg');
       if (result.status === 'relaxed_with_exceptions') {
@@ -6306,7 +6620,12 @@ async function applyAutoGeneratedSchedule() {
 
   Object.keys(tempGeneratedAllocations).forEach(cCode => {
     state.allocations[cCode] = tempGeneratedAllocations[cCode];
+    if (!state.allocatedCourseParamSnapshots) state.allocatedCourseParamSnapshots = {};
+    state.allocatedCourseParamSnapshots[cCode] = captureCourseParamSnapshot(cCode);
   });
+  try {
+    sessionStorage.setItem('allocatedCourseParamSnapshots', JSON.stringify(state.allocatedCourseParamSnapshots));
+  } catch (e) {}
 
   renderAllocationMatrix();
   updateDeptLiveWorkloadTracker();
@@ -6314,6 +6633,927 @@ async function applyAutoGeneratedSchedule() {
 
   closeAdvancedFeaturesModal();
   showModalAlert('Schedule Applied', 'The auto-generated schedule has been applied to your timetable workspace and saved as draft!', 'success');
+}
+
+// =============================================================
+// TAB 6: Curriculum & Recommended Slots Allocation Controller
+// =============================================================
+let curriculumActiveToolMode = 'T'; // 'T' (Theory), 'P' (Practical), 'B' (Block), 'CLEAR'
+let localCurriculumCourseRecs = {}; // { [courseCode]: { [day]: { [period]: 'T'|'P' } } }
+let localCurriculumSemesterBlocks = []; // [ { day, period, semester, label: 'Blocked' } ]
+let masterCoursesRecsBaseline = {}; // Pristine master timetable recommendations baseline
+let curriculumSelectedSem = '';
+let curriculumSelectedFilterCourse = 'ALL';
+
+function bindCurriculumSlotAllocatorEvents() {
+  // Mode selection pills
+  document.querySelectorAll('.curriculum-mode-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.curriculum-mode-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      curriculumActiveToolMode = btn.getAttribute('data-mode') || 'T';
+      
+      const assignWrapper = document.getElementById('curriculum-assign-subject-wrapper');
+      if (assignWrapper) {
+        if (curriculumActiveToolMode === 'T' || curriculumActiveToolMode === 'P') {
+          assignWrapper.style.opacity = '1';
+          assignWrapper.style.pointerEvents = 'auto';
+        } else {
+          assignWrapper.style.opacity = '0.5';
+          assignWrapper.style.pointerEvents = 'none';
+        }
+      }
+    });
+  });
+
+  // Semester Select
+  const semSelect = document.getElementById('curriculum-sem-select');
+  if (semSelect) {
+    semSelect.addEventListener('change', () => {
+      curriculumSelectedSem = semSelect.value;
+      populateCurriculumCourseDropdowns();
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+    });
+  }
+
+  // Course Filter
+  const courseFilter = document.getElementById('curriculum-course-filter');
+  if (courseFilter) {
+    courseFilter.addEventListener('change', () => {
+      curriculumSelectedFilterCourse = courseFilter.value;
+      const assignSelect = document.getElementById('curriculum-target-subject-select');
+      if (assignSelect && curriculumSelectedFilterCourse !== 'ALL') {
+        assignSelect.value = curriculumSelectedFilterCourse;
+      }
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+    });
+  }
+
+  // Reset Button (Resets ONLY selected filter section back to master timetable recommended slots)
+  const btnReset = document.getElementById('btn-reset-curriculum-slots');
+  if (btnReset) {
+    btnReset.addEventListener('click', async () => {
+      await resetCurriculumSlotAllocations();
+    });
+  }
+
+  // Save Button
+  const btnSave = document.getElementById('btn-save-curriculum-slots');
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      await saveCurriculumSlotAllocations();
+    });
+  }
+}
+
+function initCurriculumSemesterData(force = false) {
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+
+  // Initialize master baseline if not populated
+  if (force || Object.keys(masterCoursesRecsBaseline).length === 0) {
+    (state.courses || []).forEach(c => {
+      if ((c.department || '').toUpperCase() === deptName) {
+        const baseline = c.masterRecommendations || c.recommendations || {};
+        masterCoursesRecsBaseline[c.code] = JSON.parse(JSON.stringify(baseline));
+      }
+    });
+  }
+
+  if (force || Object.keys(localCurriculumCourseRecs).length === 0) {
+    localCurriculumCourseRecs = {};
+    (state.courses || []).forEach(c => {
+      if ((c.department || '').toUpperCase() === deptName) {
+        localCurriculumCourseRecs[c.code] = c.recommendations ? JSON.parse(JSON.stringify(c.recommendations)) : {};
+      }
+    });
+  }
+
+  if (force || localCurriculumSemesterBlocks.length === 0) {
+    localCurriculumSemesterBlocks = [];
+    const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+    globalLocks.forEach(l => {
+      const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
+      if (isBlocked && l.day && l.period) {
+        localCurriculumSemesterBlocks.push({
+          day: l.day.toUpperCase(),
+          period: String(l.period),
+          semester: String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim(),
+          label: 'Blocked'
+        });
+      }
+    });
+  }
+}
+
+function getCurriculumDeptCourses(sem = null) {
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  let list = (state.courses || []).filter(c => (c.department || '').toUpperCase() === deptName);
+  if (sem) {
+    const semClean = String(sem).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    list = list.filter(c => {
+      const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+      return cSem === semClean;
+    });
+  }
+  return list;
+}
+
+function getCourseHourTargets(baseCode, semCourses) {
+  // 1. Check localSubjectMappings if user explicitly configured hours in Subject Mapping tab
+  if (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[baseCode]) {
+    const map = localSubjectMappings[baseCode];
+    const th = map.theoryHours !== undefined ? parseInt(map.theoryHours) : null;
+    const pr = map.practicalHours !== undefined ? parseInt(map.practicalHours) : null;
+    if (th !== null && pr !== null && !isNaN(th) && !isNaN(pr)) {
+      return { thTarget: th, prTarget: pr, total: th + pr };
+    }
+  }
+
+  // 2. Check if separate -T and -P course entries exist in semCourses
+  const tCourse = semCourses.find(c => c.code === `${baseCode}-T` || (c.code.startsWith(baseCode) && c.code.endsWith('-T')));
+  const pCourse = semCourses.find(c => c.code === `${baseCode}-P` || (c.code.startsWith(baseCode) && c.code.endsWith('-P')));
+  if (tCourse && pCourse) {
+    const th = parseInt(tCourse.hours) || 2;
+    const pr = parseInt(pCourse.hours) || 2;
+    return { thTarget: th, prTarget: pr, total: th + pr };
+  } else if (pCourse && !tCourse) {
+    const pr = parseInt(pCourse.hours) || 4;
+    return { thTarget: 0, prTarget: pr, total: pr };
+  }
+
+  // 3. Check single course
+  const course = semCourses.find(c => {
+    const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    return b === baseCode;
+  }) || semCourses[0];
+
+  if (course) {
+    if (course.theoryHours !== undefined && course.practicalHours !== undefined) {
+      const th = parseInt(course.theoryHours) || 0;
+      const pr = parseInt(course.practicalHours) || 0;
+      return { thTarget: th, prTarget: pr, total: th + pr };
+    }
+
+    const totalHrs = parseInt(course.hours) || 4;
+    if (course.courseType === 'P') {
+      return { thTarget: 0, prTarget: totalHrs, total: totalHrs };
+    }
+
+    // Check baseline counts if available
+    let origT = 0, origP = 0;
+    const baselineRecs = (masterCoursesRecsBaseline && masterCoursesRecsBaseline[course.code]) || course.masterRecommendations || course.recommendations || {};
+    Object.keys(baselineRecs).forEach(d => {
+      Object.values(baselineRecs[d] || {}).forEach(v => {
+        if (v === 'T') origT++;
+        else if (v === 'P') origP++;
+      });
+    });
+
+    if (origP > 0 && origP % 2 === 0) {
+      return { thTarget: origT, prTarget: origP, total: origT + origP };
+    }
+
+    // Default practical split
+    const split = calculateDefaultPracticalSplit(totalHrs);
+    return { thTarget: split.theory, prTarget: split.practical, total: totalHrs };
+  }
+
+  return { thTarget: 4, prTarget: 0, total: 4 };
+}
+
+function getAssignedHoursForCourse(baseCode, semCourses) {
+  let thAssigned = 0;
+  let prAssigned = 0;
+  const matchingCourses = semCourses.filter(c => {
+    const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    return b === baseCode;
+  });
+
+  const checkedSlots = new Set();
+  matchingCourses.forEach(c => {
+    const recs = localCurriculumCourseRecs[c.code] || {};
+    Object.keys(recs).forEach(day => {
+      Object.keys(recs[day] || {}).forEach(p => {
+        const slotKey = `${day}_${p}`;
+        if (!checkedSlots.has(slotKey)) {
+          checkedSlots.add(slotKey);
+          if (recs[day][p] === 'T') thAssigned++;
+          else if (recs[day][p] === 'P') prAssigned++;
+        }
+      });
+    });
+  });
+
+  return { thAssigned, prAssigned, totalAssigned: thAssigned + prAssigned };
+}
+
+// Determines the 2-period contiguous pair for a practical period (never crosses intervals/breaks)
+function getPracticalPeriodPair(period) {
+  const pStr = String(period).trim();
+  // Morning block (Periods 1 & 2): before the interval between 2nd & 3rd period
+  if (pStr === '1' || pStr === '2') return ['1', '2'];
+
+  // Period 3 is bounded by intervals (between 2 & 3 and between 3 & 4) -> No practical pair can fit
+  if (pStr === '3') return null;
+
+  // Afternoon block: 4, 5, 6 (after lunch break)
+  if (pStr === '4') return ['4', '5'];
+  if (pStr === '5') return ['5', '6'];
+  if (pStr === '6') return ['5', '6'];
+  return null;
+}
+
+// Finds if clicked period is already part of a Practical pair for the given subject
+function findAssignedPracticalPair(day, period, targetBaseCode, semCourses) {
+  const pStr = String(period).trim();
+  let isP = false;
+  semCourses.forEach(c => {
+    const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    if (b === targetBaseCode) {
+      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pStr] === 'P') {
+        isP = true;
+      }
+    }
+  });
+  if (!isP) return null;
+
+  const checkSlotIsP = (pCheck) => {
+    let match = false;
+    semCourses.forEach(c => {
+      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      if (b === targetBaseCode) {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pCheck] === 'P') {
+          match = true;
+        }
+      }
+    });
+    return match;
+  };
+
+  // Only valid pairs: ['1', '2'], ['4', '5'], ['5', '6']
+  if (pStr === '1' && checkSlotIsP('2')) return ['1', '2'];
+  if (pStr === '2' && checkSlotIsP('1')) return ['1', '2'];
+  if (pStr === '4' && checkSlotIsP('5')) return ['4', '5'];
+  if (pStr === '5') {
+    if (checkSlotIsP('4')) return ['4', '5'];
+    if (checkSlotIsP('6')) return ['5', '6'];
+  }
+  if (pStr === '6' && checkSlotIsP('5')) return ['5', '6'];
+  if (pStr === '3') return ['3'];
+
+  return getPracticalPeriodPair(pStr);
+}
+
+function populateCurriculumSemesterDropdown() {
+  const semSelect = document.getElementById('curriculum-sem-select');
+  if (!semSelect) return;
+
+  const deptCourses = getCurriculumDeptCourses();
+  const pairs = [];
+  deptCourses.forEach(c => {
+    const prog = c.programType || 'UG';
+    const s = String(c.semester || '1').replace(/^Sem(ester)?\s*/i, '').trim();
+    if (!pairs.some(p => p.sem === s)) {
+      pairs.push({ sem: s, prog });
+    }
+  });
+
+  pairs.sort((a, b) => (parseInt(a.sem || 0) - parseInt(b.sem || 0)));
+
+  const curVal = semSelect.value;
+  semSelect.innerHTML = '';
+  pairs.forEach(p => {
+    const progLabel = p.prog === 'PG' ? 'MSc' : 'BSc';
+    semSelect.innerHTML += `<option value="${p.sem}">Semester ${p.sem} (${progLabel})</option>`;
+  });
+
+  if (curVal && pairs.some(p => p.sem === curVal)) {
+    semSelect.value = curVal;
+  } else if (pairs.length > 0) {
+    semSelect.value = pairs[0].sem;
+  }
+  curriculumSelectedSem = semSelect.value;
+}
+
+function populateCurriculumCourseDropdowns() {
+  const courseFilter = document.getElementById('curriculum-course-filter');
+  const targetSelect = document.getElementById('curriculum-target-subject-select');
+  if (!courseFilter || !targetSelect) return;
+
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  
+  // Extract unique base codes
+  const uniqueBases = [];
+  semCourses.forEach(c => {
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    if (!uniqueBases.some(u => u.baseCode === baseCode)) {
+      uniqueBases.push({
+        baseCode,
+        name: c.name || baseCode,
+        totalHours: c.hours || 4
+      });
+    }
+  });
+
+  // Filter dropdown
+  const curFilterVal = courseFilter.value;
+  courseFilter.innerHTML = '<option value="ALL">All Courses in Semester</option>';
+  uniqueBases.forEach(u => {
+    courseFilter.innerHTML += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
+  });
+  if (curFilterVal && (curFilterVal === 'ALL' || uniqueBases.some(u => u.baseCode === curFilterVal))) {
+    courseFilter.value = curFilterVal;
+  } else {
+    courseFilter.value = 'ALL';
+  }
+  curriculumSelectedFilterCourse = courseFilter.value;
+
+  // Target Subject select
+  const curTargetVal = targetSelect.value;
+  targetSelect.innerHTML = '';
+  uniqueBases.forEach(u => {
+    targetSelect.innerHTML += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
+  });
+  if (curTargetVal && uniqueBases.some(u => u.baseCode === curTargetVal)) {
+    targetSelect.value = curTargetVal;
+  } else if (uniqueBases.length > 0) {
+    targetSelect.value = uniqueBases[0].baseCode;
+  }
+}
+
+function renderCurriculumSlotAllocator() {
+  initCurriculumSemesterData();
+  populateCurriculumSemesterDropdown();
+  populateCurriculumCourseDropdowns();
+  renderCurriculumSlotMatrix();
+  renderCurriculumHoursBreakdown();
+}
+
+function renderCurriculumSlotMatrix() {
+  const table = document.getElementById('table-curriculum-slots-matrix');
+  if (!table) return;
+
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  if (!thead || !tbody) return;
+
+  const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+  const weekdayShort = { MONDAY: 'Monday', TUESDAY: 'Tuesday', WEDNESDAY: 'Wednesday', THURSDAY: 'Thursday', FRIDAY: 'Friday' };
+  const rawPeriods = state.config.periods || ['1', '2', '3', 'LB', '4', '5', '6'];
+
+  // Table Header
+  let headerHtml = `<tr><th style="width: 120px; text-align: center; background: #f8fafc;">Day / Period</th>`;
+  rawPeriods.forEach(p => {
+    if (p.toUpperCase() === 'LB') {
+      headerHtml += `<th style="width: 55px; background: #f1f5f9; color: var(--text-muted); font-size: 11px;">Lunch</th>`;
+    } else {
+      headerHtml += `<th style="min-width: 130px; text-align: center; background: #f8fafc;">Period ${p}</th>`;
+    }
+  });
+  headerHtml += `</tr>`;
+  thead.innerHTML = headerHtml;
+
+  // Get department courses for active semester
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+
+  let totalRecCount = 0;
+  let totalBlockCount = 0;
+  let bodyHtml = '';
+
+  weekdays.forEach(day => {
+    bodyHtml += `<tr>`;
+    bodyHtml += `<td style="font-weight: 700; background: #f8fafc; vertical-align: middle; font-size: 13px; color: var(--text-main);">${weekdayShort[day]}</td>`;
+
+    rawPeriods.forEach(p => {
+      const pUpper = p.toUpperCase();
+      if (pUpper === 'LB') {
+        bodyHtml += `<td style="background: #f8fafc; vertical-align: middle; color: #94a3b8; font-size: 11px; font-weight: 600; text-align: center;">Lunch</td>`;
+        return;
+      }
+
+      // Check if blocked
+      const isBlocked = localCurriculumSemesterBlocks.some(b => {
+        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        return b.day === day && String(b.period) === String(p) && bSem === activeSemStr;
+      });
+
+      if (isBlocked) {
+        totalBlockCount++;
+        bodyHtml += `
+          <td class="curriculum-slot-cell slot-recommend-blocked" 
+              onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+              title="Click to toggle or clear this blocked slot"
+              style="vertical-align: middle; height: 58px;">
+            <div style="font-size: 11.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 5px;">
+              <i class="fa-solid fa-ban"></i> Blocked Slot
+            </div>
+          </td>
+        `;
+        return;
+      }
+
+      // Check if course has recommendation in this slot
+      let assignedCourse = null;
+      let recType = null;
+
+      for (let i = 0; i < semCourses.length; i++) {
+        const c = semCourses[i];
+        const rec = (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][p]) || '';
+        if (rec === 'T' || rec === 'P') {
+          assignedCourse = c;
+          recType = rec;
+          break;
+        }
+      }
+
+      if (assignedCourse && recType) {
+        totalRecCount++;
+        const baseCode = assignedCourse.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const isDimmed = (curriculumSelectedFilterCourse !== 'ALL' && curriculumSelectedFilterCourse !== baseCode);
+        const cellClass = (recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p') + (isDimmed ? ' slot-dimmed' : '');
+        const badgeBg = recType === 'T' ? 'var(--warning)' : 'var(--success)';
+        const badgeLabel = recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
+        const badgeIcon = recType === 'T' ? 'fa-book' : 'fa-flask';
+
+        bodyHtml += `
+          <td class="curriculum-slot-cell ${cellClass}" 
+              onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+              title="${escapeHtml(baseCode)} - ${escapeHtml(assignedCourse.name || '')} (${badgeLabel}). Click to change or toggle off."
+              style="vertical-align: middle; height: 58px; padding: 4px 6px;">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+              <span class="badge" style="background: ${badgeBg}; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
+                <i class="fa-solid ${badgeIcon}"></i> ${badgeLabel}
+              </span>
+              <strong style="font-size: 12.5px; color: var(--text-main);">${escapeHtml(baseCode)}</strong>
+              <span style="font-size: 9.5px; color: var(--text-muted); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${escapeHtml(assignedCourse.name || '')}
+              </span>
+            </div>
+          </td>
+        `;
+      } else {
+        // Free / Open Slot
+        bodyHtml += `
+          <td class="curriculum-slot-cell" 
+              onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+              title="Open slot. Click with selected tool to assign."
+              style="vertical-align: middle; height: 58px; background: #ffffff;">
+            <div style="color: #94a3b8; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+              <i class="fa-solid fa-plus opacity-40"></i> Open
+            </div>
+          </td>
+        `;
+      }
+    });
+
+    bodyHtml += `</tr>`;
+  });
+
+  tbody.innerHTML = bodyHtml;
+
+  // Update badge stats
+  const statBadge = document.getElementById('curriculum-slot-summary-stat');
+  if (statBadge) {
+    statBadge.textContent = `${totalRecCount} Recommended, ${totalBlockCount} Blocked`;
+  }
+}
+
+function handleCurriculumSlotCellClick(day, period) {
+  if (isTimetableLocked()) {
+    showModalAlert('Timetable Locked', 'Cannot modify curriculum slots while department timetable is locked.', 'info');
+    return;
+  }
+
+  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+  const deptCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+
+  // 1. Tool: Block Slot ('B')
+  if (curriculumActiveToolMode === 'B') {
+    // Clear any course recommendations for this day & period in this semester
+    deptCourses.forEach(c => {
+      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+        delete localCurriculumCourseRecs[c.code][day][period];
+      }
+    });
+
+    // Toggle block
+    const existingIdx = localCurriculumSemesterBlocks.findIndex(b => {
+      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
+    });
+
+    if (existingIdx !== -1) {
+      localCurriculumSemesterBlocks.splice(existingIdx, 1);
+    } else {
+      localCurriculumSemesterBlocks.push({
+        day,
+        period: String(period),
+        semester: activeSemStr,
+        label: 'Blocked'
+      });
+    }
+
+    renderCurriculumSlotMatrix();
+    renderCurriculumHoursBreakdown();
+    return;
+  }
+
+  // 2. Tool: Clear Slot ('CLEAR')
+  if (curriculumActiveToolMode === 'CLEAR') {
+    // Remove block if any
+    localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
+      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+    });
+
+    // Remove any course recommendation in this slot
+    deptCourses.forEach(c => {
+      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+        delete localCurriculumCourseRecs[c.code][day][period];
+      }
+    });
+
+    renderCurriculumSlotMatrix();
+    renderCurriculumHoursBreakdown();
+    return;
+  }
+
+  // 3. Tool: Theory Rec ('T') or Practical Rec ('P')
+  const assignSelect = document.getElementById('curriculum-target-subject-select');
+  const targetBaseCode = assignSelect ? assignSelect.value : '';
+
+  if (!targetBaseCode) {
+    showModalAlert('Select Subject', 'Please select a subject from the "Assign Subject" dropdown to assign to this period.', 'warning');
+    return;
+  }
+
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const hourTargets = getCourseHourTargets(targetBaseCode, semCourses);
+  const assignedHours = getAssignedHoursForCourse(targetBaseCode, semCourses);
+
+  // A. Handling Theory Recommendation ('T')
+  if (curriculumActiveToolMode === 'T') {
+    // Check if slot is already 'T' for this targetBaseCode -> Toggle OFF (unassign)
+    let isSameToggle = false;
+    deptCourses.forEach(c => {
+      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      if (b === targetBaseCode) {
+        const currentVal = (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][period]) || '';
+        if (currentVal === 'T') {
+          isSameToggle = true;
+        }
+      }
+    });
+
+    if (isSameToggle) {
+      deptCourses.forEach(c => {
+        const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        if (b === targetBaseCode && localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+      return;
+    }
+
+    // Block assignment if maximum Theory hours reached!
+    if (assignedHours.thAssigned >= hourTargets.thTarget) {
+      showModalAlert(
+        'Theory Limit Reached',
+        `<strong>${escapeHtml(targetBaseCode)}</strong> has reached its maximum Theory hours (${hourTargets.thTarget} hrs).<br><span class="text-muted text-xs">Cannot assign more Theory periods for this subject. Remaining balance hours (if any) will be auto-scheduled.</span>`,
+        'warning'
+      );
+      return;
+    }
+
+    // Remove block if slot was blocked
+    localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
+      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+    });
+
+    // Clear ANY existing course recommendation in this slot for this semester first
+    deptCourses.forEach(c => {
+      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+        delete localCurriculumCourseRecs[c.code][day][period];
+      }
+    });
+
+    // Assign 'T'
+    const matchingCourses = (state.courses || []).filter(c => {
+      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
+    });
+
+    matchingCourses.forEach(c => {
+      if (!localCurriculumCourseRecs[c.code]) localCurriculumCourseRecs[c.code] = {};
+      if (!localCurriculumCourseRecs[c.code][day]) localCurriculumCourseRecs[c.code][day] = {};
+      localCurriculumCourseRecs[c.code][day][period] = 'T';
+    });
+
+    renderCurriculumSlotMatrix();
+    renderCurriculumHoursBreakdown();
+    return;
+  }
+
+  // B. Handling Practical Recommendation ('P') - Works as 2-period contiguous PAIR
+  if (curriculumActiveToolMode === 'P') {
+    // Check if clicked slot is already part of an assigned Practical pair for this subject -> Toggle OFF
+    const existingPair = findAssignedPracticalPair(day, period, targetBaseCode, semCourses);
+    if (existingPair) {
+      deptCourses.forEach(c => {
+        const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        if (b === targetBaseCode && localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          existingPair.forEach(p => {
+            delete localCurriculumCourseRecs[c.code][day][p];
+          });
+        }
+      });
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+      return;
+    }
+
+    // Determine the pair of periods to assign
+    const pairToAssign = getPracticalPeriodPair(period);
+    if (!pairToAssign || pairToAssign.length < 2) {
+      showModalAlert(
+        'Interval Boundary Restricted',
+        `Practical sessions cannot be allocated in <strong>Period ${escapeHtml(period)}</strong> because intervals exist between Periods 2 & 3 and Periods 3 & 4.<br><span class="text-muted text-xs">Practicals require a continuous 2-hour session (e.g. Periods 1-2, Periods 4-5, or Periods 5-6). Period 3 is reserved for 1-hour Theory slots.</span>`,
+        'warning'
+      );
+      return;
+    }
+
+    // Block assignment if no practical hours or maximum Practical hours reached!
+    if (hourTargets.prTarget <= 0) {
+      showModalAlert(
+        'No Practical Hours',
+        `<strong>${escapeHtml(targetBaseCode)}</strong> has 0 Practical hours in its curriculum.`,
+        'warning'
+      );
+      return;
+    }
+
+    if (assignedHours.prAssigned + 2 > hourTargets.prTarget) {
+      showModalAlert(
+        'Practical Limit Reached',
+        `<strong>${escapeHtml(targetBaseCode)}</strong> has reached its maximum Practical hours (${hourTargets.prTarget} hrs; currently assigned: ${assignedHours.prAssigned} hrs).<br><span class="text-muted text-xs">Cannot assign another 2-hour practical pair.</span>`,
+        'warning'
+      );
+      return;
+    }
+
+    // Remove blocks on both periods in pairToAssign
+    localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
+      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return !(b.day === day && pairToAssign.includes(String(b.period)) && bSem === activeSemStr);
+    });
+
+    // Clear ANY existing course recommendation on both periods in pairToAssign
+    deptCourses.forEach(c => {
+      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+        pairToAssign.forEach(p => {
+          delete localCurriculumCourseRecs[c.code][day][p];
+        });
+      }
+    });
+
+    // Assign 'P' to both periods in pairToAssign
+    const matchingCourses = (state.courses || []).filter(c => {
+      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
+    });
+
+    matchingCourses.forEach(c => {
+      if (!localCurriculumCourseRecs[c.code]) localCurriculumCourseRecs[c.code] = {};
+      if (!localCurriculumCourseRecs[c.code][day]) localCurriculumCourseRecs[c.code][day] = {};
+      pairToAssign.forEach(p => {
+        localCurriculumCourseRecs[c.code][day][p] = 'P';
+      });
+    });
+
+    renderCurriculumSlotMatrix();
+    renderCurriculumHoursBreakdown();
+    return;
+  }
+}
+
+function renderCurriculumHoursBreakdown() {
+  const container = document.getElementById('curriculum-hours-summary-container');
+  if (!container) return;
+
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const uniqueBases = [];
+  semCourses.forEach(c => {
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    if (!uniqueBases.some(u => u.baseCode === baseCode)) {
+      const targets = getCourseHourTargets(baseCode, semCourses);
+      uniqueBases.push({
+        baseCode,
+        name: c.name || baseCode,
+        totalHours: targets.total,
+        thTarget: targets.thTarget,
+        prTarget: targets.prTarget
+      });
+    }
+  });
+
+  if (uniqueBases.length === 0) {
+    container.innerHTML = `<span class="text-muted text-xs">No courses registered for this semester.</span>`;
+    return;
+  }
+
+  let html = '';
+  uniqueBases.forEach(u => {
+    const assigned = getAssignedHoursForCourse(u.baseCode, semCourses);
+    const thAssigned = assigned.thAssigned;
+    const prAssigned = assigned.prAssigned;
+
+    const isSelected = (curriculumSelectedFilterCourse === u.baseCode);
+    const borderStyle = isSelected ? 'border: 2px solid var(--primary); background: #f0fdf4;' : 'border: 1px solid var(--border); background: #ffffff;';
+
+    const thFull = (thAssigned >= u.thTarget);
+    const prFull = (u.prTarget === 0 || prAssigned >= u.prTarget);
+    const allFull = thFull && prFull;
+    const remainingBalance = Math.max(0, (u.thTarget - thAssigned) + (u.prTarget - prAssigned));
+
+    html += `
+      <div class="curriculum-hours-chip" 
+           style="${borderStyle}; cursor: pointer; transition: all 0.15s ease;" 
+           onclick="selectCurriculumSubjectForEdit('${u.baseCode}')"
+           title="Click to select ${escapeHtml(u.baseCode)} for editing. Assigning recommended slots is optional; remaining balance hours will be auto-scheduled anywhere.">
+        <div style="font-weight: 700; font-size: 11.5px; margin-right: 8px;">
+          ${escapeHtml(u.baseCode)}
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span class="badge" style="background: ${thFull ? 'var(--warning)' : 'var(--warning-light)'}; color: ${thFull ? '#ffffff' : 'var(--warning-dark)'}; border: 1px solid var(--warning); font-size: 10px; padding: 1px 6px;">
+            TH: ${thAssigned}/${u.thTarget} hrs
+          </span>
+          ${u.prTarget > 0 ? `
+            <span class="badge" style="background: ${prFull ? 'var(--success)' : 'var(--success-light)'}; color: ${prFull ? '#ffffff' : 'var(--success-dark)'}; border: 1px solid var(--success); font-size: 10px; padding: 1px 6px;">
+              PR: ${prAssigned}/${u.prTarget} hrs
+            </span>
+          ` : ''}
+          ${allFull ? `
+            <span style="font-size: 10px; font-weight: 700; color: #16a34a; display: flex; align-items: center; gap: 3px;">
+              <i class="fa-solid fa-circle-check"></i> Full
+            </span>
+          ` : `
+            <span style="font-size: 9px; color: #64748b; background: #f1f5f9; padding: 1px 5px; border-radius: 3px;" title="Remaining hours will be placed anywhere automatically during timetable generation">
+              Balance: ${remainingBalance}h auto
+            </span>
+          `}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function selectCurriculumSubjectForEdit(baseCode) {
+  const assignSelect = document.getElementById('curriculum-target-subject-select');
+  const courseFilter = document.getElementById('curriculum-course-filter');
+  if (assignSelect) assignSelect.value = baseCode;
+  if (courseFilter) {
+    courseFilter.value = baseCode;
+    curriculumSelectedFilterCourse = baseCode;
+  }
+  renderCurriculumSlotMatrix();
+  renderCurriculumHoursBreakdown();
+}
+
+// Resets ONLY the currently selected filter section back to master timetable recommended slots
+async function resetCurriculumSlotAllocations() {
+  if (isTimetableLocked()) {
+    showModalAlert('Timetable Locked', 'Cannot reset allocations while department timetable is locked.', 'info');
+    return;
+  }
+
+  const targetLabel = (curriculumSelectedFilterCourse && curriculumSelectedFilterCourse !== 'ALL')
+    ? `Course ${curriculumSelectedFilterCourse}`
+    : `Semester ${curriculumSelectedSem}`;
+
+  const confirmed = confirm(
+    `Reset ${targetLabel} back to master timetable recommended slots?\n\nAll user-created recommended slots and assigned subjects for this section will be removed.`
+  );
+  if (!confirmed) return;
+
+  const btnReset = document.getElementById('btn-reset-curriculum-slots');
+  const originalText = btnReset ? btnReset.innerHTML : 'Reset';
+  if (btnReset) {
+    btnReset.disabled = true;
+    btnReset.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Resetting...`;
+  }
+
+  try {
+    const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName : '';
+    const res = await authFetch('/api/curriculum-slots/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        departmentName: deptName,
+        semester: curriculumSelectedSem,
+        courseFilter: curriculumSelectedFilterCourse
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      state.courses = data.courses || state.courses;
+      if (data.globalLockedPeriods) {
+        if (!state.config) state.config = {};
+        state.config.globalLockedPeriods = data.globalLockedPeriods;
+      }
+
+      // Re-initialize local working copy from fresh server state
+      initCurriculumSemesterData(true);
+
+      if (typeof renderAllocationMatrix === 'function') {
+        renderAllocationMatrix();
+      }
+
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+
+      showModalAlert(
+        'Reset Complete',
+        `Allocations for <strong>${escapeHtml(targetLabel)}</strong> have been restored to master timetable recommended slots. User-assigned slots have been removed.`,
+        'success'
+      );
+    } else {
+      showModalAlert('Reset Failed', data.message || 'Could not reset curriculum slots.', 'danger');
+    }
+  } catch (err) {
+    console.error('Error resetting curriculum slots:', err);
+    showModalAlert('Network Error', 'Connection failed while resetting curriculum slots.', 'danger');
+  } finally {
+    if (btnReset) {
+      btnReset.disabled = false;
+      btnReset.innerHTML = originalText;
+    }
+  }
+}
+
+async function saveCurriculumSlotAllocations() {
+  if (isTimetableLocked()) {
+    showModalAlert('Timetable Locked', 'Cannot save allocations while department timetable is locked.', 'info');
+    return;
+  }
+
+  const btnSave = document.getElementById('btn-save-curriculum-slots');
+  const originalText = btnSave ? btnSave.innerHTML : 'Save Slot Allocations';
+  if (btnSave) {
+    btnSave.disabled = true;
+    btnSave.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+  }
+
+  try {
+    const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName : '';
+    const res = await authFetch('/api/curriculum-slots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        departmentName: deptName,
+        semester: curriculumSelectedSem,
+        courseRecommendations: localCurriculumCourseRecs,
+        semesterBlocks: localCurriculumSemesterBlocks
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      state.courses = data.courses || state.courses;
+      if (data.globalLockedPeriods) {
+        if (!state.config) state.config = {};
+        state.config.globalLockedPeriods = data.globalLockedPeriods;
+      }
+
+      if (typeof renderAllocationMatrix === 'function') {
+        renderAllocationMatrix();
+      }
+
+      showModalAlert('Saved Successfully', 'Curriculum recommended slots and blocked periods have been saved and will be strictly respected during auto-generation!', 'success');
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+    } else {
+      showModalAlert('Save Failed', data.message || 'Could not save curriculum slots.', 'danger');
+    }
+  } catch (err) {
+    console.error('Error saving curriculum slots:', err);
+    showModalAlert('Network Error', 'Connection failed while saving curriculum slots.', 'danger');
+  } finally {
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.innerHTML = originalText;
+    }
+  }
 }
 
 

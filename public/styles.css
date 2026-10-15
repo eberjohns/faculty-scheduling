@@ -2232,5 +2232,111 @@ input:checked + .slider:before {
   cursor: pointer;
 }
 
+/* ==========================================================================
+   Curriculum Slot Allocation Matrix Styling
+   ========================================================================== */
+.curriculum-slot-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.curriculum-slot-grid th {
+  background: var(--surface-1);
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 8px 6px !important;
+  vertical-align: middle;
+  text-align: center;
+  border-color: var(--border) !important;
+}
+
+.curriculum-slot-grid td {
+  padding: 6px 4px !important;
+  font-size: 11px;
+  vertical-align: middle;
+  text-align: center;
+  position: relative;
+  user-select: none;
+  border-color: var(--border) !important;
+  background: #ffffff;
+}
+
+.curriculum-slot-cell {
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 42px;
+  position: relative;
+}
+
+.curriculum-slot-cell:hover {
+  filter: brightness(0.96);
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+.curriculum-slot-cell.slot-recommend-t {
+  background-color: var(--warning-light) !important;
+  border-left: 5px solid var(--warning) !important;
+  color: var(--warning-dark) !important;
+}
+
+.curriculum-slot-cell.slot-recommend-p {
+  background-color: var(--success-light) !important;
+  border-left: 5px solid var(--success) !important;
+  color: var(--success-dark) !important;
+}
+
+.curriculum-slot-cell.slot-recommend-blocked,
+.curriculum-slot-blocked {
+  background-image: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 8px, #fca5a5 8px, #fca5a5 16px) !important;
+  color: #991b1b !important;
+  font-weight: 700;
+  border: 1.5px solid #ef4444 !important;
+}
+
+.curriculum-slot-cell.slot-dimmed {
+  opacity: 0.35 !important;
+}
+
+.curriculum-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.curriculum-mode-pill:hover {
+  transform: translateY(-1px);
+}
+
+.curriculum-mode-pill.active {
+  box-shadow: 0 0 0 2px var(--primary), 0 2px 6px rgba(0, 0, 0, 0.12);
+  transform: scale(1.03);
+}
+
+.curriculum-hours-chip {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.curriculum-hours-chip.complete {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+
 
 
