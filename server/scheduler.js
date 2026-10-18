@@ -807,6 +807,13 @@ export function generateDepartmentSchedule({
    * Constraint Checker (Strict vs Relaxed vs DeepRelaxed)
    */
   function canPlaceCard(allocState, card, day, periodsGroup, isRelaxed = false, deepRelaxed = false) {
+    // 0. Prevent overwriting slots already allocated for this course
+    for (const p of periodsGroup) {
+      if (allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0) {
+        return false;
+      }
+    }
+
     // 1. Admin Global Locks (with semester check & selective subject scoping) - Always strictly enforced
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     for (const p of periodsGroup) {
@@ -866,10 +873,21 @@ export function generateDepartmentSchedule({
           const cardSem = card.semester ? String(card.semester || '').trim().toUpperCase() : '';
 
           if (cardSem && otherSem && cardSem === otherSem) {
+            const isMinorOrElectiveCourse = (c) => {
+              if (!c) return false;
+              const cat = (c.category || '').toUpperCase().trim();
+              const cType = (c.courseType || '').toUpperCase().trim();
+              const code = (c.code || c.courseCode || '').toUpperCase().trim();
+              return cat === 'MINOR' || cat === 'ELECTIVE' || cat === 'MDC' || cat === 'AEC' || cat === 'VAC' || cat === 'SEC' ||
+                     cType === 'M' || code.includes('MN') || code.includes('EJ') || code.includes('FM');
+            };
+
             const otherBatches = (db.groupMappings && db.groupMappings[otherCourse]) || [];
             const cardBatches = card.batches || [];
             const areDisjointBatches = cardBatches.length > 0 && otherBatches.length > 0 && !cardBatches.some(b => otherBatches.includes(b));
-            if (!areDisjointBatches) {
+            const areBothMinorsOrElectives = isMinorOrElectiveCourse(card) && isMinorOrElectiveCourse(otherMeta);
+
+            if (!areDisjointBatches && !areBothMinorsOrElectives) {
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return false;
             }
@@ -895,10 +913,6 @@ export function generateDepartmentSchedule({
       }
 
       for (const p of periodsGroup) {
-        if (externalLabUsage[day] && externalLabUsage[day][p]) {
-          recordRejection('LAB_OCCUPIED', card);
-          return false;
-        }
         if (occupiedLabSlots[day] && occupiedLabSlots[day][p] && occupiedLabSlots[day][p] !== card.courseCode) {
           recordRejection('LAB_OCCUPIED', card);
           return false;
@@ -906,10 +920,13 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // 6. Same Course Same Day Stacking (Strict mode: Theory strictly max 1 hour per day)
+    // 6. Same Course Same Day Stacking (Theory max hours per day matches recommended slots or 1)
     if (card.type === 'T') {
       const alreadyPlacedToday = Object.keys(allocState[card.courseCode][day] || {}).length;
-      const maxPerDay = deepRelaxed ? 3 : (isRelaxed ? 2 : 1);
+      const recCountToday = (card.recommendations && card.recommendations[day])
+        ? Object.values(card.recommendations[day]).filter(v => v === 'T' || v === 'M').length
+        : 0;
+      const maxPerDay = Math.max(recCountToday, deepRelaxed ? 3 : (isRelaxed ? 2 : 1));
       if (alreadyPlacedToday >= maxPerDay) {
         recordRejection('SAME_DAY_STACKING', card);
         return false;
@@ -924,6 +941,13 @@ export function generateDepartmentSchedule({
    * Distributes hours fairly according to each teacher's availability & rest rules.
    */
   function getAvailableCandidatesForCard(allocState, card, day, periodsGroup, courseFacultyHoursState, isRelaxed = false, deepRelaxed = false) {
+    // 0. Prevent overwriting slots already allocated for this course
+    for (const p of periodsGroup) {
+      if (allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0) {
+        return [];
+      }
+    }
+
     // 1. Course-level checks (Global Lock, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     if (card.type === 'P') {
@@ -953,10 +977,21 @@ export function generateDepartmentSchedule({
           const cardSem = card.semester ? String(card.semester || '').trim().toUpperCase() : '';
 
           if (cardSem && otherSem && cardSem === otherSem) {
+            const isMinorOrElectiveCourse = (c) => {
+              if (!c) return false;
+              const cat = (c.category || '').toUpperCase().trim();
+              const cType = (c.courseType || '').toUpperCase().trim();
+              const code = (c.code || c.courseCode || '').toUpperCase().trim();
+              return cat === 'MINOR' || cat === 'ELECTIVE' || cat === 'MDC' || cat === 'AEC' || cat === 'VAC' || cat === 'SEC' ||
+                     cType === 'M' || code.includes('MN') || code.includes('EJ') || code.includes('FM');
+            };
+
             const otherBatches = (db.groupMappings && db.groupMappings[otherCourse]) || [];
             const cardBatches = card.batches || [];
             const areDisjointBatches = cardBatches.length > 0 && otherBatches.length > 0 && !cardBatches.some(b => otherBatches.includes(b));
-            if (!areDisjointBatches) {
+            const areBothMinorsOrElectives = isMinorOrElectiveCourse(card) && isMinorOrElectiveCourse(otherMeta);
+
+            if (!areDisjointBatches && !areBothMinorsOrElectives) {
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return [];
             }
@@ -974,10 +1009,6 @@ export function generateDepartmentSchedule({
     // 1c. Single Computer Lab Constraint - Strictly enforced
     if (card.type === 'P') {
       for (const p of periodsGroup) {
-        if (externalLabUsage[day] && externalLabUsage[day][p]) {
-          recordRejection('LAB_OCCUPIED', card);
-          return [];
-        }
         if (occupiedLabSlots[day] && occupiedLabSlots[day][p] && occupiedLabSlots[day][p] !== card.courseCode) {
           recordRejection('LAB_OCCUPIED', card);
           return [];
@@ -987,7 +1018,10 @@ export function generateDepartmentSchedule({
 
     if (card.type === 'T') {
       const alreadyPlacedToday = Object.keys(allocState[card.courseCode][day] || {}).length;
-      const maxPerDay = deepRelaxed ? 3 : (isRelaxed ? 2 : 1);
+      const recCountToday = (card.recommendations && card.recommendations[day])
+        ? Object.values(card.recommendations[day]).filter(v => v === 'T' || v === 'M').length
+        : 0;
+      const maxPerDay = Math.max(recCountToday, deepRelaxed ? 3 : (isRelaxed ? 2 : 1));
       if (alreadyPlacedToday >= maxPerDay) {
         recordRejection('SAME_DAY_STACKING', card);
         return [];
@@ -1265,19 +1299,19 @@ export function generateDepartmentSchedule({
 
       WEEKDAYS.forEach(day => {
         candidateSlots.forEach(slotGroup => {
+          const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
+          if (isAlreadyOccupied) return;
+
           const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
-          
-          // Strict Practical/Theory separation: Disqualify any slot with Theory recommendation!
-          const hasTheoryConflict = slotGroup.some(p => isTheoryDesignated(day, p, card));
-          if (hasTheoryConflict) {
-            return;
-          }
 
           if (isOwnRecP) {
             tier1.push({ day, slotGroup });
           } else if (phase !== 1) {
-            // Neutral slots only allowed in Phase 2
-            tier2.push({ day, slotGroup });
+            // Strict Practical/Theory separation: Disqualify any neutral slot with Theory recommendation!
+            const hasTheoryConflict = slotGroup.some(p => isTheoryDesignated(day, p, card));
+            if (!hasTheoryConflict) {
+              tier2.push({ day, slotGroup });
+            }
           }
         });
       });
@@ -1302,23 +1336,26 @@ export function generateDepartmentSchedule({
       const hoursToday = placedOnDays[day];
 
       candidateSlots.forEach(slotGroup => {
-        const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
+        const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
+        if (isAlreadyOccupied) return;
 
-        // Strict Practical/Theory separation: Disqualify any slot with Practical recommendation!
-        const hasPracticalConflict = slotGroup.some(p => isPracticalDesignated(day, p, card));
-        if (hasPracticalConflict) {
-          return;
-        }
+        const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
 
         if (phase === 1) {
           // Phase 1: STRICTLY only recommended 'T' slots!
           if (isOwnRecT) {
             if (hoursToday === 0) {
               tier1.push({ day, slotGroup });
-            } else if (hoursToday === 1) {
+            } else {
               tier4.push({ day, slotGroup });
             }
           }
+          return;
+        }
+
+        // Strict Practical/Theory separation for neutral slots: Disqualify any slot with Practical recommendation!
+        const hasPracticalConflict = slotGroup.some(p => isPracticalDesignated(day, p, card));
+        if (hasPracticalConflict && !isOwnRecT) {
           return;
         }
 
@@ -1412,7 +1449,7 @@ export function generateDepartmentSchedule({
               currentCourseFacultyHours[card.courseCode][chosenFac] = (currentCourseFacultyHours[card.courseCode][chosenFac] || 0) + card.duration;
 
               const success = backtrackRecursive(cardIndex + 1, currentAlloc);
-              if (success && localBestScore > 1400) {
+              if (success && (phase === 1 || localBestScore > 1400)) {
                 return true;
               }
 
@@ -1437,7 +1474,7 @@ export function generateDepartmentSchedule({
             });
 
             const success = backtrackRecursive(cardIndex + 1, currentAlloc);
-            if (success && localBestScore > 1400) {
+            if (success && (phase === 1 || localBestScore > 1400)) {
               return true;
             }
 
