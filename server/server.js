@@ -205,6 +205,29 @@ app.get('/healthcheck', (req, res) => {
 });
 
 
+// Helper to ensure all departments (existing or newly discovered) have a default password of '123456'
+function ensureDepartmentDefaults(db) {
+  if (!db.departments) db.departments = {};
+  let changed = false;
+  const deptSet = new Set();
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments).forEach(name => deptSet.add(name.trim()));
+
+  deptSet.forEach(name => {
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    if (!existingKey) {
+      db.departments[name] = { password: '123456' };
+      changed = true;
+    } else if (!db.departments[existingKey].password) {
+      db.departments[existingKey].password = '123456';
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 // -------------------------------------------------------------
 // Authentication Endpoints
 // -------------------------------------------------------------
@@ -221,15 +244,31 @@ app.post('/api/auth/login', (req, res) => {
     if (!departmentName) {
       return res.status(400).json({ success: false, message: 'Department name is required' });
     }
-    const dept = db.departments[departmentName];
+    if (!db.departments) db.departments = {};
+
+    // Match department case-insensitively
+    const existingKey = Object.keys(db.departments).find(
+      k => k.trim().toLowerCase() === departmentName.trim().toLowerCase()
+    );
+
+    let deptKey = existingKey || departmentName.trim();
+    let dept = db.departments[deptKey];
+
+    // Any newly added department has default password "123456"
     if (!dept) {
-      return res.status(404).json({ success: false, message: 'Department not found in database. Ask Admin to set a password.' });
+      db.departments[deptKey] = { password: '123456' };
+      writeDb(db);
+      dept = db.departments[deptKey];
+    } else if (!dept.password) {
+      dept.password = '123456';
+      writeDb(db);
     }
+
     if (password === dept.password) {
       return res.json({
         success: true,
-        token: `dept-token-${departmentName}`,
-        user: { role: 'department', departmentName }
+        token: `dept-token-${deptKey}`,
+        user: { role: 'department', departmentName: deptKey }
       });
     }
     return res.status(401).json({ success: false, message: 'Invalid Department password' });
@@ -330,16 +369,22 @@ app.delete('/api/common-batches/:id', requireUser, (req, res) => {
 // -------------------------------------------------------------
 app.get('/api/departments', (req, res) => {
   const db = readDb();
-  // Get all unique departments from courses & faculty
+  if (ensureDepartmentDefaults(db)) {
+    writeDb(db);
+  }
+
+  // Get all unique departments from courses, faculty & db.departments
   const deptSet = new Set();
-  db.courses.forEach(c => deptSet.add(c.department));
-  db.faculty.forEach(f => deptSet.add(f.department));
-  
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
+
   const depts = Array.from(deptSet).sort();
-  
+
   const result = depts.map(name => {
-    const hasPassword = !!(db.departments[name] && db.departments[name].password);
-    const submission = db.submissions[name] || { status: 'Draft', comments: '' };
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    const hasPassword = !!(existingKey && db.departments[existingKey] && db.departments[existingKey].password);
+    const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
       hasPassword,
@@ -347,8 +392,49 @@ app.get('/api/departments', (req, res) => {
       comments: submission.comments
     };
   });
-  
+
   res.json(result);
+});
+
+// Change Department Password Endpoint (used by departments in Advanced Features)
+app.post('/api/department/change-password', (req, res) => {
+  const token = req.headers['authorization'];
+  let deptName = '';
+  if (token && token.startsWith('dept-token-')) {
+    deptName = token.substring('dept-token-'.length).trim();
+  } else if (token === 'admin-token' && req.body.departmentName) {
+    deptName = req.body.departmentName.trim();
+  } else {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Department access token required.' });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
+  }
+
+  if (newPassword.trim().length < 4) {
+    return res.status(400).json({ success: false, message: 'New password must be at least 4 characters long.' });
+  }
+
+  const db = readDb();
+  if (!db.departments) db.departments = {};
+
+  const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === deptName.toLowerCase());
+  const currentDbPassword = (existingKey && db.departments[existingKey]?.password) ? db.departments[existingKey].password : '123456';
+
+  if (currentPassword !== currentDbPassword) {
+    return res.status(400).json({ success: false, message: 'Incorrect current password.' });
+  }
+
+  const targetKey = existingKey || deptName.toUpperCase();
+  if (!db.departments[targetKey]) {
+    db.departments[targetKey] = {};
+  }
+  db.departments[targetKey].password = newPassword.trim();
+  writeDb(db);
+
+  res.json({ success: true, message: `Password changed successfully for department ${targetKey}.` });
 });
 
 app.post('/api/departments/password', requireAdmin, (req, res) => {
@@ -357,35 +443,42 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, message: 'Department name and password required' });
   }
   const db = readDb();
-  if (!db.departments[name]) {
-    db.departments[name] = {};
+  if (!db.departments) db.departments = {};
+  const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.trim().toLowerCase()) || name.trim();
+  if (!db.departments[existingKey]) {
+    db.departments[existingKey] = {};
   }
-  db.departments[name].password = password;
+  db.departments[existingKey].password = password.trim();
   writeDb(db);
-  res.json({ success: true, message: `Password updated for department ${name}.` });
+  res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
 
 app.get('/api/admin/departments', requireAdmin, (req, res) => {
   const db = readDb();
+  if (ensureDepartmentDefaults(db)) {
+    writeDb(db);
+  }
+
   const deptSet = new Set();
-  db.courses.forEach(c => deptSet.add(c.department));
-  db.faculty.forEach(f => deptSet.add(f.department));
-  
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
+
   const depts = Array.from(deptSet).sort();
-  
+
   const result = depts.map(name => {
-    const passcode = db.departments[name] ? db.departments[name].password || '' : '';
-    const hasPassword = !!passcode;
-    const submission = db.submissions[name] || { status: 'Draft', comments: '' };
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    const passcode = (existingKey && db.departments[existingKey]) ? db.departments[existingKey].password || '123456' : '123456';
+    const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
-      hasPassword,
+      hasPassword: true,
       passcode,
       status: submission.status,
       comments: submission.comments
     };
   });
-  
+
   res.json(result);
 });
 

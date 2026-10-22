@@ -3419,10 +3419,13 @@ function bindAdvancedFeaturesModalEvents() {
 
   // Curriculum & Recommended Slots Controls
   bindCurriculumSlotAllocatorEvents();
+
+  // Department Password Change Controls
+  bindDeptChangePasswordEvents();
 }
 
 function openAdvancedFeaturesModal(initialPaneId = 'adv-pane-teacher-unavail') {
-  if (isTimetableLocked()) {
+  if (isTimetableLocked() && initialPaneId !== 'adv-pane-change-password') {
     const deptName = state.currentUser ? state.currentUser.departmentName : '';
     const deptInfo = state.departments.find(d => d.name === deptName) || { status: 'Draft' };
     showModalAlert(
@@ -3480,6 +3483,8 @@ function switchAdvancedFeaturesTab(paneId) {
     renderTeacherTimetablesTab();
   } else if (paneId === 'adv-pane-curriculum-slots') {
     renderCurriculumSlotAllocator();
+  } else if (paneId === 'adv-pane-change-password') {
+    initDeptChangePasswordPane();
   }
 }
 
@@ -7555,6 +7560,118 @@ async function saveCurriculumSlotAllocations() {
     }
   }
 }
+
+// -------------------------------------------------------------
+// Department Password Change (Advanced Features)
+// -------------------------------------------------------------
+function initDeptChangePasswordPane() {
+  const deptName = state.currentDepartment || (state.currentUser && state.currentUser.departmentName) || '';
+  const deptInput = document.getElementById('dept-pwd-deptname');
+  if (deptInput) {
+    deptInput.value = deptName;
+  }
+  const form = document.getElementById('form-dept-change-password');
+  if (form) {
+    form.reset();
+    if (deptInput) deptInput.value = deptName;
+  }
+  const feedback = document.getElementById('dept-pwd-feedback');
+  if (feedback) {
+    feedback.classList.add('hidden');
+    feedback.textContent = '';
+  }
+}
+
+function bindDeptChangePasswordEvents() {
+  // Eye icon toggles for password visibility
+  document.querySelectorAll('.toggle-dept-pwd').forEach(icon => {
+    icon.addEventListener('click', () => {
+      const targetId = icon.getAttribute('data-target');
+      const input = document.getElementById(targetId);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+      }
+    });
+  });
+
+  const form = document.getElementById('form-dept-change-password');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const currentPassword = (document.getElementById('dept-current-pwd')?.value || '').trim();
+      const newPassword = (document.getElementById('dept-new-pwd')?.value || '').trim();
+      const confirmPassword = (document.getElementById('dept-confirm-pwd')?.value || '').trim();
+      const feedback = document.getElementById('dept-pwd-feedback');
+      const btnSubmit = document.getElementById('btn-submit-dept-pwd');
+
+      const showFeedback = (msg, isError) => {
+        if (!feedback) return;
+        feedback.textContent = msg;
+        feedback.classList.remove('hidden');
+        feedback.style.background = isError ? '#fee2e2' : '#dcfce7';
+        feedback.style.color = isError ? '#991b1b' : '#166534';
+        feedback.style.border = isError ? '1px solid #f87171' : '1px solid #86efac';
+      };
+
+      if (!currentPassword || !newPassword) {
+        showFeedback('Please fill out all password fields.', true);
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        showFeedback('New passwords do not match. Please verify and re-type.', true);
+        return;
+      }
+
+      if (newPassword.length < 4) {
+        showFeedback('New password must be at least 4 characters long.', true);
+        return;
+      }
+
+      if (currentPassword === newPassword) {
+        showFeedback('New password cannot be identical to current password.', true);
+        return;
+      }
+
+      try {
+        if (btnSubmit) {
+          btnSubmit.disabled = true;
+          btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+        }
+        const deptName = state.currentDepartment || (state.currentUser && state.currentUser.departmentName) || '';
+        const res = await authFetch(`${API_BASE}/department/change-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ departmentName: deptName, currentPassword, newPassword })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          showFeedback('Password changed successfully! Keep your new passcode safe.', false);
+          form.reset();
+          const deptInput = document.getElementById('dept-pwd-deptname');
+          if (deptInput) deptInput.value = deptName;
+          showModalAlert('Success', `Password changed successfully for department ${deptName}.`, 'success');
+        } else {
+          showFeedback(result.message || 'Failed to update department password.', true);
+        }
+      } catch (err) {
+        console.error('Password change error:', err);
+        showFeedback('Network or server error while updating password.', true);
+      } finally {
+        if (btnSubmit) {
+          btnSubmit.disabled = false;
+          btnSubmit.innerHTML = '<i class="fa-solid fa-key"></i> Update Password';
+        }
+      }
+    });
+  }
+}
+
 
 
 
