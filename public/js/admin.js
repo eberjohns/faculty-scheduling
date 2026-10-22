@@ -1153,6 +1153,16 @@ function bindImportEvents() {
     });
   });
 
+  // Download format template Excel buttons
+  document.querySelectorAll('.btn-download-template').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const type = btn.getAttribute('data-type');
+      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      window.location.href = `${API_BASE}/admin/template/${type}?token=${encodeURIComponent(adminToken)}`;
+    });
+  });
+
   // Course structure import
   document.getElementById('import-courses-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];

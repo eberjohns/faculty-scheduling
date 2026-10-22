@@ -941,6 +941,123 @@ app.post('/api/admin/restore', requireAdmin, upload.single('file'), (req, res) =
 
 
 // -------------------------------------------------------------
+// Excel Import Format Templates (with live DB examples)
+// -------------------------------------------------------------
+app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
+  try {
+    const { type } = req.params;
+    const db = readDb();
+    const wb = xlsx.utils.book_new();
+    let filename = '';
+
+    if (type === 'courses') {
+      filename = 'course_structure_format.xlsx';
+      const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+      const dayPrefixes = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+      const periods = ['1', '2', '3', '4', '5', '6'];
+      const slotHeaders = [];
+      dayPrefixes.forEach(d => { periods.forEach(p => { slotHeaders.push(`${d}-${p}`); }); });
+      
+      const headers = [
+        'Course Code', 'Course Name', 'Type', 'Group', 'Semester', 'Program', 'Category', 'Department',
+        ...slotHeaders
+      ];
+
+      const rows = [headers];
+
+      // Retrieve 2 representative examples from the database
+      const tCourse = (db.courses || []).find(c => c.courseType === 'T' && Object.values(c.recommendations || {}).some(d => Object.keys(d).length > 0)) || (db.courses || [])[0];
+      const pCourse = (db.courses || []).find(c => c.courseType === 'P' && c !== tCourse) || (db.courses || [])[1];
+
+      const sampleCourses = [tCourse, pCourse].filter(Boolean);
+      if (sampleCourses.length === 0) {
+        // Fallback default examples if DB is empty
+        rows.push([
+          'MAT1CJ101_G1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
+          '', '', 'T', '', '', '', '', '', '', '', '', '', 'T', '', '', '', '', '', '', '', '', 'T', '', '', '', 'T', '', '', '', ''
+        ]);
+        rows.push([
+          'CSC1CR102_G1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
+          '', '', '', '', 'P', 'P', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
+        ]);
+      } else {
+        sampleCourses.forEach(c => {
+          const row = [
+            c.code || '',
+            c.name || '',
+            c.courseType || 'T',
+            c.group !== undefined ? c.group : 0,
+            c.semester || '1',
+            c.programType || 'UG',
+            c.category || 'MAJOR',
+            c.department || ''
+          ];
+          weekdays.forEach(day => {
+            periods.forEach(p => {
+              const val = (c.recommendations && c.recommendations[day] && c.recommendations[day][p]) ||
+                          (c.masterRecommendations && c.masterRecommendations[day] && c.masterRecommendations[day][p]) || '';
+              row.push(val);
+            });
+          });
+          rows.push(row);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Course_Format');
+
+    } else if (type === 'staff') {
+      filename = 'staff_directory_format.xlsx';
+      const headers = ['Staff ID', 'Name', 'Department'];
+      const rows = [headers];
+
+      const sampleFaculty = (db.faculty || []).slice(0, 2);
+      if (sampleFaculty.length === 0) {
+        rows.push(['STF101', 'Dr. Eber Johns', 'COMPUTER SCIENCE']);
+        rows.push(['STF102', 'Prof. Mary Smith', 'CHEMISTRY']);
+      } else {
+        sampleFaculty.forEach(f => {
+          rows.push([f.staffId || '', f.name || '', f.department || '']);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Staff_Format');
+
+    } else if (type === 'batch-dept') {
+      filename = 'batch_dept_mappings_format.xlsx';
+      const headers = ['Batch Code', 'Department Name'];
+      const rows = [headers];
+
+      const sampleBatch = (db.batchDeptMappings || []).slice(0, 2);
+      if (sampleBatch.length === 0) {
+        rows.push(['CS', 'COMPUTER SCIENCE']);
+        rows.push(['CH', 'CHEMISTRY']);
+      } else {
+        sampleBatch.forEach(b => {
+          rows.push([b.code || '', b.deptName || '']);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Batch_Dept_Format');
+
+    } else {
+      return res.status(400).json({ error: 'Invalid template type requested.' });
+    }
+
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+
+  } catch (err) {
+    console.error('Error generating template:', err);
+    res.status(500).json({ error: 'Failed to generate template: ' + err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // Excel Import Routes
 // -------------------------------------------------------------
 app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) => {

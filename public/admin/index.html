@@ -248,7 +248,14 @@
                     <h3>1. Course Structure Excel</h3>
                     <p class="text-muted text-sm">Upload `timetable_26_27 Odd.xlsx` sheet mapping courses, recommended hours, and recommended slots.</p>
                     <input type="file" id="import-courses-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-courses-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-courses-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="courses" title="Download Course Structure format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-success"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="courses-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
@@ -261,7 +268,14 @@
                     <h3>2. Staff Directory Excel</h3>
                     <p class="text-muted text-sm">Upload `staff.xlsx` mapping Staff ID, Names, and Departments.</p>
                     <input type="file" id="import-staff-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-staff-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-staff-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="staff" title="Download Staff Directory format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-primary"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="staff-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
@@ -274,7 +288,14 @@
                     <h3>3. Batch-Dept Mapping Excel</h3>
                     <p class="text-muted text-sm">Upload Excel sheet mapping Batch codes to Department Names (headers: Batch, Department).</p>
                     <input type="file" id="import-batch-dept-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-batch-dept-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-batch-dept-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="batch-dept" title="Download Batch-Dept Mapping format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-warning"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="batch-dept-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
