@@ -585,6 +585,10 @@
               <i class="fa-solid fa-chalkboard-user text-primary"></i>
               <span>Teacher Timetable</span>
             </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-change-password">
+              <i class="fa-solid fa-key text-primary"></i>
+              <span>Change Password</span>
+            </button>
           </aside>
 
           <!-- Main Content Area -->
@@ -1031,6 +1035,59 @@
               <!-- Course Hours Progress Breakdown Cards -->
               <div id="curriculum-hours-summary-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
                 <!-- Populated dynamically -->
+              </div>
+            </div>
+
+            <!-- TAB: CHANGE DEPARTMENT PASSWORD -->
+            <div id="adv-pane-change-password" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;">
+                    <i class="fa-solid fa-key text-primary"></i> Change Department Password
+                  </h3>
+                  <p class="text-muted text-sm mb-0">
+                    Update your department coordinator sign-in password. Keep this passcode secure.
+                  </p>
+                </div>
+              </div>
+
+              <div class="card" style="max-width: 480px; padding: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: #ffffff;">
+                <form id="form-dept-change-password" autocomplete="off">
+                  <div class="form-group mb-3">
+                    <label class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Department</label>
+                    <input type="text" id="dept-pwd-deptname" class="form-control" readonly style="background-color: var(--bg-body); font-weight: 600; color: var(--primary);">
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label for="dept-current-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Current Password</label>
+                    <div style="position: relative;">
+                      <input type="password" id="dept-current-pwd" class="form-control" placeholder="Enter current password" required autocomplete="current-password" style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-current-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                    </div>
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label for="dept-new-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">New Password</label>
+                    <div style="position: relative;">
+                      <input type="password" id="dept-new-pwd" class="form-control" placeholder="Enter new password (min. 4 characters)" minlength="4" required autocomplete="new-password" style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-new-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                    </div>
+                  </div>
+
+                  <div class="form-group mb-4">
+                    <label for="dept-confirm-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Confirm New Password</label>
+                    <div style="position: relative;">
+                      <input type="password" id="dept-confirm-pwd" class="form-control" placeholder="Re-enter new password" minlength="4" required autocomplete="new-password" style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-confirm-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                    </div>
+                  </div>
+
+                  <div id="dept-pwd-feedback" class="mb-3 hidden" style="font-size: 13px; padding: 10px 14px; border-radius: var(--radius-sm);"></div>
+
+                  <button type="submit" id="btn-submit-dept-pwd" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-key"></i> Update Password
+                  </button>
+                </form>
               </div>
             </div>
           </div>

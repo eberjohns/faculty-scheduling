@@ -64,7 +64,7 @@
           <nav class="sidebar-nav">
             <button class="nav-item active" data-tab="tab-admin-dashboard"><i class="fa-solid fa-chart-line"></i> Status Dashboard</button>
             <button class="nav-item" data-tab="tab-admin-config"><i class="fa-solid fa-gears"></i> Academic Config</button>
-            <button class="nav-item" data-tab="tab-admin-passwords"><i class="fa-solid fa-key"></i> Coordinator Passwords</button>
+            <button class="nav-item" data-tab="tab-admin-passwords"><i class="fa-solid fa-key"></i> Change Password</button>
             <button class="nav-item" data-tab="tab-admin-import"><i class="fa-solid fa-file-excel"></i> Import Excel Data</button>
             <button class="nav-item" data-tab="tab-admin-data"><i class="fa-solid fa-magnifying-glass"></i> Inspect Records</button>
             <button class="nav-item" data-tab="tab-admin-batch-dept"><i class="fa-solid fa-route"></i> Batch-Dept Mappings</button>
@@ -201,39 +201,20 @@
             </div>
           </div>
 
-          <!-- TAB 3: Passwords Config -->
+          <!-- TAB 3: Change Admin Password -->
           <div id="tab-admin-passwords" class="tab-pane hidden">
             <div class="content-header">
-              <h1>Department Access Passwords</h1>
-            </div>
-            <div class="card">
-              <div class="card-body">
-                <p class="text-muted">Set specific sign-in credentials for each department coordinator.</p>
-                <div class="table-responsive mt-3">
-                  <table class="table" id="table-dept-passwords">
-                    <thead>
-                      <tr>
-                        <th>Department</th>
-                        <th>Passcode</th>
-                        <th>Save Password</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <!-- Rendered Dynamically -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <h1>Change Administrator Password</h1>
             </div>
 
             <!-- Change Admin Password Card -->
-            <div class="card mt-4">
+            <div class="card" style="max-width: 480px;">
               <div class="card-header">
-                <h2><i class="fa-solid fa-lock text-primary"></i> Change Administrator Password</h2>
+                <h2><i class="fa-solid fa-lock text-primary"></i> Administrator Password Settings</h2>
               </div>
               <div class="card-body">
-                <p class="text-muted">Change the master administrator sign-in passcode.</p>
-                <form id="form-change-admin-pwd" style="max-width: 400px; margin-top: 15px;">
+                <p class="text-muted">Change the master administrator sign-in passcode for the system.</p>
+                <form id="form-change-admin-pwd" style="margin-top: 15px;">
                   <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
                   <div class="form-group mb-3">
                     <label for="admin-current-pwd">Current Admin Password</label>
@@ -241,7 +222,11 @@
                   </div>
                   <div class="form-group mb-3">
                     <label for="admin-new-pwd">New Admin Password</label>
-                    <input type="password" id="admin-new-pwd" class="form-control" placeholder="Enter new password" autocomplete="new-password" required>
+                    <input type="password" id="admin-new-pwd" class="form-control" placeholder="Enter new password (min. 4 characters)" minlength="4" autocomplete="new-password" required>
+                  </div>
+                  <div class="form-group mb-4">
+                    <label for="admin-confirm-pwd">Confirm New Password</label>
+                    <input type="password" id="admin-confirm-pwd" class="form-control" placeholder="Re-enter new password" minlength="4" autocomplete="new-password" required>
                   </div>
                   <button type="submit" class="btn btn-primary shadow-btn" style="background-color: var(--primary); color: white;"><i class="fa-solid fa-key"></i> Update Admin Password</button>
                 </form>
@@ -263,7 +248,14 @@
                     <h3>1. Course Structure Excel</h3>
                     <p class="text-muted text-sm">Upload `timetable_26_27 Odd.xlsx` sheet mapping courses, recommended hours, and recommended slots.</p>
                     <input type="file" id="import-courses-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-courses-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-courses-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="courses" title="Download Course Structure format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-success"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="courses-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
@@ -276,7 +268,14 @@
                     <h3>2. Staff Directory Excel</h3>
                     <p class="text-muted text-sm">Upload `staff.xlsx` mapping Staff ID, Names, and Departments.</p>
                     <input type="file" id="import-staff-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-staff-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-staff-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="staff" title="Download Staff Directory format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-primary"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="staff-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>
@@ -289,7 +288,14 @@
                     <h3>3. Batch-Dept Mapping Excel</h3>
                     <p class="text-muted text-sm">Upload Excel sheet mapping Batch codes to Department Names (headers: Batch, Department).</p>
                     <input type="file" id="import-batch-dept-file" class="hidden-file-input" accept=".xlsx, .xls">
-                    <button class="btn btn-outline mt-3 btn-file-trigger" data-target="import-batch-dept-file">Select File</button>
+                    <div style="display: flex; gap: 8px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-outline btn-file-trigger" data-target="import-batch-dept-file">
+                        <i class="fa-solid fa-file-arrow-up"></i> Select File
+                      </button>
+                      <button type="button" class="btn btn-outline btn-download-template" data-type="batch-dept" title="Download Batch-Dept Mapping format Excel with database examples">
+                        <i class="fa-solid fa-file-excel text-warning"></i> Format Excel
+                      </button>
+                    </div>
                     <div id="batch-dept-upload-status" class="upload-status-info mt-2"></div>
                   </div>
                 </div>

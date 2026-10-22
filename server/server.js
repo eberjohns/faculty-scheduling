@@ -205,6 +205,29 @@ app.get('/healthcheck', (req, res) => {
 });
 
 
+// Helper to ensure all departments (existing or newly discovered) have a default password of '123456'
+function ensureDepartmentDefaults(db) {
+  if (!db.departments) db.departments = {};
+  let changed = false;
+  const deptSet = new Set();
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments).forEach(name => deptSet.add(name.trim()));
+
+  deptSet.forEach(name => {
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    if (!existingKey) {
+      db.departments[name] = { password: '123456' };
+      changed = true;
+    } else if (!db.departments[existingKey].password) {
+      db.departments[existingKey].password = '123456';
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
 // -------------------------------------------------------------
 // Authentication Endpoints
 // -------------------------------------------------------------
@@ -221,15 +244,31 @@ app.post('/api/auth/login', (req, res) => {
     if (!departmentName) {
       return res.status(400).json({ success: false, message: 'Department name is required' });
     }
-    const dept = db.departments[departmentName];
+    if (!db.departments) db.departments = {};
+
+    // Match department case-insensitively
+    const existingKey = Object.keys(db.departments).find(
+      k => k.trim().toLowerCase() === departmentName.trim().toLowerCase()
+    );
+
+    let deptKey = existingKey || departmentName.trim();
+    let dept = db.departments[deptKey];
+
+    // Any newly added department has default password "123456"
     if (!dept) {
-      return res.status(404).json({ success: false, message: 'Department not found in database. Ask Admin to set a password.' });
+      db.departments[deptKey] = { password: '123456' };
+      writeDb(db);
+      dept = db.departments[deptKey];
+    } else if (!dept.password) {
+      dept.password = '123456';
+      writeDb(db);
     }
+
     if (password === dept.password) {
       return res.json({
         success: true,
-        token: `dept-token-${departmentName}`,
-        user: { role: 'department', departmentName }
+        token: `dept-token-${deptKey}`,
+        user: { role: 'department', departmentName: deptKey }
       });
     }
     return res.status(401).json({ success: false, message: 'Invalid Department password' });
@@ -330,16 +369,22 @@ app.delete('/api/common-batches/:id', requireUser, (req, res) => {
 // -------------------------------------------------------------
 app.get('/api/departments', (req, res) => {
   const db = readDb();
-  // Get all unique departments from courses & faculty
+  if (ensureDepartmentDefaults(db)) {
+    writeDb(db);
+  }
+
+  // Get all unique departments from courses, faculty & db.departments
   const deptSet = new Set();
-  db.courses.forEach(c => deptSet.add(c.department));
-  db.faculty.forEach(f => deptSet.add(f.department));
-  
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
+
   const depts = Array.from(deptSet).sort();
-  
+
   const result = depts.map(name => {
-    const hasPassword = !!(db.departments[name] && db.departments[name].password);
-    const submission = db.submissions[name] || { status: 'Draft', comments: '' };
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    const hasPassword = !!(existingKey && db.departments[existingKey] && db.departments[existingKey].password);
+    const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
       hasPassword,
@@ -347,8 +392,49 @@ app.get('/api/departments', (req, res) => {
       comments: submission.comments
     };
   });
-  
+
   res.json(result);
+});
+
+// Change Department Password Endpoint (used by departments in Advanced Features)
+app.post('/api/department/change-password', (req, res) => {
+  const token = req.headers['authorization'];
+  let deptName = '';
+  if (token && token.startsWith('dept-token-')) {
+    deptName = token.substring('dept-token-'.length).trim();
+  } else if (token === 'admin-token' && req.body.departmentName) {
+    deptName = req.body.departmentName.trim();
+  } else {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Department access token required.' });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Current password and new password are required.' });
+  }
+
+  if (newPassword.trim().length < 4) {
+    return res.status(400).json({ success: false, message: 'New password must be at least 4 characters long.' });
+  }
+
+  const db = readDb();
+  if (!db.departments) db.departments = {};
+
+  const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === deptName.toLowerCase());
+  const currentDbPassword = (existingKey && db.departments[existingKey]?.password) ? db.departments[existingKey].password : '123456';
+
+  if (currentPassword !== currentDbPassword) {
+    return res.status(400).json({ success: false, message: 'Incorrect current password.' });
+  }
+
+  const targetKey = existingKey || deptName.toUpperCase();
+  if (!db.departments[targetKey]) {
+    db.departments[targetKey] = {};
+  }
+  db.departments[targetKey].password = newPassword.trim();
+  writeDb(db);
+
+  res.json({ success: true, message: `Password changed successfully for department ${targetKey}.` });
 });
 
 app.post('/api/departments/password', requireAdmin, (req, res) => {
@@ -357,35 +443,42 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, message: 'Department name and password required' });
   }
   const db = readDb();
-  if (!db.departments[name]) {
-    db.departments[name] = {};
+  if (!db.departments) db.departments = {};
+  const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.trim().toLowerCase()) || name.trim();
+  if (!db.departments[existingKey]) {
+    db.departments[existingKey] = {};
   }
-  db.departments[name].password = password;
+  db.departments[existingKey].password = password.trim();
   writeDb(db);
-  res.json({ success: true, message: `Password updated for department ${name}.` });
+  res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
 
 app.get('/api/admin/departments', requireAdmin, (req, res) => {
   const db = readDb();
+  if (ensureDepartmentDefaults(db)) {
+    writeDb(db);
+  }
+
   const deptSet = new Set();
-  db.courses.forEach(c => deptSet.add(c.department));
-  db.faculty.forEach(f => deptSet.add(f.department));
-  
+  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
+
   const depts = Array.from(deptSet).sort();
-  
+
   const result = depts.map(name => {
-    const passcode = db.departments[name] ? db.departments[name].password || '' : '';
-    const hasPassword = !!passcode;
-    const submission = db.submissions[name] || { status: 'Draft', comments: '' };
+    const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
+    const passcode = (existingKey && db.departments[existingKey]) ? db.departments[existingKey].password || '123456' : '123456';
+    const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
-      hasPassword,
+      hasPassword: true,
       passcode,
       status: submission.status,
       comments: submission.comments
     };
   });
-  
+
   res.json(result);
 });
 
@@ -846,6 +939,123 @@ app.post('/api/admin/restore', requireAdmin, upload.single('file'), (req, res) =
   }
 });
 
+
+// -------------------------------------------------------------
+// Excel Import Format Templates (with live DB examples)
+// -------------------------------------------------------------
+app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
+  try {
+    const { type } = req.params;
+    const db = readDb();
+    const wb = xlsx.utils.book_new();
+    let filename = '';
+
+    if (type === 'courses') {
+      filename = 'course_structure_format.xlsx';
+      const weekdays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+      const dayPrefixes = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+      const periods = ['1', '2', '3', '4', '5', '6'];
+      const slotHeaders = [];
+      dayPrefixes.forEach(d => { periods.forEach(p => { slotHeaders.push(`${d}-${p}`); }); });
+      
+      const headers = [
+        'Course Code', 'Course Name', 'Type', 'Group', 'Semester', 'Program', 'Category', 'Department',
+        ...slotHeaders
+      ];
+
+      const rows = [headers];
+
+      // Retrieve 2 representative examples from the database
+      const tCourse = (db.courses || []).find(c => c.courseType === 'T' && Object.values(c.recommendations || {}).some(d => Object.keys(d).length > 0)) || (db.courses || [])[0];
+      const pCourse = (db.courses || []).find(c => c.courseType === 'P' && c !== tCourse) || (db.courses || [])[1];
+
+      const sampleCourses = [tCourse, pCourse].filter(Boolean);
+      if (sampleCourses.length === 0) {
+        // Fallback default examples if DB is empty
+        rows.push([
+          'MAT1CJ101_G1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
+          '', '', 'T', '', '', '', '', '', '', '', '', '', 'T', '', '', '', '', '', '', '', '', 'T', '', '', '', 'T', '', '', '', ''
+        ]);
+        rows.push([
+          'CSC1CR102_G1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
+          '', '', '', '', 'P', 'P', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
+        ]);
+      } else {
+        sampleCourses.forEach(c => {
+          const row = [
+            c.code || '',
+            c.name || '',
+            c.courseType || 'T',
+            c.group !== undefined ? c.group : 0,
+            c.semester || '1',
+            c.programType || 'UG',
+            c.category || 'MAJOR',
+            c.department || ''
+          ];
+          weekdays.forEach(day => {
+            periods.forEach(p => {
+              const val = (c.recommendations && c.recommendations[day] && c.recommendations[day][p]) ||
+                          (c.masterRecommendations && c.masterRecommendations[day] && c.masterRecommendations[day][p]) || '';
+              row.push(val);
+            });
+          });
+          rows.push(row);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Course_Format');
+
+    } else if (type === 'staff') {
+      filename = 'staff_directory_format.xlsx';
+      const headers = ['Staff ID', 'Name', 'Department'];
+      const rows = [headers];
+
+      const sampleFaculty = (db.faculty || []).slice(0, 2);
+      if (sampleFaculty.length === 0) {
+        rows.push(['STF101', 'Dr. Eber Johns', 'COMPUTER SCIENCE']);
+        rows.push(['STF102', 'Prof. Mary Smith', 'CHEMISTRY']);
+      } else {
+        sampleFaculty.forEach(f => {
+          rows.push([f.staffId || '', f.name || '', f.department || '']);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Staff_Format');
+
+    } else if (type === 'batch-dept') {
+      filename = 'batch_dept_mappings_format.xlsx';
+      const headers = ['Batch Code', 'Department Name'];
+      const rows = [headers];
+
+      const sampleBatch = (db.batchDeptMappings || []).slice(0, 2);
+      if (sampleBatch.length === 0) {
+        rows.push(['CS', 'COMPUTER SCIENCE']);
+        rows.push(['CH', 'CHEMISTRY']);
+      } else {
+        sampleBatch.forEach(b => {
+          rows.push([b.code || '', b.deptName || '']);
+        });
+      }
+
+      const ws = xlsx.utils.aoa_to_sheet(rows);
+      xlsx.utils.book_append_sheet(wb, ws, 'Batch_Dept_Format');
+
+    } else {
+      return res.status(400).json({ error: 'Invalid template type requested.' });
+    }
+
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+
+  } catch (err) {
+    console.error('Error generating template:', err);
+    res.status(500).json({ error: 'Failed to generate template: ' + err.message });
+  }
+});
 
 // -------------------------------------------------------------
 // Excel Import Routes

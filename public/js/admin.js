@@ -520,11 +520,27 @@ async function initAdmin() {
       e.preventDefault();
       const currentPassword = document.getElementById('admin-current-pwd').value;
       const newPassword = document.getElementById('admin-new-pwd').value;
+      const confirmInput = document.getElementById('admin-confirm-pwd');
+      const confirmPassword = confirmInput ? confirmInput.value : newPassword;
+
+      if (newPassword !== confirmPassword) {
+        showModalAlert('Validation Error', 'New passwords do not match. Please re-type your new password.', 'warning');
+        return;
+      }
+
+      if (newPassword.length < 4) {
+        showModalAlert('Validation Error', 'New password must be at least 4 characters long.', 'warning');
+        return;
+      }
       
       try {
+        const token = sessionStorage.getItem('adminToken') || 'admin-token';
         const res = await fetch(`${API_BASE}/admin/change-password`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': token
+          },
           body: JSON.stringify({ currentPassword, newPassword })
         });
         const result = await res.json();
@@ -780,7 +796,7 @@ async function showTab(tabId) {
   } else if (tabId === 'tab-admin-config') {
     renderConfigForm();
   } else if (tabId === 'tab-admin-passwords') {
-    renderPasswordTable();
+    // Admin password form tab - no dynamic table needed
   } else if (tabId === 'tab-admin-data') {
     renderInspectRecords();
   } else if (tabId === 'tab-admin-batch-dept') {
@@ -1058,6 +1074,7 @@ function bindConfigEvents() {
 // Passwords Editor
 function renderPasswordTable() {
   const tbody = document.querySelector('#table-dept-passwords tbody');
+  if (!tbody) return;
   tbody.innerHTML = '';
   
   state.departments.forEach(d => {
@@ -1133,6 +1150,16 @@ function bindImportEvents() {
     btn.addEventListener('click', () => {
       const targetId = btn.getAttribute('data-target');
       document.getElementById(targetId).click();
+    });
+  });
+
+  // Download format template Excel buttons
+  document.querySelectorAll('.btn-download-template').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const type = btn.getAttribute('data-type');
+      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      window.location.href = `${API_BASE}/admin/template/${type}?token=${encodeURIComponent(adminToken)}`;
     });
   });
 
