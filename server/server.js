@@ -34,10 +34,21 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'"
+  );
   next();
 });
 
-// Enable CORS and parsing of JSON bodies with payload limits
+// Block any dotfile probes (e.g., /.env, /.git) immediately with 403 Forbidden
+app.use((req, res, next) => {
+  if (req.path.startsWith('/.') || req.path.includes('/.')) {
+    return res.status(403).json({ error: 'Access forbidden.' });
+  }
+  next();
+});
 app.use(cors({
   origin: true,
   credentials: true
@@ -53,8 +64,9 @@ app.use('/api', apiLimiter, (req, res, next) => {
   next();
 });
 
-// Serve static frontend files with no-cache to ensure browsers always receive latest updates
+// Serve static frontend files with no-cache and deny dotfiles (e.g. .env, .git)
 app.use(express.static(path.join(__dirname, '../public'), {
+  dotfiles: 'deny',
   etag: false,
   maxAge: 0,
   setHeaders: (res, filePath) => {
@@ -80,11 +92,19 @@ app.head(['/', '/health', '/api/health', '/ping'], (req, res) => {
   res.status(200).end();
 });
 
-// Configure Multer for in-memory uploads with size limits to prevent memory exhaustion DoS
+// Configure Multer for in-memory uploads with size limits and file extension validation
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB limit
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.xlsx', '.xls', '.csv'];
+    if (!allowedExts.includes(ext)) {
+      return cb(new Error('Invalid file type. Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed.'));
+    }
+    cb(null, true);
+  }
 });
 
 // Helper to generate unique initials code for faculty
@@ -2411,22 +2431,10 @@ app.get('/api/submissions', requireUser, (req, res) => {
   res.json(db.submissions);
 });
 
-app.post('/api/submissions/status', requireUser, (req, res) => {
+app.post('/api/submissions/status', requireDepartment, (req, res) => {
   const { departmentName, status, comments } = req.body;
   if (!departmentName || !status) {
     return res.status(400).json({ success: false, message: 'Department name and status are required' });
-  }
-
-  // Authorize request: Either admin-token, or dept-token matching the departmentName
-  const token = req.headers['authorization'] || req.query.token;
-  if (token !== 'admin-token') {
-    if (!token.startsWith('dept-token-')) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });
-    }
-    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
-    if (departmentName.toUpperCase() !== tokenDept) {
-      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
-    }
   }
 
   const db = readDb();
@@ -2983,8 +2991,13 @@ app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req
   }
 });
 
-// Fallback to serve index.html for undefined requests
+// Fallback to serve index.html for client-side SPA navigation routes
 app.get('*', (req, res) => {
+  const reqPath = req.path;
+  // If requesting an API endpoint, dotfile, or non-existent static asset file, return 404
+  if (reqPath.startsWith('/api/') || reqPath.startsWith('/.') || path.extname(reqPath)) {
+    return res.status(404).json({ error: 'Endpoint or resource not found.' });
+  }
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 

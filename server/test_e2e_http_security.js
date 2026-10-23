@@ -52,10 +52,20 @@ async function runAudit() {
     assert.strictEqual(healthRes.headers.get('x-content-type-options'), 'nosniff', 'X-Content-Type-Options should be nosniff');
     assert.strictEqual(healthRes.headers.get('x-frame-options'), 'SAMEORIGIN', 'X-Frame-Options should be SAMEORIGIN');
     assert.strictEqual(healthRes.headers.get('referrer-policy'), 'strict-origin-when-cross-origin', 'Referrer-Policy should match');
-    console.log('Security Headers: ALL VERIFIED');
+    assert(healthRes.headers.get('strict-transport-security'), 'HSTS header should be present');
+    assert(healthRes.headers.get('content-security-policy'), 'CSP header should be present');
+    console.log('Security Headers (nosniff, SAMEORIGIN, HSTS, CSP): ALL VERIFIED');
 
-    // Test 2: Unauthenticated Admin Route Rejection (RBAC)
-    console.log('\n--- 2. Testing RBAC Protection on Admin Endpoints ---');
+    // Test 2: Dotfiles Deny Protection (e.g. attempting to read .env or .git)
+    console.log('\n--- 2. Testing Static Files & Dotfiles Protection ---');
+    const dotEnvRes = await fetch(`${BASE_URL}/.env`);
+    assert.strictEqual(dotEnvRes.status, 403, 'Direct access to .env should be forbidden (403)');
+    const backupRes = await fetch(`${BASE_URL}/backup.sql`);
+    assert.strictEqual(backupRes.status, 404, 'Direct access to non-existent backup/dump files should return 404');
+    console.log('Dotfiles & Backup Probe Protection: PASSED (Access to hidden dotfiles returns 403, dump files 404)');
+
+    // Test 3: Unauthenticated Admin Route Rejection (RBAC)
+    console.log('\n--- 3. Testing RBAC Protection on Admin Endpoints ---');
     const unauthRes = await fetch(`${BASE_URL}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -66,8 +76,8 @@ async function runAudit() {
     assert.strictEqual(unauthData.success, false, 'Expected success: false for unauth access');
     console.log('Admin RBAC Protection: PASSED (Unauthorized requests rejected with 401)');
 
-    // Test 3: Department RBAC Isolation
-    console.log('\n--- 3. Testing Department Access Isolation ---');
+    // Test 4: Department RBAC & IDOR (BOLA) Isolation
+    console.log('\n--- 4. Testing Department Access Isolation & BOLA/IDOR Prevention ---');
     // Login as admin first
     const adminLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
@@ -92,8 +102,22 @@ async function runAudit() {
     assert.strictEqual(adminConfigRes.status, 200, 'Admin with signed token should succeed on /api/config');
     console.log('Admin authorized operation: SUCCESS');
 
-    // Test 4: Rate Limiting on Login Endpoint
-    console.log('\n--- 4. Testing Login Rate Limiting Protection ---');
+    // Test Department BOLA/IDOR: CSE attempting to submit for ECE
+    const { generateToken } = await import('./security.js');
+    const cseToken = generateToken({ role: 'department', departmentName: 'CSE' });
+    const idorRes = await fetch(`${BASE_URL}/api/submissions/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cseToken}`
+      },
+      body: JSON.stringify({ departmentName: 'ECE', status: 'Submitted' })
+    });
+    assert.strictEqual(idorRes.status, 403, 'Cross-department modification must return 403 Forbidden');
+    console.log('BOLA / IDOR Prevention: PASSED (Cross-department access strictly rejected with 403)');
+
+    // Test 5: Rate Limiting on Login Endpoint
+    console.log('\n--- 5. Testing Login Rate Limiting Protection ---');
     let rateLimited = false;
     for (let i = 0; i < 35; i++) {
       const res = await fetch(`${BASE_URL}/api/auth/login`, {
