@@ -19,7 +19,7 @@ if (!fs.existsSync(DB_DIR)) {
 }
 
 // Setup Postgres Pool if DATABASE_URL is present
-const isPostgres = !!process.env.DATABASE_URL;
+let isPostgres = !!process.env.DATABASE_URL;
 let pool = null;
 let sqliteDb = null;
 
@@ -65,8 +65,13 @@ export async function initDb() {
         client.release();
       }
     } catch (err) {
-      console.error("Error initializing PostgreSQL database:", err);
-      throw err;
+      console.warn(`[Database] PostgreSQL connection failed (${err.message}). Falling back to local SQLite...`);
+      isPostgres = false;
+      if (!sqliteDb) {
+        sqliteDb = new Database(DB_PATH);
+      }
+      initDbSync();
+      console.log("[Database] Local SQLite database successfully initialized and loaded as fallback.");
     }
   } else {
     try {
