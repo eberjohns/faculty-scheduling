@@ -44,14 +44,16 @@ let state = {
 
 let autosaveTimer = null;
 
-// Helper to format course code with clickable group badge
+// Helper to format course code with clickable class badge
 function formatCourseCodeWithGroup(code, group, mappedBatches = []) {
-  const base = code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-  if (group && group > 0) {
+  const base = code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classMatch = code.match(/(_G|_C)(\d+)/);
+  const classNum = classMatch ? parseInt(classMatch[2]) : (group && group > 0 ? group : 0);
+  if (classNum && classNum > 0) {
     const titleText = mappedBatches && mappedBatches.length > 0
       ? `Mapped Batches:\n${mappedBatches.join('\n')}`
       : 'No batches mapped';
-    return `${base} <span class="badge" title="${titleText}" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; cursor: help; border-radius: 4px;">G${group}</span>`;
+    return `${base} <span class="badge" title="${titleText}" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; cursor: help; border-radius: 4px;">C${classNum}</span>`;
   }
   return base;
 }
@@ -79,31 +81,38 @@ function getImplicitBatch(course) {
 // If classIndex is provided (e.g. 1, 2), it resolves batches specifically for that class.
 function getCourseClassBatches(course, classIndex = null) {
   if (!course) return [];
-  const keyWithGroup = course.code.replace(/-(T|P)$/, '').replace(/_C\d+$/, '');
-  const keyWithoutGroup = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
+  const keyWithGroup = course.code.replace(/-(T|P)$/, '');
+  const keyWithoutGroup = course.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
   if (classIndex) {
-    const list = state.groupMappings[`${keyWithoutGroup}_C${classIndex}`] || state.groupMappings[`${keyWithGroup}_C${classIndex}`] || [];
+    const list = state.groupMappings[`${keyWithoutGroup}_C${classIndex}`] || 
+                 state.groupMappings[`${keyWithoutGroup}_G${classIndex}`] || 
+                 state.groupMappings[`${keyWithGroup}_C${classIndex}`] || [];
     if (list.length > 0) return list;
   } else {
     let mapped = [];
     if (course.classes && course.classes > 1) {
       for (let i = 1; i <= course.classes; i++) {
-        const list = state.groupMappings[`${keyWithoutGroup}_C${i}`] || state.groupMappings[`${keyWithGroup}_C${i}`] || [];
+        const list = state.groupMappings[`${keyWithoutGroup}_C${i}`] || 
+                     state.groupMappings[`${keyWithoutGroup}_G${i}`] || 
+                     state.groupMappings[`${keyWithGroup}_C${i}`] || [];
         if (list.length > 0) {
           mapped.push(`C${i}: ${list.join('/')}`);
         }
       }
     } else {
-      mapped = state.groupMappings[keyWithGroup] || state.groupMappings[keyWithoutGroup] || [];
+      mapped = state.groupMappings[keyWithGroup] || 
+               state.groupMappings[keyWithoutGroup] || 
+               state.groupMappings[course.code] || [];
     }
     if (mapped.length > 0) {
       return mapped;
     }
   }
 
-  // If this is a grouped course (elective), do not fallback to implicit department batch
-  if (course.group && course.group > 0) {
+  // If this is a grouped/sectioned course (elective), do not fallback to implicit department batch
+  const classNumMatch = course.code.match(/(_G|_C)(\d+)/);
+  if ((course.group && course.group > 0) || (course.class && course.class > 0) || (classNumMatch && parseInt(classNumMatch[2]) > 0)) {
     return [];
   }
 
@@ -305,28 +314,74 @@ async function initApp() {
   bindFacultySelectEvents();
   bindAutoGeneratorEvents();
   
-  // Auto-refresh config when window regains focus or visibility to reflect admin lock/unlock changes
+  // Auto-refresh config, courses, and subject mappings to reflect admin lock/unlock and batch mapping changes
   window.syncGlobalConfigWithAdmin = async function() {
     if (!state.currentUser || !state.currentUser.departmentName) return;
     try {
-      const res = await fetch(`${API_BASE}/config`);
-      if (res.ok) {
-        const freshConfig = await res.json();
-        if (freshConfig.commonBatches) {
-          state.commonBatches = freshConfig.commonBatches;
-        }
+      const ts = Date.now();
+      const [cfgRes, coursesRes, mapRes, groupRes] = await Promise.all([
+        fetch(`${API_BASE}/config?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/courses?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/department/subject-mapping?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/admin/group-mappings?_t=${ts}`, { cache: 'no-store' })
+      ]);
+
+      let shouldRerender = false;
+
+      if (cfgRes && cfgRes.ok) {
+        const freshConfig = await cfgRes.json();
         const oldLocks = JSON.stringify((state.config && state.config.globalLockedPeriods) || []);
         const newLocks = JSON.stringify(freshConfig.globalLockedPeriods || []);
-        if (oldLocks !== newLocks) {
+        const oldCommonBatches = JSON.stringify(state.commonBatches || []);
+        const newCommonBatches = JSON.stringify(freshConfig.commonBatches || []);
+
+        if (oldLocks !== newLocks || oldCommonBatches !== newCommonBatches) {
           state.config = freshConfig;
-          renderAllocationMatrix();
-          const locksBadge = document.getElementById('auto-gen-global-locks-badge');
-          if (locksBadge) {
-            locksBadge.textContent = `${(freshConfig.globalLockedPeriods || []).length} Locked`;
-          }
+          state.commonBatches = freshConfig.commonBatches || [];
+          shouldRerender = true;
         }
       }
-    } catch (e) {}
+
+      if (groupRes && groupRes.ok) {
+        const freshGroups = await groupRes.json();
+        const oldGroupsStr = JSON.stringify(state.groupMappings || {});
+        const newGroupsStr = JSON.stringify(freshGroups || {});
+        if (oldGroupsStr !== newGroupsStr) {
+          state.groupMappings = freshGroups;
+          shouldRerender = true;
+        }
+      }
+
+      if (coursesRes && coursesRes.ok) {
+        const freshCourses = await coursesRes.json();
+        const oldCoursesSummary = JSON.stringify((state.courses || []).map(c => [c.code, c.mappedBatches || []]));
+        const newCoursesSummary = JSON.stringify(freshCourses.map(c => [c.code, c.mappedBatches || []]));
+        if (oldCoursesSummary !== newCoursesSummary || (shouldRerender && state.courses.length !== freshCourses.length)) {
+          state.courses = freshCourses;
+          shouldRerender = true;
+        }
+      }
+
+      if (mapRes && mapRes.ok) {
+        const freshMap = await mapRes.json();
+        const oldMapStr = JSON.stringify(state.subjectTeacherMapping || {});
+        const newMapStr = JSON.stringify(freshMap || {});
+        if (oldMapStr !== newMapStr) {
+          state.subjectTeacherMapping = freshMap;
+          shouldRerender = true;
+        }
+      }
+
+      if (shouldRerender) {
+        renderAllocationMatrix();
+        const locksBadge = document.getElementById('auto-gen-global-locks-badge');
+        if (locksBadge && state.config) {
+          locksBadge.textContent = `${(state.config.globalLockedPeriods || []).length} Locked`;
+        }
+      }
+    } catch (e) {
+      console.error('syncGlobalConfigWithAdmin error:', e);
+    }
   };
 
   window.addEventListener('focus', window.syncGlobalConfigWithAdmin);
@@ -892,10 +947,31 @@ function bindDeptEvents() {
   // Teacher Availability Controls
   const selectAvailTeacher = document.getElementById('select-avail-teacher');
   if (selectAvailTeacher) {
+    let prevSelectedTeacher = selectAvailTeacher.value;
+    selectAvailTeacher.addEventListener('focus', () => {
+      prevSelectedTeacher = selectAvailTeacher.value;
+    });
     selectAvailTeacher.addEventListener('change', () => {
-      activeUnavailTeacherCode = selectAvailTeacher.value;
+      const nextTeacherCode = selectAvailTeacher.value;
+      const unsaved = getTeacherUnavailUnsavedChanges();
+      if (unsaved && unsaved.changes && unsaved.changes.length > 0) {
+        showUnsavedChangesModal(unsaved, () => {
+          activeUnavailTeacherCode = nextTeacherCode;
+          prevSelectedTeacher = nextTeacherCode;
+          selectAvailTeacher.value = nextTeacherCode;
+          const allUnavail = state.teacherUnavailability || {};
+          localTeacherUnavail = JSON.parse(JSON.stringify(allUnavail[activeUnavailTeacherCode] || []));
+          updateTeacherUnavailSnapshot();
+          loadTeacherUnavailMatrix();
+        });
+        selectAvailTeacher.value = prevSelectedTeacher;
+        return;
+      }
+      activeUnavailTeacherCode = nextTeacherCode;
+      prevSelectedTeacher = nextTeacherCode;
       const allUnavail = state.teacherUnavailability || {};
       localTeacherUnavail = JSON.parse(JSON.stringify(allUnavail[activeUnavailTeacherCode] || []));
+      updateTeacherUnavailSnapshot();
       loadTeacherUnavailMatrix();
     });
   }
@@ -932,6 +1008,7 @@ function bindDeptEvents() {
         if (res.ok && result.success) {
           if (!state.teacherUnavailability) state.teacherUnavailability = {};
           state.teacherUnavailability[activeUnavailTeacherCode] = localTeacherUnavail;
+          updateTeacherUnavailSnapshot();
           showModalAlert('Saved', `Availability updated for ${activeUnavailTeacherCode}.`, 'success');
         } else {
           showModalAlert('Error', result.message || 'Failed to save availability.', 'danger');
@@ -1143,6 +1220,7 @@ function renderAllocationMatrix() {
   
   // Clean table styling
   table.className = 'table table-grid';
+  const locked = isTimetableLocked();
   
   // Filter courses for this department
   let deptCourses = state.courses.filter(c => c.department === deptName);
@@ -1204,20 +1282,27 @@ function renderAllocationMatrix() {
         const isCloned = classes > 1;
         const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
         const rowBatchesWeek = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
-        const classBadgeTooltip = isCloned
-          ? (rowBatchesWeek.length > 0 ? `Batch: ${rowBatchesWeek.join(', ')}` : 'No batch mapped')
-          : '';
-        const formattedCode = isCloned
-          ? `${baseCode} <span class="badge" title="${classBadgeTooltip}" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px; cursor: help;">Class ${cl}</span>`
-          : formatCourseCodeWithGroup(baseCode, group, rowBatchesWeek);
-        const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
+        const classNumMatch = baseCode.match(/(_G|_C)(\d+)/);
+        const inferredClass = isCloned ? cl : (classNumMatch ? parseInt(classNumMatch[2]) : (group && group > 0 ? group : null));
+        const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const cleanAlias = (dispAlias || cleanBaseCode).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const rowAlias = inferredClass ? `${cleanAlias} (C${inferredClass})` : cleanAlias;
+        const classBadgeTooltip = rowBatchesWeek.length > 0 ? `Batch: ${rowBatchesWeek.join(', ')}` : 'No batch mapped';
+        const formattedCode = inferredClass
+          ? `${cleanBaseCode} <span class="badge" title="${classBadgeTooltip}" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px; cursor: help;">C${inferredClass}</span>`
+          : cleanBaseCode;
         
         const tr = document.createElement('tr');
         if (activeCourseRef.programType === 'PG') {
           tr.classList.add('row-pg');
         }
         tr.innerHTML = `
-          <td style="text-align:left;">${formattedCode}</td>
+          <td style="text-align:left;">
+            ${formattedCode}
+            <button class="btn btn-outline btn-xs btn-matrix-class-cfg" title="Configure Classes & Batches" style="padding: 1px 5px; font-size: 10px; margin-left: 6px; line-height: 1.2; border-radius: 3px; vertical-align: middle;" onclick="event.stopPropagation(); openDeptBatchMappingModal('${cleanBaseCode}')" ${locked ? 'disabled' : ''}>
+              <i class="fa-solid fa-layer-group"></i>
+            </button>
+          </td>
           <td style="text-align:left;" title="${dispName}">
             <span class="badge badge-info">${rowAlias}</span>
           </td>
@@ -1278,17 +1363,26 @@ function renderAllocationMatrix() {
         const isCloned = classes > 1;
         const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
         const rowBatches = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
-        const formattedCode = isCloned
-          ? `${baseCode} <span class="badge" style="background-color: var(--primary); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">Class ${cl}</span>`
-          : formatCourseCodeWithGroup(baseCode, group, rowBatches);
-        const rowAlias = isCloned ? `${dispAlias} (C${cl})` : dispAlias;
+        const classNumMatch = baseCode.match(/(_G|_C)(\d+)/);
+        const inferredClass = isCloned ? cl : (classNumMatch ? parseInt(classNumMatch[2]) : (group && group > 0 ? group : null));
+        const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const cleanAlias = (dispAlias || cleanBaseCode).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const rowAlias = inferredClass ? `${cleanAlias} (C${inferredClass})` : cleanAlias;
+        const formattedCode = inferredClass
+          ? `${cleanBaseCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${inferredClass}</span>`
+          : cleanBaseCode;
           
         const tr = document.createElement('tr');
         if (activeCourseRef.programType === 'PG') {
           tr.classList.add('row-pg');
         }
         tr.innerHTML = `
-          <td style="text-align:left;">${formattedCode}</td>
+          <td style="text-align:left;">
+            ${formattedCode}
+            <button class="btn btn-outline btn-xs btn-matrix-class-cfg" title="Configure Classes & Batches" style="padding: 1px 5px; font-size: 10px; margin-left: 6px; line-height: 1.2; border-radius: 3px; vertical-align: middle;" onclick="event.stopPropagation(); openDeptBatchMappingModal('${cleanBaseCode}')" ${locked ? 'disabled' : ''}>
+              <i class="fa-solid fa-layer-group"></i>
+            </button>
+          </td>
           <td style="text-align:left;">
             <span class="badge badge-info">${rowAlias}</span>
             <div class="text-sm bold text-muted">${dispName}</div>
@@ -1427,7 +1521,7 @@ function courseMatchesCommonSubject(course, subjectCode, commonBatches = []) {
 
 function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) {
   if (!lock) return false;
-  if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
+  if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
   if (String(lock.period).trim() !== String(period).trim()) return false;
 
   const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
@@ -1438,43 +1532,55 @@ function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) 
     return false;
   }
 
-  const normLabel = (lock.label || '').toUpperCase().trim();
-  const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
-
-  // If the label is NOT one of the specific common subjects (i.e. 'Other' or custom activity label),
-  // then the whole section corresponding to this semester is locked!
-  if (!commonCodes.includes(normLabel)) {
-    return true;
-  }
-
-  // If label IS a common subject (e.g. MDC, AEC, VAC, SEC):
-  // 1. Direct match with this course:
-  if (course && courseMatchesCommonSubject(course, normLabel, commonBatches)) {
-    return true;
-  }
-
-  // 2. Check if the department offers ANY course matching this common subject for this semester:
-  const dept = (course && course.department) || (state.currentUser && state.currentUser.departmentName) || '';
-  const deptCoursesForSem = (state.courses || []).filter(c => {
-    const cDept = (c.department || '').toUpperCase().trim();
-    const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-    const matchesDept = !dept || cDept === dept.toUpperCase().trim();
-    const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
-    return matchesDept && matchesSem;
-  });
-
-  const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
-    courseMatchesCommonSubject(c, normLabel, commonBatches)
-  );
-
-  if (hasMatchingCourseInDept) {
-    // Department HAS a matching course for this common subject, so other major courses are NOT locked
-    return false;
-  }
-
-  // If the department does NOT offer any course for this common subject in this semester:
-  // Place the corresponding section lock on all courses of this semester, just like "Other"!
+  // All courses belonging to this semester (or all semesters if 'all') are locked during this common period
   return true;
+}
+
+function getCourseCommonSubjectMatch(c) {
+  if (!c) return null;
+  const cat = (c.category || '').toUpperCase();
+  const sem = String(c.semester || '').trim();
+  const dept = (c.department || '').toUpperCase();
+  const code = (c.code || '').toUpperCase();
+
+  // Sem 1
+  if (sem === '1') {
+    if (cat === 'AEC' || code.includes('FA101') || code.includes('FA102') || /AEC1|AEC-1/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC1';
+      return 'AEC2';
+    }
+    if (cat === 'MDC' || code.includes('FM105') || /MDC1|MDC-1/.test(code)) return 'MDC1';
+  }
+  // Sem 2
+  if (sem === '2') {
+    if (cat === 'AEC' || /AEC3|AEC-3/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC3';
+      return 'AEC4';
+    }
+    if (cat === 'MDC' || /MDC2|MDC-2/.test(code)) return 'MDC-2';
+  }
+  // Sem 3
+  if (sem === '3') {
+    if (cat === 'VAC' || code.includes('FV108') || /VAC1|VAC-1/.test(code)) return 'VAC1';
+    if (cat === 'MDC' || code.includes('FM107') || /MDC3|MDC-3/.test(code)) return 'MDC3';
+  }
+  // Sem 4
+  if (sem === '4') {
+    if (cat === 'SEC' || /SEC/.test(code)) return 'SEC';
+    if (cat === 'VAC' || /VAC2|VAC-2/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'VAC2';
+      return 'VAC3';
+    }
+  }
+  // Sem 5 SEC
+  if (sem === '5' && (cat === 'SEC' || /SEC/.test(code))) return 'SEC';
+
+  // Fallbacks by category
+  if (cat === 'AEC') return sem === '2' ? 'AEC3' : 'AEC1';
+  if (cat === 'MDC') return sem === '3' ? 'MDC3' : (sem === '2' ? 'MDC-2' : 'MDC1');
+  if (cat === 'VAC') return sem === '4' ? 'VAC2' : 'VAC1';
+  if (cat === 'SEC') return 'SEC';
+  return null;
 }
 
 // Renders the interactive contents of a grid cell
@@ -1494,8 +1600,8 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     return lockSem === courseSem.toLowerCase();
   }) || matchingLocks[0];
 
-  const recT = (courseT && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
-  const recP = (courseP && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
+  const recT = (courseT && courseT.recommendations && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
+  const recP = (courseP && courseP.recommendations && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
   
   const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M');
   
@@ -1513,7 +1619,11 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   
   let activeCourseCode = courseTCode || coursePCode;
 
-  if (isM) {
+  if (recT === 'B' || recP === 'B') {
+    highlightClass = 'slot-recommend-blocked';
+    slotLabel = 'Blocked';
+    activeCourseCode = courseTCode || coursePCode;
+  } else if (isM) {
     highlightClass = 'slot-recommend-m';
     slotLabel = '';
   } else if (recT === 'T') {
@@ -1575,6 +1685,25 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     const lockLabelNorm = (globalLock.label || '').trim().toUpperCase();
     const lockClean = lockLabelNorm.replace(/[^A-Z0-9]/g, '');
 
+    // 1. Check mapped courses from Batch Allocation & Mapping
+    const myDeptBatches = (state.allBatches || []).filter(b => {
+      const bDept = (b.deptCode || b.deptName || b.department || '').trim().toUpperCase();
+      return bDept === currentDeptUpper;
+    });
+    const myDeptBatchIds = myDeptBatches.map(b => b.batchId);
+
+    const matchingAllocCourses = (state.courses || []).filter(c => {
+      const m = getCourseCommonSubjectMatch(c);
+      const cat = (c.category || '').toUpperCase();
+      const semMatches = !globalLock.semester || globalLock.semester === 'all' || !c.semester || String(c.semester) === String(globalLock.semester);
+      if (!semMatches) return false;
+      const subjMatches = (m && (m === lockLabelNorm || m.replace(/[^A-Z0-9]/g, '') === lockClean)) || cat === lockClean || cat === lockLabelNorm;
+      if (!subjMatches) return false;
+      const isOffering = (c.department || '').toUpperCase() === currentDeptUpper;
+      const isMapped = (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId));
+      return isOffering || isMapped;
+    });
+
     const matchingDeptBatches = (state.commonBatches || []).filter(b => {
       const bSubj = (b.subjectCode || '').trim().toUpperCase();
       const bClean = bSubj.replace(/[^A-Z0-9]/g, '');
@@ -1591,7 +1720,65 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
       return isOffering || isParticipating;
     });
 
-    if (matchingDeptBatches.length > 0) {
+    // Prioritize courses specifically mapped to this row's batch or this department's student batches
+    const rowBatches = (classIndex && typeof getCourseClassBatches === 'function')
+      ? getCourseClassBatches(currentCourse, classIndex)
+      : [];
+    const rowSpecificCourses = rowBatches.length > 0
+      ? matchingAllocCourses.filter(c => (c.mappedBatches || []).some(bId => rowBatches.includes(bId)))
+      : [];
+    const deptSpecificCourses = matchingAllocCourses.filter(c => 
+      (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId))
+    );
+    const finalAllocCourses = rowSpecificCourses.length > 0
+      ? rowSpecificCourses
+      : (deptSpecificCourses.length > 0 ? deptSpecificCourses : matchingAllocCourses);
+
+    if (finalAllocCourses.length > 0) {
+      const batchesCards = finalAllocCourses.map(c => {
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || 1);
+        const baseCodeOnly = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const isExternal = (c.department || '').toUpperCase() !== currentDeptUpper;
+        const offeringNotice = isExternal ? `<div style="font-size: 8px; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="fa-solid fa-school" style="font-size: 7px;"></i> From ${escapeHtml(c.department)}</div>` : '';
+
+        // Look up assigned teacher in the offering department's Subject Teacher Mapping
+        const deptUpper = (c.department || '').toUpperCase();
+        const teacherMap = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && state.subjectTeacherMapping[deptUpper][c.code]) || null;
+        let teacherDisplay = 'Pending Dept Mapping';
+        if (teacherMap) {
+          const tCodes = [...new Set([...(teacherMap.teachers || []), ...(teacherMap.theoryTeachers || []), ...(teacherMap.practicalTeachers || [])])];
+          if (tCodes.length > 0) {
+            const labels = tCodes.map(tc => {
+              const f = (state.faculty || []).find(x => x.code === tc);
+              return f ? `${tc} (${f.name})` : tc;
+            });
+            teacherDisplay = labels.join(', ');
+          }
+        }
+
+        return `
+          <div class="common-batch-slot-card" style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 4px; padding: 2px 4px; margin-top: 2px; text-align: left; font-size: 9.5px; line-height: 1.25;" title="Course: ${escapeHtml(baseCodeOnly)} | Class: C${classNum} | Teacher: ${escapeHtml(teacherDisplay)}">
+            <div style="font-weight: 700; color: #1d4ed8; display: flex; align-items: center; justify-content: space-between; gap: 2px;">
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 68%;"><i class="fa-solid fa-book" style="font-size: 8px;"></i> ${escapeHtml(baseCodeOnly)}</span>
+              <span style="font-size: 8px; background: #dbeafe; color: #1e40af; padding: 0 3px; border-radius: 2px; font-weight: 700;">Class C${classNum}</span>
+            </div>
+            <div style="color: #1e3a8a; font-size: 8.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <i class="fa-solid fa-chalkboard-user" style="font-size: 7.5px;"></i> ${escapeHtml(teacherDisplay)}
+            </div>
+            ${offeringNotice}
+          </div>
+        `;
+      }).join('');
+
+      lockFlagBadge = `
+        <div class="admin-lock-tag" title="Common Activity: ${globalLock.label || 'Locked Period'}" style="font-size: 9px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; display: flex; align-items: center; justify-content: space-between;">
+          <span><i class="fa-solid fa-lock" style="font-size: 8px;"></i> ${globalLock.label}</span>
+          <span style="font-size: 8px; background: #fde68a; padding: 0 3px; border-radius: 2px;">${finalAllocCourses.length} Class${finalAllocCourses.length === 1 ? '' : 'es'}</span>
+        </div>
+        ${batchesCards}
+      `;
+    } else if (matchingDeptBatches.length > 0) {
       const batchesCards = matchingDeptBatches.map(b => {
         const isExternal = (b.department || '').trim().toUpperCase() !== currentDeptUpper;
         const offeringNotice = isExternal && b.department ? `<div style="font-size: 8px; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="fa-solid fa-school" style="font-size: 7px;"></i> From ${escapeHtml(b.department)}</div>` : '';
@@ -1676,6 +1863,20 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
     return;
   }
 
+  // Blocked slot confirmation
+  if (cell.classList.contains('slot-recommend-blocked')) {
+    if (!cell.classList.contains('slot-active')) {
+      showModalConfirm(
+        'Unlock Blocked Slot?',
+        'This period is marked as BLOCKED for this course in Curriculum Slot Allocation. Are you sure you want to unlock it to assign faculty?',
+        () => {
+          openSelector();
+        }
+      );
+      return;
+    }
+  }
+
   // Unrecommended slot lock only exists in the first 4 semesters (Sem 1 - 4)
   if (cell.classList.contains('slot-recommend-none') && courseSemNum < 5) {
     if (!cell.classList.contains('slot-active')) {
@@ -1699,10 +1900,12 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
   
   const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
-  const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCode) || state.courses.find(c => c.code === baseCodeForRec);
-  const group = course ? course.group : 0;
+  const course = (state.courses || []).find(c => c.code === courseCode) || (state.courses || []).find(c => c.code === baseCode) || (state.courses || []).find(c => c.code === baseCodeForRec);
+  const classNumMatch = (courseCode || baseCode).match(/(_G|_C)(\d+)/);
+  const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course ? (course.class || course.group || 0) : 0);
   const mappedBatches = course ? course.mappedBatches : [];
-  const formattedCode = formatCourseCodeWithGroup(baseCode, group, mappedBatches);
+  const cleanBase = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const formattedCode = formatCourseCodeWithGroup(cleanBase, classNum, mappedBatches);
   
   const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCode] || localSubjectMappings[baseCodeForRec] || {};
   const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
@@ -1767,6 +1970,59 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
   if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
   if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
   state.allocations[courseCode][day][period] = Array.from(new Set([...pracTeachers]));
+
+  // Auto-fill other practical recommended slots if toggle is ON
+  const toggleAutofill = document.getElementById('toggle-autofill-recommended');
+  const isAutofillOn = !!(toggleAutofill && toggleAutofill.checked);
+
+  const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+  const courseSemNum = course ? (parseInt(String(course.semester || '').replace(/\D+/g, ''), 10) || 0) : 0;
+
+  const recCourse = (course && course.recommendations && Object.keys(course.recommendations).length > 0)
+    ? course
+    : (state.courses.find(c => c.code === baseCodeForRec) || course);
+
+  const recs = recCourse ? (
+    (recCourse.recommendations && Object.keys(recCourse.recommendations).length > 0)
+      ? recCourse.recommendations
+      : (recCourse.masterRecommendations || {})
+  ) : {};
+
+  const clickedSlotRec = (recs[day] && recs[day][period]) || '';
+  const isClickedSlotRecommended = (clickedSlotRec === 'P');
+
+  // Auto-fill ONLY runs if:
+  // 1. Toggle is ON
+  // 2. The course belongs to Sem 1 - 4 (disabled for open/unconstrained sections like Sem 5+)
+  // 3. The user clicked on an actual recommended practical slot ('P'). Clicking an unrecommended slot will NOT auto-fill!
+  if (isAutofillOn && course && courseSemNum < 5 && isClickedSlotRecommended) {
+    const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+    weekdays.forEach(d => {
+      const dayRecs = recs[d] || {};
+      Object.keys(dayRecs).forEach(p => {
+        if (dayRecs[p] === 'P') {
+          if (d === day && String(p) === String(period)) return;
+
+          pracTeachers.forEach(fc => {
+            const unavailList = (state.teacherUnavailability && state.teacherUnavailability[fc]) || [];
+            const isUnavail = unavailList.some(u => u.day.toUpperCase() === d.toUpperCase() && (u.period === 'all' || String(u.period) === String(p)));
+            const hasClash = checkLocalClash(fc, d, p, courseCode);
+
+            if (!hasClash && !isUnavail) {
+              if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+              if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
+              if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
+
+              if (!state.allocations[courseCode][d][p].includes(fc)) {
+                state.allocations[courseCode][d][p].push(fc);
+              }
+            }
+          });
+        }
+      });
+    });
+  }
 
   renderFacultySelectList();
   renderAllocationMatrix();
@@ -1854,10 +2110,11 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     if (!validation.valid) {
       const conf = validation.conflicts[0];
       const clashingCourse = state.courses.find(c => c.code === conf.clashingCourseCode);
-      const clashingGroupSuffix = (clashingCourse && clashingCourse.group > 0) ? ` (Group ${clashingCourse.group})` : '';
+      const clashingClassNum = (clashingCourse && (clashingCourse.class || clashingCourse.group)) || (conf.clashingCourseCode.match(/(_G|_C)(\d+)/) ? conf.clashingCourseCode.match(/(_G|_C)(\d+)/)[2] : null);
+      const clashingGroupSuffix = clashingClassNum ? ` (Class C${clashingClassNum})` : '';
       showModalAlert(
         'Hard Booking Clash!', 
-        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '')}${clashingGroupSuffix}) on ${day} Period ${period} in department ${conf.department}.`,
+        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}${clashingGroupSuffix}) on ${day} Period ${period} in department ${conf.department}.`,
         'danger'
       );
       return;
@@ -1872,10 +2129,64 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       state.allocations[courseCode][day][period].push(facultyCode);
     }
     
-    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
+    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCodeForRec);
     const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
     const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+
+    // Check if auto-fill recommended toggle is ON
+    const toggleAutofill = document.getElementById('toggle-autofill-recommended');
+    const isAutofillOn = !!(toggleAutofill && toggleAutofill.checked);
+
+    const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+    const courseSemNum = course ? (parseInt(String(course.semester || '').replace(/\D+/g, ''), 10) || 0) : 0;
+
+    const recCourse = (course && course.recommendations && Object.keys(course.recommendations).length > 0)
+      ? course
+      : (state.courses.find(c => c.code === baseCodeForRec) || course);
+
+    const recs = recCourse ? (
+      (recCourse.recommendations && Object.keys(recCourse.recommendations).length > 0)
+        ? recCourse.recommendations
+        : (recCourse.masterRecommendations || {})
+    ) : {};
+    
+    const clickedSlotRec = (recs[day] && recs[day][period]) || '';
+    const isClickedSlotRecommended = (clickedSlotRec === 'T' || clickedSlotRec === 'P');
+
+    // Auto-fill ONLY runs if:
+    // 1. Toggle is ON
+    // 2. The course belongs to Sem 1 - 4 (disabled for open/unconstrained sections like Sem 5+)
+    // 3. The user clicked on an actual recommended slot ('T' or 'P'). Clicking an unrecommended slot will NOT auto-fill!
+    if (isAutofillOn && course && courseSemNum < 5 && isClickedSlotRecommended) {
+      const targetType = clickedSlotRec;
+      const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+
+      weekdays.forEach(d => {
+        const dayRecs = recs[d] || {};
+        Object.keys(dayRecs).forEach(p => {
+          if (dayRecs[p] === targetType) {
+            // Skip the current period which was already assigned
+            if (d === day && String(p) === String(period)) return;
+
+            // Check if teacher has an unavailability or clash in department
+            const unavailList = (state.teacherUnavailability && state.teacherUnavailability[facultyCode]) || [];
+            const isUnavail = unavailList.some(u => u.day.toUpperCase() === d.toUpperCase() && (u.period === 'all' || String(u.period) === String(p)));
+            const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
+
+            if (!hasClash && !isUnavail) {
+              if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+              if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
+              if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
+
+              if (!state.allocations[courseCode][d][p].includes(facultyCode)) {
+                state.allocations[courseCode][d][p].push(facultyCode);
+              }
+            }
+          }
+        });
+      });
+    }
 
     // For practical slots: keep modal open so helpers can be assigned to the same period, with real-time update
     if (isPrac) {
@@ -1886,16 +2197,10 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     } else {
       // Close faculty selector modal for single-teacher theory slots
       document.getElementById('modal-faculty-select').classList.add('hidden');
-      
-      const recType = (course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) || '';
-      if (recType === 'T' || recType === 'P') {
-        showAutoFillPrompt(courseCode, recType, facultyCode);
-      } else {
-        renderAllocationMatrix();
-        updateDeptLiveWorkloadTracker();
-        activeSlotContext = null;
-        triggerAutosave();
-      }
+      renderAllocationMatrix();
+      updateDeptLiveWorkloadTracker();
+      activeSlotContext = null;
+      triggerAutosave();
     }
   } catch (err) {
     console.error(err);
@@ -2036,10 +2341,12 @@ async function saveDepartmentAllocations(isSubmission = false) {
         Object.keys(recs).forEach(p => {
           const alloc = (state.allocations[course.code] && state.allocations[course.code][day] && state.allocations[course.code][day][p]) || [];
           if (alloc.length === 0) {
-            const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-            const groupText = course.group > 0 ? ` (Group ${course.group})` : '';
-            const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-            missing.push(`${cleanCode}${groupText} alias '${alias}' requires allocation on ${day} Period ${p}`);
+            const cleanCode = course.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+            const classNumMatch = course.code.match(/(_G|_C)(\d+)/);
+            const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course.class || course.group || 0);
+            const classText = classNum > 0 ? ` (Class C${classNum})` : '';
+            const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+            missing.push(`${cleanCode}${classText} alias '${alias}' requires allocation on ${day} Period ${p}`);
           }
         });
       });
@@ -2122,7 +2429,10 @@ function renderDeptDataEditors() {
     const tr = document.createElement('tr');
     // For tooltip and visual code formatting, fetch appropriate batches list
     const mappedBaseBatches = getCourseClassBatches(c);
-    const formattedCode = formatCourseCodeWithGroup(c.code, c.group, mappedBaseBatches);
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const formattedCode = formatCourseCodeWithGroup(cleanCode, classNum, mappedBaseBatches);
     tr.innerHTML = `
       <td><strong>${formattedCode}</strong></td>
       <td>${c.semester}</td>
@@ -2136,11 +2446,9 @@ function renderDeptDataEditors() {
       <td>
         <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; max-width: 250px;">
           <div style="display:flex; flex-wrap:wrap; gap:4px; flex:1;">${batchListHtml}</div>
-          ${String(c.semester) === '5' ? `
-            <button class="btn btn-outline btn-xs" style="padding: 2px 6px; font-size:10px; margin-left: auto;" onclick="openDeptBatchMappingModal('${c.code}')" ${locked ? 'disabled' : ''}>
-              <i class="fa-solid fa-edit"></i> Map
-            </button>
-          ` : ''}
+          <button class="btn btn-outline btn-xs" style="padding: 2px 6px; font-size:10px; margin-left: auto;" onclick="openDeptBatchMappingModal('${c.code}')" ${locked ? 'disabled' : ''} title="Configure Classes & Batches">
+            <i class="fa-solid fa-layer-group"></i> Classes
+          </button>
         </div>
       </td>
       <td>
@@ -2291,6 +2599,7 @@ function renderTeacherAvailabilityEditor() {
   activeUnavailTeacherCode = select.value;
   const allUnavail = state.teacherUnavailability || {};
   localTeacherUnavail = JSON.parse(JSON.stringify(allUnavail[activeUnavailTeacherCode] || []));
+  updateTeacherUnavailSnapshot();
   loadTeacherUnavailMatrix();
 }
 
@@ -2669,7 +2978,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   if (assignedCodes.length === 0) return '';
 
   const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-  const groupSuffix = course.group > 0 ? ` (G${course.group})` : (course.classNum ? ` (Class ${course.classNum})` : '');
+  const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
+  const groupSuffix = classNum ? ` (C${classNum})` : '';
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -3217,7 +3527,7 @@ function renderDeptGroupSelects(course, defaultBatchId) {
     const label = document.createElement('label');
     label.style.fontWeight = '600';
     label.style.fontSize = '12px';
-    label.textContent = `Class ${i} Batch:`;
+    label.textContent = count > 1 ? `Class ${i} (C${i}) Batch:` : 'Class Batch:';
 
     const input = document.createElement('input');
     input.type = 'text';
@@ -3229,7 +3539,8 @@ function renderDeptGroupSelects(course, defaultBatchId) {
     // Load preselected batch dynamically matching C{i} or fallback to default
     let savedBatch = '';
     if (count > 1) {
-      savedBatch = (state.groupMappings[`${cleanCode}_C${i}`] && state.groupMappings[`${cleanCode}_C${i}`][0]) || '';
+      savedBatch = (state.groupMappings[`${cleanCode}_C${i}`] && state.groupMappings[`${cleanCode}_C${i}`][0]) || 
+                   (state.groupMappings[`${cleanCode}_G${i}`] && state.groupMappings[`${cleanCode}_G${i}`][0]) || '';
     } else {
       savedBatch = (state.groupMappings[cleanCode] && state.groupMappings[cleanCode][0]) || '';
     }
@@ -3249,13 +3560,416 @@ function renderDeptGroupSelects(course, defaultBatchId) {
 }
 
 // ==========================================================================
-// Advanced Features Suite Modal Controller
+// Advanced Features Suite Modal Controller & Unsaved Changes Guard
 // ==========================================================================
 let tempGeneratedAllocations = null;
 let activeAdvancedFeaturesTab = 'adv-pane-teacher-unavail';
 let localSubjectMappings = {};
 let autoGenCourseFacultyBindings = {};
 let autoGenCourseFacultyConfig = {};
+
+// Snapshots for tracking unsaved modifications
+let savedTeacherUnavailSnapshot = null;
+let savedSubjectMappingsSnapshot = null;
+let savedCurriculumRecsSnapshot = null;
+let savedCurriculumBlocksSnapshot = null;
+
+function updateTeacherUnavailSnapshot() {
+  if (!activeUnavailTeacherCode) {
+    savedTeacherUnavailSnapshot = null;
+    return;
+  }
+  const sorted = (localTeacherUnavail || []).slice().sort((a, b) => `${a.day}-${a.period}`.localeCompare(`${b.day}-${b.period}`));
+  savedTeacherUnavailSnapshot = JSON.stringify(sorted);
+}
+
+function updateSubjectMappingsSnapshot() {
+  savedSubjectMappingsSnapshot = JSON.stringify(localSubjectMappings || {});
+}
+
+function updateCurriculumSlotsSnapshot() {
+  savedCurriculumRecsSnapshot = JSON.stringify(localCurriculumCourseRecs || {});
+  savedCurriculumBlocksSnapshot = JSON.stringify(localCurriculumSemesterBlocks || []);
+}
+
+function getTeacherUnavailUnsavedChanges() {
+  if (!activeUnavailTeacherCode) return null;
+  const currentSorted = (localTeacherUnavail || []).slice().sort((a, b) => `${a.day}-${a.period}`.localeCompare(`${b.day}-${b.period}`));
+  const currentStr = JSON.stringify(currentSorted);
+
+  if (savedTeacherUnavailSnapshot === null) {
+    savedTeacherUnavailSnapshot = currentStr;
+    return null;
+  }
+  if (currentStr === savedTeacherUnavailSnapshot) {
+    return null;
+  }
+
+  let savedList = [];
+  try {
+    savedList = JSON.parse(savedTeacherUnavailSnapshot);
+  } catch (e) {
+    savedList = [];
+  }
+
+  const savedKeySet = new Set(savedList.map(s => `${s.day.toUpperCase()} Period ${s.period}`));
+  const currentKeySet = new Set((localTeacherUnavail || []).map(s => `${s.day.toUpperCase()} Period ${s.period}`));
+
+  const added = [];
+  const removed = [];
+
+  currentKeySet.forEach(key => {
+    if (!savedKeySet.has(key)) added.push(key);
+  });
+  savedKeySet.forEach(key => {
+    if (!currentKeySet.has(key)) removed.push(key);
+  });
+
+  if (added.length === 0 && removed.length === 0) return null;
+
+  const facObj = (state.faculty || []).find(f => f.code === activeUnavailTeacherCode);
+  const teacherName = facObj ? `${facObj.name} (${activeUnavailTeacherCode})` : activeUnavailTeacherCode;
+
+  const changes = [];
+  if (added.length > 0) {
+    changes.push(`<strong>Marked ${added.length} blackout period(s) for ${teacherName}:</strong> ${added.slice(0, 4).join(', ')}${added.length > 4 ? ` (+${added.length - 4} more)` : ''}`);
+  }
+  if (removed.length > 0) {
+    changes.push(`<strong>Cleared ${removed.length} blackout period(s) for ${teacherName}:</strong> ${removed.slice(0, 4).join(', ')}${removed.length > 4 ? ` (+${removed.length - 4} more)` : ''}`);
+  }
+
+  return {
+    tabId: 'adv-pane-teacher-unavail',
+    tabName: 'Teacher Availability',
+    changes,
+    revert: () => {
+      try {
+        localTeacherUnavail = JSON.parse(savedTeacherUnavailSnapshot);
+      } catch (e) {
+        localTeacherUnavail = [];
+      }
+      loadTeacherUnavailMatrix();
+    },
+    save: async () => {
+      const btn = document.getElementById('btn-save-teacher-unavailability');
+      if (btn) btn.click();
+    }
+  };
+}
+
+function getSubjectMappingUnsavedChanges() {
+  if (savedSubjectMappingsSnapshot === null) {
+    savedSubjectMappingsSnapshot = JSON.stringify(localSubjectMappings || {});
+    return null;
+  }
+  const currentStr = JSON.stringify(localSubjectMappings || {});
+  if (currentStr === savedSubjectMappingsSnapshot) {
+    return null;
+  }
+
+  let savedMap = {};
+  try {
+    savedMap = JSON.parse(savedSubjectMappingsSnapshot);
+  } catch (e) {
+    savedMap = {};
+  }
+
+  const modifiedCourses = [];
+
+  Object.entries(localSubjectMappings || {}).forEach(([cCode, current]) => {
+    const saved = savedMap[cCode];
+    if (!saved) return;
+
+    const diffs = [];
+    if (parseInt(current.hours) !== parseInt(saved.hours)) {
+      diffs.push(`Weekly Hours changed from ${saved.hours} to ${current.hours}`);
+    }
+    if (current.courseType !== saved.courseType) {
+      diffs.push(`Type changed from ${saved.courseType} to ${current.courseType}`);
+    }
+    if (parseInt(current.practicalHours || 0) !== parseInt(saved.practicalHours || 0)) {
+      diffs.push(`Practical Hours changed from ${saved.practicalHours || 0} to ${current.practicalHours || 0}`);
+    }
+
+    const curTeachers = (current.teachers || []).slice().sort().join(', ');
+    const savTeachers = (saved.teachers || []).slice().sort().join(', ');
+    if (curTeachers !== savTeachers) {
+      diffs.push(`Assigned Teachers changed from [${savTeachers || 'None'}] to [${curTeachers || 'None'}]`);
+    }
+
+    const curHoursStr = JSON.stringify(current.teacherHours || {});
+    const savHoursStr = JSON.stringify(saved.teacherHours || {});
+    if (curHoursStr !== savHoursStr && curTeachers === savTeachers) {
+      diffs.push(`Teacher hours breakdown modified`);
+    }
+
+    if (diffs.length > 0) {
+      const course = (state.courses || []).find(c => c.code === cCode);
+      const name = course ? course.name : cCode;
+      modifiedCourses.push(`<strong>${cCode} (${name}):</strong> ${diffs.join('; ')}`);
+    }
+  });
+
+  if (modifiedCourses.length === 0) return null;
+
+  return {
+    tabId: 'adv-pane-subject-mapping',
+    tabName: 'Subject Teacher Mapping',
+    changes: modifiedCourses,
+    revert: () => {
+      try {
+        localSubjectMappings = JSON.parse(savedSubjectMappingsSnapshot);
+      } catch (e) {
+        localSubjectMappings = {};
+      }
+      renderSubjectMappingTiles();
+    },
+    save: async () => {
+      await saveAllSubjectMappings();
+    }
+  };
+}
+
+function getCurriculumSlotsUnsavedChanges() {
+  if (savedCurriculumRecsSnapshot === null) {
+    savedCurriculumRecsSnapshot = JSON.stringify(localCurriculumCourseRecs || {});
+    savedCurriculumBlocksSnapshot = JSON.stringify(localCurriculumSemesterBlocks || []);
+    return null;
+  }
+
+  const currentRecsStr = JSON.stringify(localCurriculumCourseRecs || {});
+  const currentBlocksStr = JSON.stringify(localCurriculumSemesterBlocks || []);
+
+  if (currentRecsStr === savedCurriculumRecsSnapshot && currentBlocksStr === savedCurriculumBlocksSnapshot) {
+    return null;
+  }
+
+  let savedRecs = {};
+  let savedBlocks = [];
+  try {
+    savedRecs = JSON.parse(savedCurriculumRecsSnapshot);
+    savedBlocks = JSON.parse(savedCurriculumBlocksSnapshot);
+  } catch (e) {}
+
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  const deptCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === deptName);
+
+  const changedCourses = [];
+
+  deptCourses.forEach(c => {
+    const curRec = (localCurriculumCourseRecs && localCurriculumCourseRecs[c.code]) || {};
+    const savRec = savedRecs[c.code] || {};
+    const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'];
+    const diffs = [];
+
+    days.forEach(day => {
+      const curDay = curRec[day] || {};
+      const savDay = savRec[day] || {};
+      const periods = new Set([...Object.keys(curDay), ...Object.keys(savDay)]);
+      periods.forEach(p => {
+        const curVal = curDay[p] || '';
+        const savVal = savDay[p] || '';
+        if (curVal !== savVal) {
+          const valLabel = (v) => v === 'B' ? 'Blocked' : (v === 'T' ? 'Theory' : (v === 'P' ? 'Practical' : v));
+          if (curVal && !savVal) diffs.push(`added ${valLabel(curVal)} at ${day} P${p}`);
+          else if (!curVal && savVal) diffs.push(`removed ${valLabel(savVal)} at ${day} P${p}`);
+          else diffs.push(`changed ${valLabel(savVal)}->${valLabel(curVal)} at ${day} P${p}`);
+        }
+      });
+    });
+
+    if (diffs.length > 0) {
+      changedCourses.push(`<strong>${c.code} (${c.name}):</strong> ${diffs.slice(0, 3).join(', ')}${diffs.length > 3 ? ` (+${diffs.length - 3} more)` : ''}`);
+    }
+  });
+
+  if (currentBlocksStr !== savedCurriculumBlocksSnapshot) {
+    changedCourses.push(`<strong>Semester Blocked Periods:</strong> Custom blackout periods modified`);
+  }
+
+  if (changedCourses.length === 0) return null;
+
+  return {
+    tabId: 'adv-pane-curriculum-slots',
+    tabName: 'Curriculum Slot Allocation',
+    changes: changedCourses,
+    revert: () => {
+      try {
+        localCurriculumCourseRecs = JSON.parse(savedCurriculumRecsSnapshot);
+        localCurriculumSemesterBlocks = JSON.parse(savedCurriculumBlocksSnapshot);
+      } catch (e) {}
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+    },
+    save: async () => {
+      await saveCurriculumSlotAllocations();
+    }
+  };
+}
+
+function getChangePasswordUnsavedChanges() {
+  const currentPwd = (document.getElementById('dept-current-pwd')?.value || '').trim();
+  const newPwd = (document.getElementById('dept-new-pwd')?.value || '').trim();
+  const confirmPwd = (document.getElementById('dept-confirm-pwd')?.value || '').trim();
+
+  if (newPwd || currentPwd || confirmPwd) {
+    return {
+      tabId: 'adv-pane-change-password',
+      tabName: 'Change Password',
+      changes: ['Entered new password details have not been submitted.'],
+      revert: () => {
+        const form = document.getElementById('form-dept-change-password');
+        if (form) form.reset();
+      },
+      save: null
+    };
+  }
+  return null;
+}
+
+function getAutoGenUnsavedChanges() {
+  if (tempGeneratedAllocations && typeof tempGeneratedAllocations === 'object' && Object.keys(tempGeneratedAllocations).length > 0) {
+    return {
+      tabId: 'adv-pane-auto-generate',
+      tabName: 'Auto Generate',
+      changes: ['Auto-generated schedule preview has been created but not applied to your timetable.'],
+      revert: () => {
+        tempGeneratedAllocations = null;
+        const preview = document.getElementById('auto-gen-preview-container');
+        if (preview) preview.classList.add('hidden');
+      },
+      save: async () => {
+        await applyAutoGeneratedSchedule();
+      }
+    };
+  }
+  return null;
+}
+
+function getUnsavedChangesForTab(tabId) {
+  if (tabId === 'adv-pane-teacher-unavail') {
+    return getTeacherUnavailUnsavedChanges();
+  } else if (tabId === 'adv-pane-subject-mapping') {
+    return getSubjectMappingUnsavedChanges();
+  } else if (tabId === 'adv-pane-curriculum-slots') {
+    return getCurriculumSlotsUnsavedChanges();
+  } else if (tabId === 'adv-pane-change-password') {
+    return getChangePasswordUnsavedChanges();
+  } else if (tabId === 'adv-pane-auto-generate') {
+    return getAutoGenUnsavedChanges();
+  }
+  return null;
+}
+
+function showUnsavedChangesModal(unsavedInfo, onProceed) {
+  const modal = document.getElementById('modal-unsaved-adv-changes');
+  if (!modal) {
+    if (confirm(`You have unsaved changes in ${unsavedInfo.tabName}. Do you want to discard them?`)) {
+      if (unsavedInfo.revert) unsavedInfo.revert();
+      onProceed();
+    }
+    return;
+  }
+
+  document.getElementById('unsaved-adv-modal-title').textContent = `Unsaved Changes in ${unsavedInfo.tabName}`;
+  document.getElementById('unsaved-adv-tab-name').textContent = unsavedInfo.tabName;
+
+  const listEl = document.getElementById('unsaved-adv-changes-list');
+  listEl.innerHTML = '';
+  unsavedInfo.changes.forEach(item => {
+    const li = document.createElement('li');
+    li.innerHTML = item;
+    listEl.appendChild(li);
+  });
+
+  const btnStay = document.getElementById('btn-unsaved-adv-stay');
+  const btnDiscard = document.getElementById('btn-unsaved-adv-discard');
+  const btnSave = document.getElementById('btn-unsaved-adv-save-proceed');
+
+  if (unsavedInfo.save) {
+    btnSave.classList.remove('hidden');
+  } else {
+    btnSave.classList.add('hidden');
+  }
+
+  // Clone buttons to strip old event listeners
+  const newBtnStay = btnStay.cloneNode(true);
+  btnStay.parentNode.replaceChild(newBtnStay, btnStay);
+
+  const newBtnDiscard = btnDiscard.cloneNode(true);
+  btnDiscard.parentNode.replaceChild(newBtnDiscard, btnDiscard);
+
+  const newBtnSave = btnSave.cloneNode(true);
+  btnSave.parentNode.replaceChild(newBtnSave, btnSave);
+
+  newBtnStay.onclick = () => {
+    modal.classList.add('hidden');
+  };
+
+  newBtnDiscard.onclick = () => {
+    modal.classList.add('hidden');
+    if (unsavedInfo.revert) unsavedInfo.revert();
+    onProceed();
+  };
+
+  newBtnSave.onclick = async () => {
+    if (unsavedInfo.save) {
+      newBtnSave.disabled = true;
+      newBtnSave.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+      try {
+        await unsavedInfo.save();
+        modal.classList.add('hidden');
+        onProceed();
+      } catch (err) {
+        console.error(err);
+        modal.classList.add('hidden');
+      } finally {
+        newBtnSave.disabled = false;
+        newBtnSave.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> Save & Proceed`;
+      }
+    } else {
+      modal.classList.add('hidden');
+      onProceed();
+    }
+  };
+
+  modal.classList.remove('hidden');
+}
+
+function checkUnsavedChangesAndProceed(activeTab, onProceed) {
+  const unsaved = getUnsavedChangesForTab(activeTab);
+  if (unsaved && unsaved.changes && unsaved.changes.length > 0) {
+    showUnsavedChangesModal(unsaved, onProceed);
+  } else {
+    onProceed();
+  }
+}
+
+function checkAnyUnsavedChangesBeforeClose(onProceed) {
+  const activeUnsaved = getUnsavedChangesForTab(activeAdvancedFeaturesTab);
+  if (activeUnsaved && activeUnsaved.changes && activeUnsaved.changes.length > 0) {
+    showUnsavedChangesModal(activeUnsaved, onProceed);
+    return;
+  }
+
+  const allTabs = [
+    'adv-pane-teacher-unavail',
+    'adv-pane-subject-mapping',
+    'adv-pane-curriculum-slots',
+    'adv-pane-change-password',
+    'adv-pane-auto-generate'
+  ];
+  for (const tabId of allTabs) {
+    if (tabId === activeAdvancedFeaturesTab) continue;
+    const unsaved = getUnsavedChangesForTab(tabId);
+    if (unsaved && unsaved.changes && unsaved.changes.length > 0) {
+      showUnsavedChangesModal(unsaved, onProceed);
+      return;
+    }
+  }
+
+  onProceed();
+}
 
 function bindAutoGeneratorEvents() {
   bindAdvancedFeaturesModalEvents();
@@ -3273,24 +3987,32 @@ function bindAdvancedFeaturesModalEvents() {
   }
 
   if (btnClose) {
-    btnClose.addEventListener('click', closeAdvancedFeaturesModal);
+    btnClose.addEventListener('click', () => {
+      checkAnyUnsavedChangesBeforeClose(() => {
+        closeAdvancedFeaturesModal();
+      });
+    });
   }
 
   if (modal) {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        closeAdvancedFeaturesModal();
+        checkAnyUnsavedChangesBeforeClose(() => {
+          closeAdvancedFeaturesModal();
+        });
       }
     });
   }
 
-  // Sidebar Tab Switching
+  // Sidebar Tab Switching with Unsaved Changes Guard
   document.querySelectorAll('.adv-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const paneId = btn.getAttribute('data-pane');
-      if (paneId) {
+      if (!paneId || paneId === activeAdvancedFeaturesTab) return;
+      
+      checkUnsavedChangesAndProceed(activeAdvancedFeaturesTab, () => {
         switchAdvancedFeaturesTab(paneId);
-      }
+      });
     });
   });
 
@@ -3475,8 +4197,6 @@ function switchAdvancedFeaturesTab(paneId) {
     renderTeacherAvailabilityEditor();
   } else if (paneId === 'adv-pane-subject-mapping') {
     renderSubjectMappingTiles();
-  } else if (paneId === 'adv-pane-common-subject-mapping') {
-    renderCommonSubjectMappingTiles();
   } else if (paneId === 'adv-pane-auto-generate') {
     initAutoGeneratorPane();
   } else if (paneId === 'adv-pane-teacher-timetable') {
@@ -3645,6 +4365,10 @@ function initLocalSubjectMappings() {
       }
     }
   });
+
+  if (savedSubjectMappingsSnapshot === null) {
+    updateSubjectMappingsSnapshot();
+  }
 }
 
 function renderTileFacultyPopoverHtml(cCode, sectionKey, popoverId, selectedList, deptFaculty, closeClass, filterClass, cbClass) {
@@ -3873,12 +4597,25 @@ function renderSubjectMappingTiles() {
       `;
     }).join('');
 
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || null);
+    const classBadgeHtml = classNum ? `<span class="badge" style="background: #e0e7ff; color: #4338ca; font-size: 10px; margin-left: 4px; font-weight: 700; border: 1px solid #c7d2fe;">Class C${classNum}</span>` : '';
+    const mapped = c.mappedBatches || [];
+    const mappedBatchesHtml = mapped.length > 0
+      ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-size: 10px; margin-left: 4px;" title="Mapped Batches: ${mapped.join(', ')}"><i class="fa-solid fa-users"></i> ${mapped.join(', ')}</span>`
+      : '';
+
     html += `
       <div class="subject-tile-card" data-course-code="${c.code}" id="subject-card-${c.code}">
         <!-- Tile Header -->
         <div class="subject-tile-header">
           <div>
-            <div class="subject-tile-title">${c.code} <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span></div>
+            <div class="subject-tile-title">
+              ${c.code}
+              <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span>
+              ${classBadgeHtml}
+              ${mappedBatchesHtml}
+            </div>
             <div class="subject-tile-name" title="${c.name}">${c.name}</div>
           </div>
           <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'} tile-category-badge" style="font-size: 11px; font-weight: 700;">
@@ -4609,6 +5346,7 @@ async function saveAllSubjectMappings() {
         syncAutoGenConfigForCourse(cCode);
       });
 
+      updateSubjectMappingsSnapshot();
       showModalAlert('Saved', 'Subject teacher mappings, weekly hours, and course types saved successfully!', 'success');
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
@@ -5551,13 +6289,31 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
   if (semBadge) semBadge.textContent = lockSem === 'All' ? 'All Semesters' : `Semester ${lockSem}`;
   if (labelBadge) labelBadge.textContent = lockLabel;
 
-  // Filter matching common batches
+  // Filter matching common batches and connected courses
   const batches = state.commonBatches || [];
   const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
-  
-  // Find batches that match the label or subject code
+  const myDeptBatches = (state.allBatches || []).filter(b => {
+    const bDept = (b.deptCode || b.deptName || b.department || '').trim().toUpperCase();
+    return bDept === userDept;
+  });
+  const myDeptBatchIds = myDeptBatches.map(b => b.batchId);
+
+  // Look up connected courses from Batch Allocation & Mapping
   const lUpper = lockLabel.toUpperCase();
   const lClean = lUpper.replace(/[^A-Z0-9]/g, '');
+
+  const connectedCourses = (state.courses || []).filter(c => {
+    const m = getCourseCommonSubjectMatch(c);
+    const cat = (c.category || '').toUpperCase();
+    const semMatches = !lockSem || lockSem === 'All' || lockSem === 'all' || !c.semester || String(c.semester) === String(lockSem);
+    if (!semMatches) return false;
+    const subjMatches = (m && (m === lUpper || m.replace(/[^A-Z0-9]/g, '') === lClean)) || cat === lClean || cat === lUpper;
+    if (!subjMatches) return false;
+    const isOffering = (c.department || '').toUpperCase() === userDept;
+    const isMapped = (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId));
+    return isOffering || isMapped;
+  });
+
   const matchingBatches = batches.filter(b => {
     const bCode = (b.subjectCode || '').toUpperCase();
     const bClean = bCode.replace(/[^A-Z0-9]/g, '');
@@ -5566,19 +6322,62 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
     return codeMatches && semMatches;
   });
 
+  const totalConnected = connectedCourses.length > 0 ? connectedCourses.length : matchingBatches.length;
+
   if (countBadge) {
-    countBadge.textContent = `${matchingBatches.length} Batch${matchingBatches.length === 1 ? '' : 'es'}`;
+    countBadge.textContent = `${totalConnected} Class${totalConnected === 1 ? '' : 'es'}`;
   }
 
   if (container) {
-    if (matchingBatches.length === 0) {
-      container.innerHTML = `
-        <div style="padding: 20px; background: #ffffff; border: 1.5px dashed var(--border); border-radius: 8px; text-align: center;">
-          <p class="text-muted text-xs mb-1" style="font-weight: 600;"><i class="fa-solid fa-circle-info text-primary"></i> No batches configured yet for "${escapeHtml(lockLabel)}".</p>
-          <span class="text-muted" style="font-size: 11px;">You can configure batches under <strong>Common Subject Mapping</strong>.</span>
-        </div>
-      `;
-    } else {
+    if (connectedCourses.length > 0) {
+      container.innerHTML = connectedCourses.map(c => {
+        const isOffering = (c.department || '').toUpperCase() === userDept;
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || 1);
+        const baseCodeOnly = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const mapped = c.mappedBatches || [];
+
+        // Teacher lookup
+        const deptUpper = (c.department || '').toUpperCase();
+        const teacherMap = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && state.subjectTeacherMapping[deptUpper][c.code]) || null;
+        let teacherDisplay = 'Pending Dept Mapping';
+        if (teacherMap) {
+          const tCodes = [...new Set([...(teacherMap.teachers || []), ...(teacherMap.theoryTeachers || []), ...(teacherMap.practicalTeachers || [])])];
+          if (tCodes.length > 0) {
+            const labels = tCodes.map(tc => {
+              const f = (state.faculty || []).find(x => x.code === tc);
+              return f ? `${tc} (${f.name})` : tc;
+            });
+            teacherDisplay = labels.join(', ');
+          }
+        }
+
+        return `
+          <div style="background: #f8faff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
+                <span class="badge" style="background: var(--accent); color: var(--accent-dark); font-weight: 700; border: 1.5px solid var(--accent-dark); font-size: 11px; padding: 2px 6px;">Class C${classNum}</span>
+                <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(baseCodeOnly)}</strong>
+                <span class="badge badge-info" style="font-size: 9px; padding: 1px 5px;">Offered by: ${escapeHtml(c.department || 'TBD')}</span>
+                ${isOffering ? `<span class="badge badge-success" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-check"></i> Your Dept (Offering)</span>` : `<span class="badge badge-primary" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-users"></i> Your Dept (Participating)</span>`}
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px;">
+                <span>Course Name: <strong style="color: var(--text-main);">${escapeHtml(c.name || '')}</strong></span>
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                <span>Mapped Batches:</span>
+                ${mapped.length > 0 ? mapped.map(b => `<span style="background: #e2e8f0; color: #334155; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: 600;">${escapeHtml(b)}</span>`).join('') : '<span class="text-muted" style="font-style: italic;">No batches mapped</span>'}
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <span class="fac-pill" style="margin: 0; font-weight: 600; font-size: 11px;" title="Assigned Faculty: ${escapeHtml(teacherDisplay)}">
+                <i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(teacherDisplay)}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else if (matchingBatches.length > 0) {
       container.innerHTML = matchingBatches.map(b => {
         const isOffering = (b.department || '').toUpperCase() === userDept;
         const bDepts = Array.isArray(b.departments) && b.departments.length > 0
@@ -5611,6 +6410,13 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
           </div>
         `;
       }).join('');
+    } else {
+      container.innerHTML = `
+        <div style="padding: 20px; background: #ffffff; border: 1.5px dashed var(--border); border-radius: 8px; text-align: center;">
+          <p class="text-muted text-xs mb-1" style="font-weight: 600;"><i class="fa-solid fa-circle-info text-primary"></i> No courses/batches configured yet for "${escapeHtml(lockLabel)}".</p>
+          <span class="text-muted" style="font-size: 11px;">Configure course classes and batch mappings in Admin Portal under <strong>Common Subject Mapping</strong>.</span>
+        </div>
+      `;
     }
   }
 
@@ -5624,10 +6430,7 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
   if (btnMapping) {
     btnMapping.onclick = () => {
       closeModal();
-      openAdvancedFeaturesModal('adv-pane-common-subject-mapping');
-      if (matchingBatches.length > 0 && matchingBatches[0].subjectCode) {
-        openCommonSubjectDetail(matchingBatches[0].subjectCode);
-      }
+      openAdvancedFeaturesModal('adv-pane-subject-mapping');
     };
   }
 
@@ -6659,13 +7462,25 @@ function bindCurriculumSlotAllocatorEvents() {
       curriculumActiveToolMode = btn.getAttribute('data-mode') || 'T';
       
       const assignWrapper = document.getElementById('curriculum-assign-subject-wrapper');
+      const targetLabel = document.getElementById('curriculum-target-subject-label');
+      const targetSelect = document.getElementById('curriculum-target-subject-select');
+
       if (assignWrapper) {
+        assignWrapper.style.opacity = '1';
+        assignWrapper.style.pointerEvents = 'auto';
+      }
+
+      if (targetLabel) {
         if (curriculumActiveToolMode === 'T' || curriculumActiveToolMode === 'P') {
-          assignWrapper.style.opacity = '1';
-          assignWrapper.style.pointerEvents = 'auto';
-        } else {
-          assignWrapper.style.opacity = '0.5';
-          assignWrapper.style.pointerEvents = 'none';
+          targetLabel.innerHTML = `<i class="fa-solid fa-arrow-pointer"></i> Assign Subject:`;
+          // If "ALL" was selected and user switches to T or P, auto-select first actual course
+          if (targetSelect && targetSelect.value === 'ALL' && targetSelect.options.length > 1) {
+            targetSelect.value = targetSelect.options[1].value;
+          }
+        } else if (curriculumActiveToolMode === 'B') {
+          targetLabel.innerHTML = `<i class="fa-solid fa-ban"></i> Block Target:`;
+        } else if (curriculumActiveToolMode === 'CLEAR') {
+          targetLabel.innerHTML = `<i class="fa-solid fa-eraser"></i> Clear Target:`;
         }
       }
     });
@@ -6688,8 +7503,12 @@ function bindCurriculumSlotAllocatorEvents() {
     courseFilter.addEventListener('change', () => {
       curriculumSelectedFilterCourse = courseFilter.value;
       const assignSelect = document.getElementById('curriculum-target-subject-select');
-      if (assignSelect && curriculumSelectedFilterCourse !== 'ALL') {
-        assignSelect.value = curriculumSelectedFilterCourse;
+      if (assignSelect) {
+        if (curriculumSelectedFilterCourse !== 'ALL') {
+          assignSelect.value = curriculumSelectedFilterCourse;
+        } else if (curriculumActiveToolMode === 'B' || curriculumActiveToolMode === 'CLEAR') {
+          assignSelect.value = 'ALL';
+        }
       }
       renderCurriculumSlotMatrix();
       renderCurriculumHoursBreakdown();
@@ -6749,6 +7568,10 @@ function initCurriculumSemesterData(force = false) {
         });
       }
     });
+  }
+
+  if (force || savedCurriculumRecsSnapshot === null) {
+    updateCurriculumSlotsSnapshot();
   }
 }
 
@@ -6952,7 +7775,7 @@ function populateCurriculumCourseDropdowns() {
   // Extract unique base codes
   const uniqueBases = [];
   semCourses.forEach(c => {
-    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     if (!uniqueBases.some(u => u.baseCode === baseCode)) {
       uniqueBases.push({
         baseCode,
@@ -6977,13 +7800,22 @@ function populateCurriculumCourseDropdowns() {
 
   // Target Subject select
   const curTargetVal = targetSelect.value;
-  targetSelect.innerHTML = '';
+  let targetHtml = '<option value="ALL">Entire Semester (All Courses)</option>';
   uniqueBases.forEach(u => {
-    targetSelect.innerHTML += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
+    targetHtml += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
   });
-  if (curTargetVal && uniqueBases.some(u => u.baseCode === curTargetVal)) {
+  targetSelect.innerHTML = targetHtml;
+
+  if (curTargetVal && (curTargetVal === 'ALL' || uniqueBases.some(u => u.baseCode === curTargetVal))) {
     targetSelect.value = curTargetVal;
   } else if (uniqueBases.length > 0) {
+    targetSelect.value = uniqueBases[0].baseCode;
+  } else {
+    targetSelect.value = 'ALL';
+  }
+
+  // If active mode is T or P and "ALL" is selected, choose first course
+  if ((curriculumActiveToolMode === 'T' || curriculumActiveToolMode === 'P') && targetSelect.value === 'ALL' && uniqueBases.length > 0) {
     targetSelect.value = uniqueBases[0].baseCode;
   }
 }
@@ -7039,63 +7871,153 @@ function renderCurriculumSlotMatrix() {
         return;
       }
 
-      // Check if blocked
-      const isBlocked = localCurriculumSemesterBlocks.some(b => {
+      // Check if semester is blocked
+      const isSemBlocked = localCurriculumSemesterBlocks.some(b => {
         const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
         return b.day === day && String(b.period) === String(p) && bSem === activeSemStr;
       });
 
-      if (isBlocked) {
+      if (isSemBlocked) {
         totalBlockCount++;
         bodyHtml += `
           <td class="curriculum-slot-cell slot-recommend-blocked" 
               onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
-              title="Click to toggle or clear this blocked slot"
+              title="Click to toggle or clear this semester blocked slot"
               style="vertical-align: middle; height: 58px;">
             <div style="font-size: 11.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 5px;">
-              <i class="fa-solid fa-ban"></i> Blocked Slot
+              <i class="fa-solid fa-ban"></i> Semester Blocked
             </div>
           </td>
         `;
         return;
       }
 
-      // Check if course has recommendation in this slot
-      let assignedCourse = null;
-      let recType = null;
+      // Collect recommendations & blocks for courses in this slot
+      const recCourses = [];
+      const blockedCourses = [];
 
-      for (let i = 0; i < semCourses.length; i++) {
-        const c = semCourses[i];
+      semCourses.forEach(c => {
         const rec = (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][p]) || '';
+        const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         if (rec === 'T' || rec === 'P') {
-          assignedCourse = c;
-          recType = rec;
-          break;
+          if (!recCourses.some(rc => rc.baseCode === baseCode)) {
+            recCourses.push({ baseCode, course: c, recType: rec });
+          }
+        } else if (rec === 'B') {
+          if (!blockedCourses.includes(baseCode)) {
+            blockedCourses.push(baseCode);
+          }
         }
+      });
+
+      // Filtered mode (curriculumSelectedFilterCourse !== 'ALL')
+      if (curriculumSelectedFilterCourse !== 'ALL') {
+        const isThisBlocked = blockedCourses.includes(curriculumSelectedFilterCourse);
+        const thisRec = recCourses.find(rc => rc.baseCode === curriculumSelectedFilterCourse);
+
+        if (isThisBlocked) {
+          totalBlockCount++;
+          bodyHtml += `
+            <td class="curriculum-slot-cell slot-recommend-course-blocked" 
+                onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+                title="${escapeHtml(curriculumSelectedFilterCourse)} is BLOCKED in this slot. Click to unblock."
+                style="vertical-align: middle; height: 58px; padding: 4px 6px;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <span class="badge" style="background: #ef4444; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
+                  <i class="fa-solid fa-ban"></i> Course Blocked
+                </span>
+                <strong style="font-size: 12px; color: #b91c1c;">${escapeHtml(curriculumSelectedFilterCourse)}</strong>
+              </div>
+            </td>
+          `;
+          return;
+        }
+
+        if (thisRec) {
+          totalRecCount++;
+          const badgeBg = thisRec.recType === 'T' ? 'var(--warning)' : 'var(--success)';
+          const badgeLabel = thisRec.recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
+          const badgeIcon = thisRec.recType === 'T' ? 'fa-book' : 'fa-flask';
+          const cellClass = (thisRec.recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p');
+
+          bodyHtml += `
+            <td class="curriculum-slot-cell ${cellClass}" 
+                onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+                title="${escapeHtml(thisRec.baseCode)} - ${escapeHtml(thisRec.course.name || '')} (${badgeLabel}). Click to change or toggle off."
+                style="vertical-align: middle; height: 58px; padding: 4px 6px;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <span class="badge" style="background: ${badgeBg}; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
+                  <i class="fa-solid ${badgeIcon}"></i> ${badgeLabel}
+                </span>
+                <strong style="font-size: 12.5px; color: var(--text-main);">${escapeHtml(thisRec.baseCode)}</strong>
+                <span style="font-size: 9.5px; color: var(--text-muted); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                  ${escapeHtml(thisRec.course.name || '')}
+                </span>
+              </div>
+            </td>
+          `;
+          return;
+        }
+
+        // Open slot for this filtered course
+        bodyHtml += `
+          <td class="curriculum-slot-cell" 
+              onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+              title="Open slot for ${escapeHtml(curriculumSelectedFilterCourse)}. Click with selected tool to assign or block."
+              style="vertical-align: middle; height: 58px; background: #ffffff;">
+            <div style="color: #94a3b8; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+              <i class="fa-solid fa-plus opacity-40"></i> Open
+            </div>
+          </td>
+        `;
+        return;
       }
 
-      if (assignedCourse && recType) {
+      // "ALL" Courses View Mode
+      if (recCourses.length > 0) {
         totalRecCount++;
-        const baseCode = assignedCourse.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-        const isDimmed = (curriculumSelectedFilterCourse !== 'ALL' && curriculumSelectedFilterCourse !== baseCode);
-        const cellClass = (recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p') + (isDimmed ? ' slot-dimmed' : '');
-        const badgeBg = recType === 'T' ? 'var(--warning)' : 'var(--success)';
-        const badgeLabel = recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
-        const badgeIcon = recType === 'T' ? 'fa-book' : 'fa-flask';
+        const first = recCourses[0];
+        const badgeBg = first.recType === 'T' ? 'var(--warning)' : 'var(--success)';
+        const badgeLabel = first.recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
+        const badgeIcon = first.recType === 'T' ? 'fa-book' : 'fa-flask';
+        const cellClass = (first.recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p');
 
         bodyHtml += `
           <td class="curriculum-slot-cell ${cellClass}" 
               onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
-              title="${escapeHtml(baseCode)} - ${escapeHtml(assignedCourse.name || '')} (${badgeLabel}). Click to change or toggle off."
+              title="${escapeHtml(first.baseCode)} - ${escapeHtml(first.course.name || '')} (${badgeLabel}). Click to change or toggle off."
               style="vertical-align: middle; height: 58px; padding: 4px 6px;">
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
               <span class="badge" style="background: ${badgeBg}; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
                 <i class="fa-solid ${badgeIcon}"></i> ${badgeLabel}
               </span>
-              <strong style="font-size: 12.5px; color: var(--text-main);">${escapeHtml(baseCode)}</strong>
+              <strong style="font-size: 12.5px; color: var(--text-main);">${escapeHtml(first.baseCode)}</strong>
               <span style="font-size: 9.5px; color: var(--text-muted); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                ${escapeHtml(assignedCourse.name || '')}
+                ${escapeHtml(first.course.name || '')}
               </span>
+              ${blockedCourses.length > 0 ? `
+                <span style="font-size: 8.5px; color: #dc2626; font-weight: 700;" title="Also blocked for: ${blockedCourses.join(', ')}">
+                  <i class="fa-solid fa-ban"></i> +${blockedCourses.length} blocked
+                </span>
+              ` : ''}
+            </div>
+          </td>
+        `;
+      } else if (blockedCourses.length > 0) {
+        totalBlockCount++;
+        const blockLabel = blockedCourses.length === 1 ? `${blockedCourses[0]}` : `${blockedCourses.length} Courses`;
+        const blockTitle = `Course blocked for: ${blockedCourses.join(', ')}. Click to toggle or clear.`;
+
+        bodyHtml += `
+          <td class="curriculum-slot-cell slot-recommend-course-blocked" 
+              onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+              title="${escapeHtml(blockTitle)}"
+              style="vertical-align: middle; height: 58px; padding: 4px 6px;">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+              <span class="badge" style="background: #ef4444; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
+                <i class="fa-solid fa-ban"></i> Course Blocked
+              </span>
+              <strong style="font-size: 11.5px; color: #b91c1c;">${escapeHtml(blockLabel)}</strong>
             </div>
           </td>
         `;
@@ -7104,7 +8026,7 @@ function renderCurriculumSlotMatrix() {
         bodyHtml += `
           <td class="curriculum-slot-cell" 
               onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
-              title="Open slot. Click with selected tool to assign."
+              title="Open slot. Click with selected tool to assign or block."
               style="vertical-align: middle; height: 58px; background: #ffffff;">
             <div style="color: #94a3b8; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
               <i class="fa-solid fa-plus opacity-40"></i> Open
@@ -7135,31 +8057,63 @@ function handleCurriculumSlotCellClick(day, period) {
   const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
   const deptCourses = getCurriculumDeptCourses(curriculumSelectedSem);
   const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  const assignSelect = document.getElementById('curriculum-target-subject-select');
+  const targetBaseCode = assignSelect ? assignSelect.value : 'ALL';
 
   // 1. Tool: Block Slot ('B')
   if (curriculumActiveToolMode === 'B') {
-    // Clear any course recommendations for this day & period in this semester
-    deptCourses.forEach(c => {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        delete localCurriculumCourseRecs[c.code][day][period];
-      }
-    });
-
-    // Toggle block
-    const existingIdx = localCurriculumSemesterBlocks.findIndex(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
-    });
-
-    if (existingIdx !== -1) {
-      localCurriculumSemesterBlocks.splice(existingIdx, 1);
-    } else {
-      localCurriculumSemesterBlocks.push({
-        day,
-        period: String(period),
-        semester: activeSemStr,
-        label: 'Blocked'
+    if (targetBaseCode && targetBaseCode !== 'ALL') {
+      // Block/unblock ONLY the selected course!
+      const targetCourses = deptCourses.filter(c => {
+        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        return base === targetBaseCode;
       });
+
+      const isAlreadyBlocked = targetCourses.some(c => 
+        localCurriculumCourseRecs[c.code] && 
+        localCurriculumCourseRecs[c.code][day] && 
+        localCurriculumCourseRecs[c.code][day][period] === 'B'
+      );
+
+      if (isAlreadyBlocked) {
+        // Toggle OFF (unblock this course)
+        targetCourses.forEach(c => {
+          if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+            delete localCurriculumCourseRecs[c.code][day][period];
+          }
+        });
+      } else {
+        // Toggle ON (block this course in this slot)
+        targetCourses.forEach(c => {
+          if (!localCurriculumCourseRecs[c.code]) localCurriculumCourseRecs[c.code] = {};
+          if (!localCurriculumCourseRecs[c.code][day]) localCurriculumCourseRecs[c.code][day] = {};
+          localCurriculumCourseRecs[c.code][day][period] = 'B';
+        });
+      }
+    } else {
+      // Entire Semester Block: Toggle semester-wide blackout
+      // Clear any course recommendations/blocks for this day & period in this semester
+      deptCourses.forEach(c => {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
+
+      const existingIdx = localCurriculumSemesterBlocks.findIndex(b => {
+        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
+      });
+
+      if (existingIdx !== -1) {
+        localCurriculumSemesterBlocks.splice(existingIdx, 1);
+      } else {
+        localCurriculumSemesterBlocks.push({
+          day,
+          period: String(period),
+          semester: activeSemStr,
+          label: 'Blocked'
+        });
+      }
     }
 
     renderCurriculumSlotMatrix();
@@ -7169,18 +8123,30 @@ function handleCurriculumSlotCellClick(day, period) {
 
   // 2. Tool: Clear Slot ('CLEAR')
   if (curriculumActiveToolMode === 'CLEAR') {
-    // Remove block if any
-    localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
-    });
+    if (targetBaseCode && targetBaseCode !== 'ALL') {
+      // Clear ONLY for the selected course
+      const targetCourses = deptCourses.filter(c => {
+        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        return base === targetBaseCode;
+      });
+      targetCourses.forEach(c => {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
+    } else {
+      // Clear entire semester block and all courses in this slot
+      localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
+        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+      });
 
-    // Remove any course recommendation in this slot
-    deptCourses.forEach(c => {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        delete localCurriculumCourseRecs[c.code][day][period];
-      }
-    });
+      deptCourses.forEach(c => {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
+    }
 
     renderCurriculumSlotMatrix();
     renderCurriculumHoursBreakdown();
@@ -7188,11 +8154,8 @@ function handleCurriculumSlotCellClick(day, period) {
   }
 
   // 3. Tool: Theory Rec ('T') or Practical Rec ('P')
-  const assignSelect = document.getElementById('curriculum-target-subject-select');
-  const targetBaseCode = assignSelect ? assignSelect.value : '';
-
-  if (!targetBaseCode) {
-    showModalAlert('Select Subject', 'Please select a subject from the "Assign Subject" dropdown to assign to this period.', 'warning');
+  if (!targetBaseCode || targetBaseCode === 'ALL') {
+    showModalAlert('Select Subject', 'Please select a specific subject from the dropdown to assign Theory or Practical recommendations.', 'warning');
     return;
   }
 
@@ -7205,7 +8168,7 @@ function handleCurriculumSlotCellClick(day, period) {
     // Check if slot is already 'T' for this targetBaseCode -> Toggle OFF (unassign)
     let isSameToggle = false;
     deptCourses.forEach(c => {
-      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       if (b === targetBaseCode) {
         const currentVal = (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][period]) || '';
         if (currentVal === 'T') {
@@ -7216,7 +8179,7 @@ function handleCurriculumSlotCellClick(day, period) {
 
     if (isSameToggle) {
       deptCourses.forEach(c => {
-        const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         if (b === targetBaseCode && localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
           delete localCurriculumCourseRecs[c.code][day][period];
         }
@@ -7251,7 +8214,7 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Assign 'T'
     const matchingCourses = (state.courses || []).filter(c => {
-      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
     });
 
@@ -7272,7 +8235,7 @@ function handleCurriculumSlotCellClick(day, period) {
     const existingPair = findAssignedPracticalPair(day, period, targetBaseCode, semCourses);
     if (existingPair) {
       deptCourses.forEach(c => {
-        const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         if (b === targetBaseCode && localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
           existingPair.forEach(p => {
             delete localCurriculumCourseRecs[c.code][day][p];
@@ -7331,7 +8294,7 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Assign 'P' to both periods in pairToAssign
     const matchingCourses = (state.courses || []).filter(c => {
-      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
     });
 
@@ -7388,6 +8351,26 @@ function renderCurriculumHoursBreakdown() {
     const allFull = thFull && prFull;
     const remainingBalance = Math.max(0, (u.thTarget - thAssigned) + (u.prTarget - prAssigned));
 
+    // Count blocked slots for this course
+    let blockedCount = 0;
+    const matchingCourses = semCourses.filter(c => {
+      const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      return b === u.baseCode;
+    });
+    const checkedBlocked = new Set();
+    matchingCourses.forEach(c => {
+      const recs = localCurriculumCourseRecs[c.code] || {};
+      Object.keys(recs).forEach(day => {
+        Object.keys(recs[day] || {}).forEach(p => {
+          const slotKey = `${day}_${p}`;
+          if (!checkedBlocked.has(slotKey) && recs[day][p] === 'B') {
+            checkedBlocked.add(slotKey);
+            blockedCount++;
+          }
+        });
+      });
+    });
+
     html += `
       <div class="curriculum-hours-chip" 
            style="${borderStyle}; cursor: pointer; transition: all 0.15s ease;" 
@@ -7403,6 +8386,11 @@ function renderCurriculumHoursBreakdown() {
           ${u.prTarget > 0 ? `
             <span class="badge" style="background: ${prFull ? 'var(--success)' : 'var(--success-light)'}; color: ${prFull ? '#ffffff' : 'var(--success-dark)'}; border: 1px solid var(--success); font-size: 10px; padding: 1px 6px;">
               PR: ${prAssigned}/${u.prTarget} hrs
+            </span>
+          ` : ''}
+          ${blockedCount > 0 ? `
+            <span class="badge" style="background: #fff1f2; color: #dc2626; border: 1px dashed #ef4444; font-size: 10px; padding: 1px 6px;">
+              <i class="fa-solid fa-ban"></i> ${blockedCount} Blocked
             </span>
           ` : ''}
           ${allFull ? `
@@ -7544,6 +8532,7 @@ async function saveCurriculumSlotAllocations() {
         renderAllocationMatrix();
       }
 
+      updateCurriculumSlotsSnapshot();
       showModalAlert('Saved Successfully', 'Curriculum recommended slots and blocked periods have been saved and will be strictly respected during auto-generation!', 'success');
       renderCurriculumSlotMatrix();
       renderCurriculumHoursBreakdown();

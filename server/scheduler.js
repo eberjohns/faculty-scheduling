@@ -162,7 +162,7 @@ export function generateDepartmentSchedule({
   if (isSelective) {
     const selectedSet = new Set(selectedCourseCodes.map(code => code.trim().toUpperCase()));
     targetCourses = allDeptCourses.filter(c => {
-      const base = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return selectedSet.has(c.code.toUpperCase()) || selectedSet.has(base.toUpperCase());
     });
   }
@@ -612,7 +612,8 @@ export function generateDepartmentSchedule({
       SAME_DAY_STACKING: 0,
       SAME_PERIOD_REPETITION: 0,
       SHIFT_BALANCE: 0,
-      INTERVAL_CROSSING: 0
+      INTERVAL_CROSSING: 0,
+      COURSE_SLOT_BLOCKED: 0
     },
     bottleneckFaculty: {},
     bottleneckCourses: {}
@@ -657,7 +658,7 @@ export function generateDepartmentSchedule({
     if (!course) return false;
     const norm = (subjectCode || '').toUpperCase().trim();
     const cCode = (course.code || course.courseCode || '').toUpperCase().trim();
-    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const cat = (course.category || '').toUpperCase().trim();
     const name = (course.name || course.courseName || '').toUpperCase().trim();
     const dept = (course.department || '').toUpperCase().trim();
@@ -667,7 +668,7 @@ export function generateDepartmentSchedule({
       const hasBatch = commonBatches.some(b => {
         const bSubj = (b.subjectCode || '').toUpperCase().trim();
         const bCourse = (b.courseCode || '').toUpperCase().trim();
-        const bBase = bCourse.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const bBase = bCourse.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         if (bSubj !== norm && !(norm.startsWith('MDC') && bSubj.startsWith('MDC'))) return false;
         return bCourse === cCode || bBase === baseCode || cCode.startsWith(bCourse) || bCourse.startsWith(baseCode);
       });
@@ -721,44 +722,13 @@ export function generateDepartmentSchedule({
   // Helper: check Admin Global Lock with Semester Scoping & Subject Selective Locking
   function isGlobalLocked(day, period, courseSemester, courseObj = null) {
     return globalLocks.some(lock => {
-      if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
-      if (String(lock.period) !== String(period)) return false;
+      if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
+      if (String(lock.period).trim() !== String(period).trim()) return false;
       const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
       const cSem = String(courseSemester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-      if (lockSem && lockSem !== 'all' && lockSem !== cSem) {
+      if (lockSem && lockSem !== 'all' && cSem && lockSem !== cSem) {
         return false;
       }
-      const normLabel = (lock.label || '').toUpperCase().trim();
-      const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
-      if (!commonCodes.includes(normLabel)) {
-        return true; // 'Other' or custom label locks entire semester
-      }
-      if (!courseObj) return true;
-
-      // 1. Direct match with course
-      if (courseMatchesCommonSubject(courseObj, normLabel, db.commonBatches || [])) {
-        return true;
-      }
-
-      // 2. Check if department offers any course matching this common subject for this semester
-      const dept = (courseObj.department || '').toUpperCase().trim();
-      const deptCoursesForSem = (db.courses || []).filter(c => {
-        const cDept = (c.department || '').toUpperCase().trim();
-        const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-        const matchesDept = !dept || cDept === dept;
-        const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
-        return matchesDept && matchesSem;
-      });
-
-      const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
-        courseMatchesCommonSubject(c, normLabel, db.commonBatches || [])
-      );
-
-      if (hasMatchingCourseInDept) {
-        return false;
-      }
-
-      // Fallback: place section lock just like other!
       return true;
     });
   }
@@ -811,6 +781,17 @@ export function generateDepartmentSchedule({
     for (const p of periodsGroup) {
       if (allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0) {
         return false;
+      }
+    }
+
+    // 0b. Course-specific slot block (Curriculum slot allocation: 'B') - Strictly enforced
+    const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+    if (cardRecs && cardRecs[day]) {
+      for (const p of periodsGroup) {
+        if (cardRecs[day][String(p)] === 'B') {
+          recordRejection('COURSE_SLOT_BLOCKED', card);
+          return false;
+        }
       }
     }
 
@@ -948,8 +929,17 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // 1. Course-level checks (Global Lock, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
+    // 1. Course-level checks (Global Lock, Course Slot Block, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+    const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+    if (cardRecs && cardRecs[day]) {
+      for (const p of periodsGroup) {
+        if (cardRecs[day][String(p)] === 'B') {
+          recordRejection('COURSE_SLOT_BLOCKED', card);
+          return [];
+        }
+      }
+    }
     if (card.type === 'P') {
       const has2 = periodsGroup.includes('2');
       const has3 = periodsGroup.includes('3');
@@ -1302,6 +1292,10 @@ export function generateDepartmentSchedule({
           const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
           if (isAlreadyOccupied) return;
 
+          // Course-specific slot block: strictly skip blocked periods
+          const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+          if (isBlocked) return;
+
           const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
 
           if (isOwnRecP) {
@@ -1338,6 +1332,10 @@ export function generateDepartmentSchedule({
       candidateSlots.forEach(slotGroup => {
         const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
         if (isAlreadyOccupied) return;
+
+        // Course-specific slot block: strictly skip blocked periods
+        const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+        if (isBlocked) return;
 
         const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
 
@@ -1714,6 +1712,10 @@ export function generateDepartmentSchedule({
 
   if (diagnostics.rejectionCounts.BATCH_CLASH > 0) {
     actionableSuggestions.push('Parallel courses share identical student cohort batches. Verify your batch mappings or allow alternate semester scheduling.');
+  }
+
+  if (diagnostics.rejectionCounts.COURSE_SLOT_BLOCKED > 0) {
+    actionableSuggestions.push('Specific course slot blocks prevented scheduling in restricted periods. Review Curriculum Slot Allocation to adjust course blocks.');
   }
 
   if (diagnostics.rejectionCounts.GLOBAL_LOCK > 0) {

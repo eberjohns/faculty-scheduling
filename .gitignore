@@ -10,3 +10,7 @@
 *.db-wal
 timetable.db
 server/data/*.db
+
+# Security & Secrets
+*.key
+server/data/secret.key

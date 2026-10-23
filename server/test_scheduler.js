@@ -475,4 +475,49 @@ if (autoPracResult.success && autoPracResult.allocations["CSC501-P"]) {
 }
 console.log("Practical Generic Teachers Override to Co-Teaching (Expected 2):", autoCoTaught === 2 ? "PASSED (Both teachers in same slot)" : "FAILED (" + autoCoTaught + ")");
 
+console.log("\n--- Testing Course-Specific Slot Blocking ('B') ---");
+const blockDb = {
+  faculty: [
+    { code: "T1", name: "Teacher One", department: "MATHS", maxHours: 16 }
+  ],
+  courses: [
+    { 
+      code: "MTH101", 
+      name: "Calculus", 
+      department: "MATHS", 
+      semester: "1", 
+      courseType: "T", 
+      hours: 4, 
+      recommendations: { 
+        MONDAY: { "1": "B", "2": "B" },
+        TUESDAY: { "1": "T" }
+      } 
+    }
+  ],
+  courseFacultyAssignments: {
+    "MTH101": ["T1"]
+  },
+  allocations: { "MATHS": {} },
+  config: {
+    periods: ["1", "2", "3", "LB", "4", "5", "6"],
+    globalLockedPeriods: []
+  }
+};
+
+const blockResult = generateDepartmentSchedule({
+  db: blockDb,
+  departmentName: "MATHS",
+  semester: "1"
+});
+
+let placedInBlockedSlots = false;
+if (blockResult.success && blockResult.allocations["MTH101"]) {
+  const mthMon = blockResult.allocations["MTH101"].MONDAY || {};
+  if ((mthMon["1"] && mthMon["1"].length > 0) || (mthMon["2"] && mthMon["2"].length > 0)) {
+    placedInBlockedSlots = true;
+  }
+}
+
+console.log("Course MTH101 Blocked on Monday P1 & P2 Respected:", (!placedInBlockedSlots && blockResult.success) ? "PASSED (0 slots placed in blocked periods)" : "FAILED");
+
 

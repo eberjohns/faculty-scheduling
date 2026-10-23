@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -6,6 +7,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb, readDb, writeDb } from './db.js';
 import { generateDepartmentSchedule } from './scheduler.js';
+import {
+  hashPassword,
+  verifyPassword,
+  encryptDeptPasscode,
+  decryptDeptPasscode,
+  verifyDeptPassword,
+  generateToken,
+  verifyToken,
+  authLimiter,
+  apiLimiter,
+  sanitizeExcelRows
+} from './security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,10 +26,32 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS and parsing of JSON bodies
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Security hardening: hide server banner
+app.disable('x-powered-by');
+
+// Standard Security HTTP Headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+// Enable CORS and parsing of JSON bodies with payload limits
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Apply API rate limiting and no-cache headers to /api routes
+app.use('/api', apiLimiter, (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // Serve static frontend files with no-cache to ensure browsers always receive latest updates
 app.use(express.static(path.join(__dirname, '../public'), {
@@ -45,9 +80,12 @@ app.head(['/', '/health', '/api/health', '/ping'], (req, res) => {
   res.status(200).end();
 });
 
-// Configure Multer for in-memory uploads
+// Configure Multer for in-memory uploads with size limits to prevent memory exhaustion DoS
 const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+});
 
 // Helper to generate unique initials code for faculty
 function generateFacultyCode(name, existingFaculty) {
@@ -157,40 +195,55 @@ function findAllocationClashes(allocations) {
 // -------------------------------------------------------------
 // Authentication & Authorization Middlewares
 // -------------------------------------------------------------
+function extractToken(req) {
+  const authHeader = req.headers['authorization'];
+  if (authHeader) {
+    if (authHeader.startsWith('Bearer ')) {
+      return authHeader.substring(7).trim();
+    }
+    return authHeader.trim();
+  }
+  return req.query.token ? String(req.query.token).trim() : null;
+}
+
 function requireAdmin(req, res, next) {
-  const token = req.headers['authorization'] || req.query.token;
-  if (token !== 'admin-token') {
+  const token = extractToken(req);
+  const auth = verifyToken(token);
+  if (!auth || auth.role !== 'admin') {
     return res.status(401).json({ success: false, message: 'Unauthorized: Admin access required.' });
   }
+  req.user = auth;
   next();
 }
 
 function requireDepartment(req, res, next) {
-  const token = req.headers['authorization'];
-  if (!token || !token.startsWith('dept-token-')) {
+  const token = extractToken(req);
+  const auth = verifyToken(token);
+  if (!auth || (auth.role !== 'department' && auth.role !== 'admin')) {
     return res.status(401).json({ success: false, message: 'Unauthorized: Department access required.' });
   }
-  
-  const tokenDept = token.substring('dept-token-'.length).toUpperCase();
-  const reqDept = (req.body.departmentName || req.query.department || '').toUpperCase();
-  
-  if (reqDept && reqDept !== tokenDept) {
+
+  const reqDept = (req.body.departmentName || req.query.department || '').toUpperCase().trim();
+  const tokenDept = (auth.departmentName || '').toUpperCase().trim();
+
+  // Admins can manage any department; departments can only manage their own
+  if (auth.role === 'department' && reqDept && tokenDept && reqDept !== tokenDept) {
     return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
   }
-  
-  req.departmentName = tokenDept;
+
+  req.departmentName = tokenDept || reqDept;
+  req.user = auth;
   next();
 }
 
 function requireUser(req, res, next) {
-  const token = req.headers['authorization'] || req.query.token;
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Unauthorized: Access token required.' });
+  const token = extractToken(req);
+  const auth = verifyToken(token);
+  if (!auth) {
+    return res.status(401).json({ success: false, message: 'Unauthorized: Access token required or expired.' });
   }
-  if (token === 'admin-token' || token.startsWith('dept-token-')) {
-    return next();
-  }
-  return res.status(401).json({ success: false, message: 'Unauthorized: Invalid access token.' });
+  req.user = auth;
+  next();
 }
 
 // -------------------------------------------------------------
@@ -204,7 +257,6 @@ app.get('/healthcheck', (req, res) => {
   res.status(200).end();
 });
 
-
 // Helper to ensure all departments (existing or newly discovered) have a default password of '123456'
 function ensureDepartmentDefaults(db) {
   if (!db.departments) db.departments = {};
@@ -217,10 +269,10 @@ function ensureDepartmentDefaults(db) {
   deptSet.forEach(name => {
     const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
     if (!existingKey) {
-      db.departments[name] = { password: '123456' };
+      db.departments[name] = { password: encryptDeptPasscode('123456') };
       changed = true;
     } else if (!db.departments[existingKey].password) {
-      db.departments[existingKey].password = '123456';
+      db.departments[existingKey].password = encryptDeptPasscode('123456');
       changed = true;
     }
   });
@@ -231,13 +283,25 @@ function ensureDepartmentDefaults(db) {
 // -------------------------------------------------------------
 // Authentication Endpoints
 // -------------------------------------------------------------
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
   const { role, password, departmentName } = req.body;
   const db = readDb();
 
+  if (!password) {
+    return res.status(400).json({ success: false, message: 'Password is required' });
+  }
+
   if (role === 'admin') {
-    if (password === db.config.adminPassword) {
-      return res.json({ success: true, token: 'admin-token', user: { role: 'admin' } });
+    const adminStored = db.config.adminPassword || 'admin';
+    const check = verifyPassword(password, adminStored);
+    if (check.valid) {
+      // Auto-upgrade plain text admin password to scrypt hash in DB
+      if (check.needsUpgrade) {
+        db.config.adminPassword = hashPassword(password);
+        writeDb(db);
+      }
+      const token = generateToken({ role: 'admin' });
+      return res.json({ success: true, token, user: { role: 'admin' } });
     }
     return res.status(401).json({ success: false, message: 'Invalid Admin password' });
   } else if (role === 'department') {
@@ -256,18 +320,25 @@ app.post('/api/auth/login', (req, res) => {
 
     // Any newly added department has default password "123456"
     if (!dept) {
-      db.departments[deptKey] = { password: '123456' };
+      db.departments[deptKey] = { password: encryptDeptPasscode('123456') };
       writeDb(db);
       dept = db.departments[deptKey];
     } else if (!dept.password) {
-      dept.password = '123456';
+      dept.password = encryptDeptPasscode('123456');
       writeDb(db);
     }
 
-    if (password === dept.password) {
+    const check = verifyDeptPassword(password, dept.password);
+    if (check.valid) {
+      // Auto-upgrade plain text department password to encrypted form in DB
+      if (check.needsUpgrade) {
+        dept.password = encryptDeptPasscode(password);
+        writeDb(db);
+      }
+      const token = generateToken({ role: 'department', departmentName: deptKey });
       return res.json({
         success: true,
-        token: `dept-token-${deptKey}`,
+        token,
         user: { role: 'department', departmentName: deptKey }
       });
     }
@@ -315,9 +386,16 @@ app.post('/api/admin/global-locked-periods', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, message: 'Locks must be an array.' });
   }
   const db = readDb();
-  db.config.globalLockedPeriods = locks;
+  db.config.globalLockedPeriods = locks
+    .map(l => ({
+      day: String(l.day || '').trim().toUpperCase(),
+      period: String(l.period || '').trim(),
+      semester: String(l.semester || 'all').trim(),
+      label: String(l.label || '').trim()
+    }))
+    .filter(l => l.day && l.period);
   writeDb(db);
-  res.json({ success: true, message: 'Global locked periods updated successfully.' });
+  res.json({ success: true, message: 'Global locked periods updated successfully.', locks: db.config.globalLockedPeriods });
 });
 
 // Common Subject Batches Endpoints
@@ -398,11 +476,12 @@ app.get('/api/departments', (req, res) => {
 
 // Change Department Password Endpoint (used by departments in Advanced Features)
 app.post('/api/department/change-password', (req, res) => {
-  const token = req.headers['authorization'];
+  const token = extractToken(req);
+  const auth = verifyToken(token);
   let deptName = '';
-  if (token && token.startsWith('dept-token-')) {
-    deptName = token.substring('dept-token-'.length).trim();
-  } else if (token === 'admin-token' && req.body.departmentName) {
+  if (auth && auth.role === 'department' && auth.departmentName) {
+    deptName = auth.departmentName.trim();
+  } else if (auth && auth.role === 'admin' && req.body.departmentName) {
     deptName = req.body.departmentName.trim();
   } else {
     return res.status(401).json({ success: false, message: 'Unauthorized: Department access token required.' });
@@ -423,7 +502,8 @@ app.post('/api/department/change-password', (req, res) => {
   const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === deptName.toLowerCase());
   const currentDbPassword = (existingKey && db.departments[existingKey]?.password) ? db.departments[existingKey].password : '123456';
 
-  if (currentPassword !== currentDbPassword) {
+  const check = verifyDeptPassword(currentPassword, currentDbPassword);
+  if (!check.valid) {
     return res.status(400).json({ success: false, message: 'Incorrect current password.' });
   }
 
@@ -431,7 +511,7 @@ app.post('/api/department/change-password', (req, res) => {
   if (!db.departments[targetKey]) {
     db.departments[targetKey] = {};
   }
-  db.departments[targetKey].password = newPassword.trim();
+  db.departments[targetKey].password = encryptDeptPasscode(newPassword.trim());
   writeDb(db);
 
   res.json({ success: true, message: `Password changed successfully for department ${targetKey}.` });
@@ -448,7 +528,7 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
   if (!db.departments[existingKey]) {
     db.departments[existingKey] = {};
   }
-  db.departments[existingKey].password = password.trim();
+  db.departments[existingKey].password = encryptDeptPasscode(password.trim());
   writeDb(db);
   res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
@@ -468,7 +548,8 @@ app.get('/api/admin/departments', requireAdmin, (req, res) => {
 
   const result = depts.map(name => {
     const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
-    const passcode = (existingKey && db.departments[existingKey]) ? db.departments[existingKey].password || '123456' : '123456';
+    const storedPasscode = (existingKey && db.departments[existingKey]) ? db.departments[existingKey].password || '123456' : '123456';
+    const passcode = decryptDeptPasscode(storedPasscode);
     const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
@@ -501,9 +582,11 @@ app.get('/api/courses', requireUser, (req, res) => {
   }
   const groupMappings = db.groupMappings || {};
   result = result.map(c => {
+    const cBase = (c.code || '').replace(/-(T|P)$/, '');
+    const mapped = groupMappings[c.code] || groupMappings[cBase] || c.mappedBatches || [];
     return {
       ...c,
-      mappedBatches: groupMappings[c.code] || []
+      mappedBatches: mapped
     };
   });
   res.json(result);
@@ -658,9 +741,9 @@ app.post('/api/curriculum-slots', requireUser, (req, res) => {
   if (courseRecommendations && typeof courseRecommendations === 'object') {
     Object.keys(courseRecommendations).forEach(courseCode => {
       const recs = courseRecommendations[courseCode];
-      const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       const coursesToUpdate = db.courses.filter(c => {
-        const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         return (c.code === courseCode || cBase === baseCode) && c.department.toUpperCase() === deptUpper;
       });
 
@@ -731,7 +814,7 @@ app.post('/api/curriculum-slots/reset', requireUser, (req, res) => {
   const coursesToReset = db.courses.filter(c => {
     const cDept = (c.department || '').toUpperCase();
     const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-    const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const matchDept = cDept === deptUpper;
     const matchSem = !semStr || cSem === semStr;
     const matchCourse = (!courseFilter || courseFilter === 'ALL' || cBase === courseFilter || c.code === courseFilter);
@@ -959,7 +1042,7 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
       dayPrefixes.forEach(d => { periods.forEach(p => { slotHeaders.push(`${d}-${p}`); }); });
       
       const headers = [
-        'Course Code', 'Course Name', 'Type', 'Group', 'Semester', 'Program', 'Category', 'Department',
+        'Course Code', 'Course Name', 'Type', 'Class', 'Semester', 'Program', 'Category', 'Department',
         ...slotHeaders
       ];
 
@@ -973,11 +1056,11 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
       if (sampleCourses.length === 0) {
         // Fallback default examples if DB is empty
         rows.push([
-          'MAT1CJ101_G1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
+          'MAT1CJ101_C1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
           '', '', 'T', '', '', '', '', '', '', '', '', '', 'T', '', '', '', '', '', '', '', '', 'T', '', '', '', 'T', '', '', '', ''
         ]);
         rows.push([
-          'CSC1CR102_G1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
+          'CSC1CR102_C1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
           '', '', '', '', 'P', 'P', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
         ]);
       } else {
@@ -986,7 +1069,7 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
             c.code || '',
             c.name || '',
             c.courseType || 'T',
-            c.group !== undefined ? c.group : 0,
+            c.class !== undefined ? c.class : (c.group !== undefined ? c.group : 0),
             c.semester || '1',
             c.programType || 'UG',
             c.category || 'MAJOR',
@@ -1067,7 +1150,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+    const data = sanitizeExcelRows(xlsx.utils.sheet_to_json(sheet, { header: 1 }));
 
     if (data.length < 2) {
       return res.status(400).json({ error: 'Invalid course sheet: Too few rows.' });
@@ -1113,7 +1196,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
  
        // Named metadata columns (case-insensitive)
        if (hdrLow === 'course code' || hdrLow === 'coursecode') { codeColIdx  = c; continue; }
-       if (hdrLow === 'group')                                   { groupColIdx = c; continue; }
+       if (hdrLow === 'group' || hdrLow === 'class' || hdrLow === 'classes' || hdrLow === 'section') { groupColIdx = c; continue; }
        if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
        if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
        if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
@@ -1127,7 +1210,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
     if (!is_new_format) {
       return res.status(400).json({
         error: 'Could not find a "Course Code" column in the header row. ' +
-               'Please make sure the first row contains column headers like "Course Code", "Group", "Type", "Course Name".'
+               'Please make sure the first row contains column headers like "Course Code", "Class" (or "Group"), "Type", "Course Name".'
       });
     }
 
@@ -1188,11 +1271,20 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
       }
 
       // Parse course code — this is the base code (e.g. MAT1CJ101)
-      const baseCode = String(code_raw || '').trim();
-      if (!baseCode || baseCode === 'undefined' || baseCode.toLowerCase() === 'course code') continue;
+      const rawCode = String(code_raw || '').trim();
+      if (!rawCode || rawCode === 'undefined' || rawCode.toLowerCase() === 'course code') continue;
 
-      // Build the course code: if grouped, suffix with _G<n>
-      const courseCode = group_num === 0 ? baseCode : `${baseCode}_G${group_num}`;
+      // Clean baseCode if already suffixed with _G or _C or -(T|P)
+      const baseCode = rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
+      // Check if code in Excel had suffix like _C1 or _G1 when group_num wasn't set
+      const codeSuffixMatch = rawCode.match(/(_G|_C)(\d+)/);
+      if (codeSuffixMatch && group_num === 0) {
+        group_num = parseInt(codeSuffixMatch[2]);
+      }
+
+      // Build course code: if class/group specified, suffix with _C<n>
+      const courseCode = group_num === 0 ? baseCode : `${baseCode}_C${group_num}`;
 
       // Resolve department from batch-dept mappings (using code prefix)
       let department = '';
@@ -1313,6 +1405,8 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         alias,
         recommendations,
         group:       group_num,
+        class:       group_num,
+        classes:     group_num > 1 ? group_num : 1,
         programType: program_val,
         courseType:  dbMatch ? (dbMatch.courseType || type_val) : type_val
       });
@@ -1394,7 +1488,7 @@ app.post('/api/import/staff', requireAdmin, upload.single('file'), (req, res) =>
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet);
+    const data = sanitizeExcelRows(xlsx.utils.sheet_to_json(sheet));
 
     if (data.length === 0) {
       return res.status(400).json({ error: 'No records found in staff Excel.' });
@@ -1462,7 +1556,7 @@ app.post('/api/import/batch-dept-mappings', requireAdmin, upload.single('file'),
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet);
+    const data = sanitizeExcelRows(xlsx.utils.sheet_to_json(sheet));
 
     if (data.length === 0) {
       return res.status(400).json({ error: 'No records found in Excel.' });
@@ -1661,7 +1755,21 @@ app.post('/api/admin/group-mappings', requireAdmin, (req, res) => {
   }
 
   const db = readDb();
-  db.groupMappings[courseCode] = batches.map(b => b.trim().toUpperCase());
+  if (!db.groupMappings) db.groupMappings = {};
+  const cleanBatches = batches.map(b => b.trim().toUpperCase());
+  db.groupMappings[courseCode] = cleanBatches;
+  const baseCode = courseCode.replace(/-(T|P)$/, '');
+  db.groupMappings[baseCode] = cleanBatches;
+
+  if (Array.isArray(db.courses)) {
+    db.courses.forEach(c => {
+      const cBase = (c.code || '').replace(/-(T|P)$/, '');
+      if (c.code === courseCode || cBase === baseCode) {
+        c.mappedBatches = cleanBatches;
+      }
+    });
+  }
+
   writeDb(db);
   res.json({ success: true, message: 'Group mapping updated successfully.' });
 });
@@ -2420,12 +2528,18 @@ app.post('/api/admin/change-password', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, message: 'Current and new passwords are required.' });
   }
 
+  if (newPassword.trim().length < 4) {
+    return res.status(400).json({ success: false, message: 'New password must be at least 4 characters long.' });
+  }
+
   const db = readDb();
-  if (currentPassword !== db.config.adminPassword) {
+  const adminStored = db.config.adminPassword || 'admin';
+  const check = verifyPassword(currentPassword, adminStored);
+  if (!check.valid) {
     return res.status(400).json({ success: false, message: 'Incorrect current password.' });
   }
 
-  db.config.adminPassword = newPassword.trim();
+  db.config.adminPassword = hashPassword(newPassword.trim());
   writeDb(db);
   res.json({ success: true, message: 'Administrator password changed successfully.' });
 });
@@ -2438,7 +2552,7 @@ app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+    const data = sanitizeExcelRows(xlsx.utils.sheet_to_json(sheet, { header: 1 }));
 
     if (data.length < 2) {
       return res.status(400).json({ error: 'No records found in group mappings Excel.' });
@@ -2453,7 +2567,7 @@ app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req
       const hdr = String(headerRow[c] || '').trim().toLowerCase();
       if (hdr === 'course code' || hdr === 'coursecode' || hdr === 'code') {
         codeColIdx = c;
-      } else if (hdr === 'group') {
+      } else if (hdr === 'group' || hdr === 'class' || hdr === 'classes' || hdr === 'section') {
         groupColIdx = c;
       } else if (hdr === 'batches' || hdr === 'batch name' || hdr === 'batchname' || hdr === 'batch' || hdr === 'batch_name') {
         batchesColIdx = c;
@@ -2512,8 +2626,9 @@ app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req
       let dbCourse = existingCourses.find(c => c.code === resolvedCode);
 
       if (!dbCourse && lastGroup > 0) {
-        resolvedCode = `${lastCourseCode}_G${lastGroup}`;
-        dbCourse = existingCourses.find(c => c.code === resolvedCode);
+        resolvedCode = `${lastCourseCode}_C${lastGroup}`;
+        dbCourse = existingCourses.find(c => c.code === resolvedCode) || existingCourses.find(c => c.code === `${lastCourseCode}_G${lastGroup}`);
+        if (dbCourse) resolvedCode = dbCourse.code;
       }
 
       if (!dbCourse) {
@@ -2802,7 +2917,7 @@ app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+    const data = sanitizeExcelRows(xlsx.utils.sheet_to_json(sheet, { header: 1 }));
 
     if (data.length <= 1) {
       return res.status(400).json({ error: 'Excel sheet has no data rows.' });
@@ -2926,6 +3041,18 @@ try {
 } catch (err) {
   console.error("Failed to consolidate duplicate courses on startup:", err);
 }
+
+// Centralized Error Handling Middleware (prevents stack traces and internal leaks to clients)
+app.use((err, req, res, next) => {
+  console.error('[Unhandled Error]', err.message);
+  if (res.headersSent) {
+    return next(err);
+  }
+  const statusCode = err.status || err.statusCode || 500;
+  res.status(statusCode).json({
+    error: err.message && statusCode < 500 ? err.message : 'Internal server error occurred.'
+  });
+});
 
 // Start Server
 initDb().then(() => {

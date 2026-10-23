@@ -19,7 +19,7 @@ if (!fs.existsSync(DB_DIR)) {
 }
 
 // Setup Postgres Pool if DATABASE_URL is present
-const isPostgres = !!process.env.DATABASE_URL;
+let isPostgres = !!process.env.DATABASE_URL;
 let pool = null;
 let sqliteDb = null;
 
@@ -65,8 +65,13 @@ export async function initDb() {
         client.release();
       }
     } catch (err) {
-      console.error("Error initializing PostgreSQL database:", err);
-      throw err;
+      console.warn(`[Database] PostgreSQL connection failed (${err.message}). Falling back to local SQLite...`);
+      isPostgres = false;
+      if (!sqliteDb) {
+        sqliteDb = new Database(DB_PATH);
+      }
+      initDbSync();
+      console.log("[Database] Local SQLite database successfully initialized and loaded as fallback.");
     }
   } else {
     try {
@@ -127,6 +132,71 @@ function parseDbData(rawData) {
     db.batchConfig.yearSemMap = {};
   }
 
+  // Auto-migrate legacy _G<num> to unified _C<num> class representation
+  let needsDbSave = false;
+  if (Array.isArray(db.courses)) {
+    db.courses.forEach(c => {
+      if (typeof c.code === 'string' && c.code.includes('_G')) {
+        c.code = c.code.replace(/_G(\d+)/g, '_C$1');
+        needsDbSave = true;
+      }
+      if (c.group && !c.class) {
+        c.class = c.group;
+        needsDbSave = true;
+      }
+      if (c.class && !c.group) {
+        c.group = c.class;
+        needsDbSave = true;
+      }
+    });
+  }
+
+  if (db.groupMappings && typeof db.groupMappings === 'object') {
+    const updatedGroupMappings = {};
+    let mappingsChanged = false;
+    Object.entries(db.groupMappings).forEach(([k, v]) => {
+      const newKey = k.replace(/_G(\d+)/g, '_C$1');
+      updatedGroupMappings[newKey] = v;
+      if (newKey !== k) mappingsChanged = true;
+    });
+    if (mappingsChanged) {
+      db.groupMappings = updatedGroupMappings;
+      needsDbSave = true;
+    }
+  }
+
+  if (db.allocations && typeof db.allocations === 'object') {
+    const updatedAllocs = {};
+    let allocsChanged = false;
+    Object.entries(db.allocations).forEach(([k, v]) => {
+      const newKey = k.replace(/_G(\d+)/g, '_C$1');
+      updatedAllocs[newKey] = v;
+      if (newKey !== k) allocsChanged = true;
+    });
+    if (allocsChanged) {
+      db.allocations = updatedAllocs;
+      needsDbSave = true;
+    }
+  }
+
+  if (db.subjectTeacherMapping && typeof db.subjectTeacherMapping === 'object') {
+    let stmChanged = false;
+    Object.values(db.subjectTeacherMapping).forEach(deptMap => {
+      if (deptMap && typeof deptMap === 'object') {
+        Object.keys(deptMap).forEach(k => {
+          if (k.includes('_G')) {
+            const newKey = k.replace(/_G(\d+)/g, '_C$1');
+            deptMap[newKey] = deptMap[k];
+            delete deptMap[k];
+            stmChanged = true;
+          }
+        });
+      }
+    });
+    if (stmChanged) needsDbSave = true;
+  }
+  db.__needsDbSave = needsDbSave;
+
   return db;
 }
 
@@ -148,6 +218,12 @@ function initDbSync() {
     }
   });
   dbInstance = parseDbData(rawData);
+
+  if (dbInstance && dbInstance.__needsDbSave) {
+    delete dbInstance.__needsDbSave;
+    writeDb(dbInstance);
+    console.log("Automatically migrated legacy _G group keys to unified _C class format in SQLite.");
+  }
 
   // Auto-migrate from db.json if SQLite is empty
   const checkEmpty = sqliteDb.prepare('SELECT count(*) as count FROM app_data').get();

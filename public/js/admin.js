@@ -35,6 +35,7 @@ let state = {
   batchDeptMappings: [],
   batchConfig: { programTypes: {}, fundingTypes: {}, yearSemMap: {} },
   groupMappings: {},
+  subjectTeacherMapping: {},
   allBatches: [],
   currentTab: 'tab-admin-dashboard',
   selectedDataSubtab: 'subtab-courses'
@@ -281,6 +282,13 @@ function bindCustomModals() {
         showModalAlert('Success', 'Group mappings saved successfully.', 'success');
         await fetchGlobalData();
         renderGroupMappings();
+        if (state.currentTab === 'tab-admin-common-subject-mapping') {
+          if (activeAdminCommonSubjectCode) {
+            openAdminCommonSubjectDetail(activeAdminCommonSubjectCode);
+          } else {
+            renderAdminCommonSubjectMapping();
+          }
+        }
       } else {
         showModalAlert('Error', result.message || 'Failed to save mappings.', 'danger');
       }
@@ -293,31 +301,33 @@ function bindCustomModals() {
   const btnExportGroupMappings = document.getElementById('btn-export-group-mappings');
   if (btnExportGroupMappings) {
     btnExportGroupMappings.addEventListener('click', () => {
-      const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+      const groupCourses = state.courses.filter(c => (c.group && c.group > 0) || (c.class && c.class > 0) || (c.classes && c.classes > 1) || /(_G|_C)\d+/.test(c.code));
       const uniq = [];
       groupCourses.forEach(c => {
         if (!uniq.some(uc => uc.code === c.code)) uniq.push(c);
       });
 
       if (uniq.length === 0) {
-        showModalAlert('No Groups', 'There are no group courses configured in the database to export.', 'info');
+        showModalAlert('No Classes', 'There are no class/section courses configured in the database to export.', 'info');
         return;
       }
 
-      let csv = "Course Code,Course Name,Group,Batches\n";
+      let csv = "Course Code,Course Name,Class,Batches\n";
       uniq.forEach(c => {
-        const baseCode = c.code.replace(/_G\d+$/, '');
+        const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 1);
         const mapped = (c.mappedBatches || []).join(',');
         const nameEscaped = `"${c.name.replace(/"/g, '""')}"`;
         const batchesEscaped = `"${mapped.replace(/"/g, '""')}"`;
-        csv += `${baseCode},${nameEscaped},${c.group},${batchesEscaped}\n`;
+        csv += `${baseCode},${nameEscaped},${classNum},${batchesEscaped}\n`;
       });
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.setAttribute("href", url);
-      link.setAttribute("download", `group_batches_export.csv`);
+      link.setAttribute("download", `class_batches_export.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -473,6 +483,21 @@ async function initAdmin() {
       }
     });
   });
+
+  // Handle Common Subject Mapping UI events
+  const btnBackCommon = document.getElementById('btn-back-to-admin-common');
+  if (btnBackCommon) {
+    btnBackCommon.addEventListener('click', () => {
+      activeAdminCommonSubjectCode = null;
+      renderAdminCommonSubjectMapping();
+    });
+  }
+  const adminCommonSemFilter = document.getElementById('admin-common-sem-filter');
+  if (adminCommonSemFilter) {
+    adminCommonSemFilter.addEventListener('change', () => {
+      renderAdminCommonSubjectMapping();
+    });
+  }
 
   // Bind period times save button
   const btnSavePeriodTimes = document.getElementById('btn-save-period-times');
@@ -668,7 +693,7 @@ function switchView(viewName) {
 async function fetchGlobalData() {
   try {
     const token = sessionStorage.getItem('adminToken') || 'admin-token';
-    const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes, allocationsRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes, allocationsRes, subjectMappingRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/admin/departments`, { headers: { 'Authorization': token } }),
       fetch(`${API_BASE}/courses`),
@@ -677,7 +702,8 @@ async function fetchGlobalData() {
       fetch(`${API_BASE}/admin/batch-config`),
       fetch(`${API_BASE}/admin/group-mappings`),
       fetch(`${API_BASE}/batches`),
-      fetch(`${API_BASE}/allocations`)
+      fetch(`${API_BASE}/allocations`),
+      fetch(`${API_BASE}/department/subject-mapping`)
     ]);
 
     state.config          = await configRes.json();
@@ -689,6 +715,7 @@ async function fetchGlobalData() {
     state.groupMappings   = await groupRes.json();
     state.allBatches      = await allBatchesRes.json();
     state.allocations     = await allocationsRes.json();
+    state.subjectTeacherMapping = (subjectMappingRes && subjectMappingRes.ok) ? await subjectMappingRes.json() : {};
 
     if (state.config && Array.isArray(state.config.globalLockedPeriods)) {
       localGlobalLocks = JSON.parse(JSON.stringify(state.config.globalLockedPeriods));
@@ -807,6 +834,8 @@ async function showTab(tabId) {
     renderGroupMappings();
     renderMajorAllocations();
     renderBatchAllocationStatus();
+  } else if (tabId === 'tab-admin-common-subject-mapping') {
+    renderAdminCommonSubjectMapping();
   } else if (tabId === 'tab-admin-global-locks') {
     await loadGlobalLocks();
     renderGlobalLocksGrid();
@@ -1336,8 +1365,14 @@ function renderInspectRecords() {
   coursesTbody.innerHTML = '';
   filteredCourses.forEach(c => {
     const tr = document.createElement('tr');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const codeDisplay = classNum
+      ? `${cleanCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${classNum}</span>`
+      : cleanCode;
     tr.innerHTML = `
-      <td><strong>${c.code.replace(/_G\d+$/, '')}</strong></td>
+      <td><strong>${codeDisplay}</strong></td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>${c.name}</td>
@@ -1755,7 +1790,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   if (assignedCodes.length === 0) return '';
 
   const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-  const groupSuffix = course.group > 0 ? ` (G${course.group})` : (course.classNum ? ` (Class ${course.classNum})` : '');
+  const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
+  const groupSuffix = classNum ? ` (C${classNum})` : '';
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -2374,9 +2410,9 @@ function renderGroupMappings() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+  const groupCourses = state.courses.filter(c => (c.group && c.group > 0) || (c.class && c.class > 0) || (c.classes && c.classes > 1) || /(_G|_C)\d+/.test(c.code));
   if (groupCourses.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No group courses found. Import a course Excel with group column values greater than 0.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No class/section courses found. Import a course Excel with Class column values or configure classes in department portal.</td></tr>';
     return;
   }
 
@@ -2388,12 +2424,14 @@ function renderGroupMappings() {
   uniqGroupCourses.forEach(c => {
     const tr = document.createElement('tr');
     const mapped = c.mappedBatches || [];
-    const baseCode = c.code.replace(/_G\d+$/, '');
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 1);
 
     tr.innerHTML = `
       <td><strong>${baseCode}</strong></td>
       <td>${c.name}</td>
-      <td><span class="badge" style="background:var(--accent);color:var(--accent-dark);font-weight:bold;border:1.5px solid var(--accent-dark);">G${c.group}</span></td>
+      <td><span class="badge" style="background:var(--accent);color:var(--accent-dark);font-weight:bold;border:1.5px solid var(--accent-dark);">C${classNum}</span></td>
       <td>${mapped.length > 0
         ? mapped.map(b => `<span class="badge badge-info" style="margin:2px;">${b}</span>`).join('')
         : '<span class="text-muted text-sm">No batches mapped</span>'}</td>
@@ -2420,13 +2458,15 @@ function openGroupMappingModal(course, initialMapped, isSingleSelect = false) {
   const syncDataset = () => { modal.dataset.currentMapped = JSON.stringify(currentMapped); };
   syncDataset();
 
-  const baseCode = course.code.replace(/_G\d+$/, '');
+  const baseCode = course.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = course.code.match(/(_G|_C)(\d+)/);
+  const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course.class || course.group || 1);
   document.getElementById('mapping-course-code').value = course.code;
   
   if (isSingleSelect) {
     document.getElementById('mapping-course-title').textContent = `Assign Batch for Major Course: ${baseCode} — ${course.name}`;
   } else {
-    document.getElementById('mapping-course-title').textContent = `${baseCode} (Group ${course.group || ''}) — ${course.name}`;
+    document.getElementById('mapping-course-title').textContent = `${baseCode} (Class C${classNum}) — ${course.name}`;
   }
 
   const cfg = state.batchConfig || {};
@@ -2657,8 +2697,14 @@ function renderMajorAllocations() {
     const currentSelection = assignedBatches.length > 0 ? assignedBatches[0] : '';
 
     const tr = document.createElement('tr');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const codeDisplay = classNum
+      ? `${cleanCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${classNum}</span>`
+      : cleanCode;
     tr.innerHTML = `
-      <td><strong>${c.code}</strong></td>
+      <td><strong>${codeDisplay}</strong></td>
       <td>${c.name}</td>
       <td><span class="badge badge-info">${c.semester} Sem</span></td>
       <td><span class="text-sm text-muted">${c.department}</span></td>
@@ -2741,7 +2787,12 @@ function renderBatchAllocationStatus() {
     const details = `<span class="text-xs text-muted">${progLabel} | ${fundLabel} | ${b.deptName} (${semStr})</span>`;
 
     const coursesListHtml = isAllocated
-      ? assignedCourses.map(c => `<span class="badge badge-info" style="margin-right:4px;" title="${c.name}">${c.code}</span>`).join('')
+      ? assignedCourses.map(c => {
+          const cMatch = c.code.match(/(_G|_C)(\d+)/);
+          const cNum = cMatch ? parseInt(cMatch[2]) : (c.class || c.group || 0);
+          const cClean = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+          return `<span class="badge badge-info" style="margin-right:4px;" title="${c.name}">${cClean}${cNum ? ` (C${cNum})` : ''}</span>`;
+        }).join('')
       : '<span class="text-muted text-sm">None</span>';
 
     const statusPill = isAllocated
@@ -3642,4 +3693,414 @@ function bindGlobalLocksEvents() {
     });
   }
 }
+
+// ==========================================================================
+// Central Admin Common Subject Mapping
+// ==========================================================================
+
+function escapeHtml(str) {
+  if (str === undefined || str === null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const COMMON_SUBJECT_DEFINITIONS = [
+  // Semester 1
+  {
+    code: 'AEC1',
+    name: 'Ability Enhancement Course 1 (AEC1)',
+    category: 'AEC',
+    semester: '1',
+    departments: ['ENGLISH'],
+    desc: 'Offered exclusively by English Department for Semester 1 students.'
+  },
+  {
+    code: 'AEC2',
+    name: 'Ability Enhancement Course 2 (AEC2)',
+    category: 'AEC',
+    semester: '1',
+    departments: ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'],
+    desc: 'Language & Ability course for Semester 1 students across Malayalam, English, Hindi, and Sanskrit.'
+  },
+  {
+    code: 'MDC1',
+    name: 'Multi-Disciplinary Course 1 (MDC1)',
+    category: 'MDC',
+    semester: '1',
+    departments: 'ALL',
+    desc: 'Institution-wide multidisciplinary course for all Semester 1 students across all departments.'
+  },
+  // Semester 2
+  {
+    code: 'AEC3',
+    name: 'Ability Enhancement Course 3 (AEC3)',
+    category: 'AEC',
+    semester: '2',
+    departments: ['ENGLISH'],
+    desc: 'Offered exclusively by English Department for Semester 2 students.'
+  },
+  {
+    code: 'AEC4',
+    name: 'Ability Enhancement Course 4 (AEC4)',
+    category: 'AEC',
+    semester: '2',
+    departments: ['ENGLISH', 'MALAYALAM', 'HINDI', 'SANSKRIT'],
+    desc: 'Language & Ability course for Semester 2 students across English, Malayalam, Hindi, and Sanskrit.'
+  },
+  {
+    code: 'MDC-2',
+    name: 'Multi-Disciplinary Course 2 (MDC-2)',
+    category: 'MDC',
+    semester: '2',
+    departments: 'ALL',
+    desc: 'Institution-wide multidisciplinary course for all Semester 2 students across all departments.'
+  },
+  // Semester 3
+  {
+    code: 'VAC1',
+    name: 'Value Addition Course 1 (VAC1)',
+    category: 'VAC',
+    semester: '3',
+    departments: ['ENGLISH'],
+    desc: 'Value Addition Course for Semester 3 students, offered by English Department.'
+  },
+  {
+    code: 'MDC3',
+    name: 'Multi-Disciplinary Course 3 (MDC3)',
+    category: 'MDC',
+    semester: '3',
+    departments: ['ENGLISH'],
+    desc: 'Multi-Disciplinary Course for Semester 3 students, offered by English Department.'
+  },
+  // Semester 4
+  {
+    code: 'VAC2',
+    name: 'Value Addition Course 2 (VAC2)',
+    category: 'VAC',
+    semester: '4',
+    departments: ['ENGLISH'],
+    desc: 'Value Addition Course for Semester 4 students, offered by English Department.'
+  },
+  {
+    code: 'SEC',
+    name: 'Skill Enhancement Course (SEC)',
+    category: 'SEC',
+    semester: '4',
+    departments: ['ENGLISH'],
+    desc: 'Skill Enhancement Course for Semester 4/5 students.'
+  },
+  {
+    code: 'VAC3',
+    name: 'Value Addition Course 3 (VAC3)',
+    category: 'VAC',
+    semester: '4',
+    departments: ['MALAYALAM', 'ENGLISH', 'HINDI', 'SANSKRIT'],
+    desc: 'Value Addition Course for Semester 4 students across Malayalam, English, Hindi, and Sanskrit.'
+  }
+];
+
+function getCourseCommonSubjectMatch(c) {
+  const cat = (c.category || '').toUpperCase();
+  const sem = String(c.semester || '').trim();
+  const dept = (c.department || '').toUpperCase();
+  const code = (c.code || '').toUpperCase();
+
+  // Sem 1
+  if (sem === '1') {
+    if (cat === 'AEC' || code.includes('FA101') || code.includes('FA102') || /AEC1|AEC-1/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC1';
+      return 'AEC2';
+    }
+    if (cat === 'MDC' || code.includes('FM105') || /MDC1|MDC-1/.test(code)) return 'MDC1';
+  }
+  // Sem 2
+  if (sem === '2') {
+    if (cat === 'AEC' || /AEC3|AEC-3/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC3';
+      return 'AEC4';
+    }
+    if (cat === 'MDC' || /MDC2|MDC-2/.test(code)) return 'MDC-2';
+  }
+  // Sem 3
+  if (sem === '3') {
+    if (cat === 'VAC' || code.includes('FV108') || /VAC1|VAC-1/.test(code)) return 'VAC1';
+    if (cat === 'MDC' || code.includes('FM107') || /MDC3|MDC-3/.test(code)) return 'MDC3';
+  }
+  // Sem 4
+  if (sem === '4') {
+    if (cat === 'SEC' || /SEC/.test(code)) return 'SEC';
+    if (cat === 'VAC' || /VAC2|VAC-2/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'VAC2';
+      return 'VAC3';
+    }
+  }
+  // Sem 5 SEC
+  if (sem === '5' && (cat === 'SEC' || /SEC/.test(code))) return 'SEC';
+
+  // Fallbacks by category
+  if (cat === 'AEC') return sem === '2' ? 'AEC3' : 'AEC1';
+  if (cat === 'MDC') return sem === '3' ? 'MDC3' : (sem === '2' ? 'MDC-2' : 'MDC1');
+  if (cat === 'VAC') return sem === '4' ? 'VAC2' : 'VAC1';
+  if (cat === 'SEC') return 'SEC';
+  return null;
+}
+
+let activeAdminCommonSubjectCode = null;
+
+function renderAdminCommonSubjectMapping() {
+  const mainView = document.getElementById('admin-common-main-view');
+  const detailView = document.getElementById('admin-common-detail-view');
+  const grid = document.getElementById('admin-common-tiles-grid');
+  const semFilter = document.getElementById('admin-common-sem-filter');
+  if (!grid) return;
+
+  if (activeAdminCommonSubjectCode) {
+    openAdminCommonSubjectDetail(activeAdminCommonSubjectCode);
+    return;
+  }
+
+  if (mainView) mainView.classList.remove('hidden');
+  if (detailView) detailView.classList.add('hidden');
+
+  let visibleSubjects = [...COMMON_SUBJECT_DEFINITIONS];
+  const selectedSem = semFilter ? semFilter.value : '';
+  if (selectedSem) {
+    if (selectedSem === 'odd') {
+      visibleSubjects = visibleSubjects.filter(s => parseInt(String(s.semester).replace(/\D+/g, ''), 10) % 2 === 1);
+    } else if (selectedSem === 'even') {
+      visibleSubjects = visibleSubjects.filter(s => parseInt(String(s.semester).replace(/\D+/g, ''), 10) % 2 === 0);
+    } else {
+      visibleSubjects = visibleSubjects.filter(s => String(s.semester) === String(selectedSem));
+    }
+  }
+
+  grid.innerHTML = visibleSubjects.map(def => {
+    const matchingCourses = state.courses.filter(c => getCourseCommonSubjectMatch(c) === def.code);
+    let totalMappedBatches = 0;
+    const mappedBatchSet = new Set();
+    matchingCourses.forEach(c => {
+      (c.mappedBatches || []).forEach(b => mappedBatchSet.add(b));
+    });
+    totalMappedBatches = mappedBatchSet.size;
+
+    const deptStr = Array.isArray(def.departments) ? def.departments.join(', ') : def.departments;
+
+    return `
+      <div class="common-subject-card" onclick="openAdminCommonSubjectDetail('${def.code}')" style="cursor: pointer; background: #ffffff; border: 1.5px solid var(--border); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="subject-code-badge" style="background: #e0e7ff; color: #4338ca; padding: 3px 8px; border-radius: 5px; font-weight: 700; font-size: 12px;">${def.code}</span>
+            <span class="subject-sem-tag" style="background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">Sem ${def.semester}</span>
+          </div>
+          <h4 style="margin: 0 0 6px 0; font-size: 15px; font-weight: 700; color: var(--text-main);">${escapeHtml(def.name)}</h4>
+          <p class="text-muted" style="font-size: 11.5px; margin: 0 0 8px 0; line-height: 1.4;">${escapeHtml(def.desc)}</p>
+          <span style="font-size: 11px; color: var(--primary); font-weight: 600; display: inline-block;">
+            <i class="fa-solid fa-building-columns"></i> ${escapeHtml(deptStr)}
+          </span>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px;">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <span class="badge ${matchingCourses.length > 0 ? 'badge-info' : ''}" style="${matchingCourses.length === 0 ? 'background: #f1f5f9; color: #64748b;' : ''}">
+              <i class="fa-solid fa-book"></i> ${matchingCourses.length} Class${matchingCourses.length === 1 ? '' : 'es'}
+            </span>
+            <span class="badge ${totalMappedBatches > 0 ? 'badge-success' : ''}" style="${totalMappedBatches === 0 ? 'background: #f1f5f9; color: #64748b;' : ''}">
+              <i class="fa-solid fa-users"></i> ${totalMappedBatches} Batches
+            </span>
+          </div>
+          <span style="color: var(--primary); font-weight: 700; display: flex; align-items: center; gap: 4px;">
+            Manage <i class="fa-solid fa-arrow-right"></i>
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.openAdminCommonSubjectDetail = function(subjectCode) {
+  activeAdminCommonSubjectCode = subjectCode;
+  const mainView = document.getElementById('admin-common-main-view');
+  const detailView = document.getElementById('admin-common-detail-view');
+  if (mainView) mainView.classList.add('hidden');
+  if (detailView) detailView.classList.remove('hidden');
+
+  const def = COMMON_SUBJECT_DEFINITIONS.find(d => d.code === subjectCode) || {
+    code: subjectCode,
+    name: subjectCode,
+    semester: '1',
+    departments: 'ALL',
+    desc: ''
+  };
+
+  const codeBadge = document.getElementById('admin-detail-subject-code-badge');
+  const titleEl = document.getElementById('admin-detail-subject-title');
+  const semTag = document.getElementById('admin-detail-subject-sem-tag');
+  const deptBadge = document.getElementById('admin-detail-offering-dept-badge');
+  const container = document.getElementById('admin-common-classes-container');
+
+  if (codeBadge) codeBadge.textContent = def.code;
+  if (titleEl) titleEl.textContent = def.name;
+  if (semTag) semTag.textContent = `Semester ${def.semester}`;
+  const deptStr = Array.isArray(def.departments) ? def.departments.join(', ') : def.departments;
+  if (deptBadge) deptBadge.textContent = `Offered by: ${deptStr}`;
+
+  if (!container) return;
+
+  // Find all courses matching this common subject
+  const matchingCourses = state.courses.filter(c => getCourseCommonSubjectMatch(c) === def.code);
+
+  if (matchingCourses.length === 0) {
+    container.innerHTML = `
+      <div style="background: #ffffff; border: 1.5px dashed var(--border); border-radius: var(--radius-md); padding: 36px 20px; text-align: center;">
+        <i class="fa-solid fa-folder-open text-muted" style="font-size: 32px; margin-bottom: 10px;"></i>
+        <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700;">No Connected Courses Found</h4>
+        <p class="text-muted text-xs mb-0">No courses in the academic curriculum currently match the definition for ${def.code} (Semester ${def.semester}).</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Group courses by base code
+  const groups = {};
+  matchingCourses.forEach(c => {
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    if (!groups[baseCode]) {
+      groups[baseCode] = {
+        baseCode,
+        name: c.name,
+        department: c.department,
+        semester: c.semester,
+        courses: []
+      };
+    }
+    groups[baseCode].courses.push(c);
+  });
+
+  // Sort groups and their courses
+  const sortedGroupKeys = Object.keys(groups).sort();
+
+  container.innerHTML = sortedGroupKeys.map(baseCode => {
+    const grp = groups[baseCode];
+    grp.courses.sort((a, b) => {
+      const matchA = a.code.match(/(_G|_C)(\d+)/);
+      const matchB = b.code.match(/(_G|_C)(\d+)/);
+      const numA = matchA ? parseInt(matchA[2]) : (a.class || 1);
+      const numB = matchB ? parseInt(matchB[2]) : (b.class || 1);
+      return numA - numB;
+    });
+
+    const rowsHtml = grp.courses.map(c => {
+      const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+      const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 1);
+      const mapped = c.mappedBatches || [];
+
+      // Look up assigned teacher from Subject Teacher Mapping in the offering department
+      const deptUpper = (c.department || '').toUpperCase();
+      const teacherMap = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && state.subjectTeacherMapping[deptUpper][c.code]) || null;
+      let teacherInfoHtml = '';
+      if (teacherMap && (
+        (teacherMap.teachers && teacherMap.teachers.length > 0) ||
+        (teacherMap.theoryTeachers && teacherMap.theoryTeachers.length > 0) ||
+        (teacherMap.practicalTeachers && teacherMap.practicalTeachers.length > 0)
+      )) {
+        const tCodes = [...new Set([
+          ...(teacherMap.teachers || []),
+          ...(teacherMap.theoryTeachers || []),
+          ...(teacherMap.practicalTeachers || [])
+        ])];
+        const teacherLabels = tCodes.map(tc => {
+          const fObj = (state.faculty || []).find(f => f.code === tc);
+          return fObj ? `${tc} (${fObj.name})` : tc;
+        });
+        teacherInfoHtml = `<span class="badge badge-success" style="font-size: 11px;"><i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(teacherLabels.join(', '))}</span>`;
+      } else {
+        teacherInfoHtml = `<span class="badge" style="background: #fef3c7; color: #b45309; font-size: 10.5px;"><i class="fa-solid fa-clock"></i> Pending Dept Mapping</span>`;
+      }
+
+      // Mapped batch pills with Department tooltip
+      const batchPillsHtml = mapped.length > 0
+        ? mapped.map(bId => {
+            const bObj = (state.allBatches || []).find(b => b.batchId === bId);
+            const deptLabel = bObj ? ` - ${bObj.deptCode || bObj.department}` : '';
+            return `<span class="badge badge-info" style="margin: 2px;" title="${bId}${deptLabel}">${bId}${deptLabel}</span>`;
+          }).join('')
+        : `<span class="text-muted text-sm" style="font-style: italic;">No batches mapped</span>`;
+
+      return `
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 12px; vertical-align: middle;">
+            <span class="badge" style="background: var(--accent); color: var(--accent-dark); font-weight: 700; border: 1.5px solid var(--accent-dark); font-size: 11.5px; padding: 3px 8px;">
+              Class C${classNum}
+            </span>
+          </td>
+          <td style="padding: 10px 12px; vertical-align: middle;">
+            <strong style="color: var(--text-main); font-size: 12.5px;">${escapeHtml(c.code)}</strong>
+          </td>
+          <td style="padding: 10px 12px; vertical-align: middle;">
+            <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center;">
+              ${batchPillsHtml}
+            </div>
+          </td>
+          <td style="padding: 10px 12px; vertical-align: middle;">
+            ${teacherInfoHtml}
+          </td>
+          <td style="padding: 10px 12px; vertical-align: middle; text-align: right;">
+            <button type="button" class="btn btn-primary btn-sm btn-admin-map-batch" data-code="${escapeHtml(c.code)}" style="padding: 3px 10px; font-size: 11px;">
+              <i class="fa-solid fa-link"></i> Map Batches
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="card" style="border: 1px solid var(--border); box-shadow: 0 1px 4px rgba(0,0,0,0.04); margin-bottom: 12px;">
+        <div class="card-header" style="background: #f8fafc; padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong style="font-size: 14px; color: var(--primary);">${escapeHtml(grp.baseCode)}</strong>
+            <span style="font-size: 13px; font-weight: 600; color: var(--text-main); margin-left: 8px;">${escapeHtml(grp.name)}</span>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="badge badge-info" style="font-size: 10px;">Dept: ${escapeHtml(grp.department)}</span>
+            <span class="badge" style="background: #e2e8f0; color: #334155; font-size: 10px; font-weight: 600;">Sem ${escapeHtml(grp.semester)}</span>
+            <span class="badge badge-success" style="font-size: 10px;">${grp.courses.length} Parallel Class${grp.courses.length === 1 ? '' : 'es'}</span>
+          </div>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div class="table-responsive">
+            <table class="table" style="margin: 0; width: 100%; font-size: 12px;">
+              <thead>
+                <tr style="background: #ffffff; border-bottom: 1.5px solid var(--border);">
+                  <th style="padding: 8px 12px; width: 90px;">Class</th>
+                  <th style="padding: 8px 12px; width: 180px;">Course Code</th>
+                  <th style="padding: 8px 12px;">Mapped Batches (from Batch Allocation)</th>
+                  <th style="padding: 8px 12px; width: 220px;">Assigned Teacher (Dept Mapping)</th>
+                  <th style="padding: 8px 12px; width: 130px; text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach event handlers to Map Batches buttons
+  container.querySelectorAll('.btn-admin-map-batch').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cCode = btn.getAttribute('data-code');
+      const courseObj = state.courses.find(c => c.code === cCode);
+      if (courseObj) {
+        openGroupMappingModal(courseObj, courseObj.mappedBatches || []);
+      }
+    });
+  });
+};
 
