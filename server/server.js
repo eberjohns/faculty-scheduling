@@ -658,9 +658,9 @@ app.post('/api/curriculum-slots', requireUser, (req, res) => {
   if (courseRecommendations && typeof courseRecommendations === 'object') {
     Object.keys(courseRecommendations).forEach(courseCode => {
       const recs = courseRecommendations[courseCode];
-      const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       const coursesToUpdate = db.courses.filter(c => {
-        const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         return (c.code === courseCode || cBase === baseCode) && c.department.toUpperCase() === deptUpper;
       });
 
@@ -731,7 +731,7 @@ app.post('/api/curriculum-slots/reset', requireUser, (req, res) => {
   const coursesToReset = db.courses.filter(c => {
     const cDept = (c.department || '').toUpperCase();
     const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-    const cBase = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const matchDept = cDept === deptUpper;
     const matchSem = !semStr || cSem === semStr;
     const matchCourse = (!courseFilter || courseFilter === 'ALL' || cBase === courseFilter || c.code === courseFilter);
@@ -959,7 +959,7 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
       dayPrefixes.forEach(d => { periods.forEach(p => { slotHeaders.push(`${d}-${p}`); }); });
       
       const headers = [
-        'Course Code', 'Course Name', 'Type', 'Group', 'Semester', 'Program', 'Category', 'Department',
+        'Course Code', 'Course Name', 'Type', 'Class', 'Semester', 'Program', 'Category', 'Department',
         ...slotHeaders
       ];
 
@@ -973,11 +973,11 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
       if (sampleCourses.length === 0) {
         // Fallback default examples if DB is empty
         rows.push([
-          'MAT1CJ101_G1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
+          'MAT1CJ101_C1', 'Differential Calculus', 'T', 1, '1', 'UG', 'MAJOR', 'MATHEMATICS',
           '', '', 'T', '', '', '', '', '', '', '', '', '', 'T', '', '', '', '', '', '', '', '', 'T', '', '', '', 'T', '', '', '', ''
         ]);
         rows.push([
-          'CSC1CR102_G1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
+          'CSC1CR102_C1', 'Programming in C Lab', 'P', 1, '1', 'UG', 'MAJOR', 'COMPUTER SCIENCE',
           '', '', '', '', 'P', 'P', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
         ]);
       } else {
@@ -986,7 +986,7 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
             c.code || '',
             c.name || '',
             c.courseType || 'T',
-            c.group !== undefined ? c.group : 0,
+            c.class !== undefined ? c.class : (c.group !== undefined ? c.group : 0),
             c.semester || '1',
             c.programType || 'UG',
             c.category || 'MAJOR',
@@ -1113,7 +1113,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
  
        // Named metadata columns (case-insensitive)
        if (hdrLow === 'course code' || hdrLow === 'coursecode') { codeColIdx  = c; continue; }
-       if (hdrLow === 'group')                                   { groupColIdx = c; continue; }
+       if (hdrLow === 'group' || hdrLow === 'class' || hdrLow === 'classes' || hdrLow === 'section') { groupColIdx = c; continue; }
        if (hdrLow === 'type')                                    { typeColIdx  = c; continue; }
        if (hdrLow === 'course name' || hdrLow === 'coursename')  { nameColIdx  = c; continue; }
        if (hdrLow === 'department'  || hdrLow === 'dept')        { deptColIdx  = c; continue; }
@@ -1127,7 +1127,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
     if (!is_new_format) {
       return res.status(400).json({
         error: 'Could not find a "Course Code" column in the header row. ' +
-               'Please make sure the first row contains column headers like "Course Code", "Group", "Type", "Course Name".'
+               'Please make sure the first row contains column headers like "Course Code", "Class" (or "Group"), "Type", "Course Name".'
       });
     }
 
@@ -1188,11 +1188,20 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
       }
 
       // Parse course code — this is the base code (e.g. MAT1CJ101)
-      const baseCode = String(code_raw || '').trim();
-      if (!baseCode || baseCode === 'undefined' || baseCode.toLowerCase() === 'course code') continue;
+      const rawCode = String(code_raw || '').trim();
+      if (!rawCode || rawCode === 'undefined' || rawCode.toLowerCase() === 'course code') continue;
 
-      // Build the course code: if grouped, suffix with _G<n>
-      const courseCode = group_num === 0 ? baseCode : `${baseCode}_G${group_num}`;
+      // Clean baseCode if already suffixed with _G or _C or -(T|P)
+      const baseCode = rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
+      // Check if code in Excel had suffix like _C1 or _G1 when group_num wasn't set
+      const codeSuffixMatch = rawCode.match(/(_G|_C)(\d+)/);
+      if (codeSuffixMatch && group_num === 0) {
+        group_num = parseInt(codeSuffixMatch[2]);
+      }
+
+      // Build course code: if class/group specified, suffix with _C<n>
+      const courseCode = group_num === 0 ? baseCode : `${baseCode}_C${group_num}`;
 
       // Resolve department from batch-dept mappings (using code prefix)
       let department = '';
@@ -1313,6 +1322,8 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         alias,
         recommendations,
         group:       group_num,
+        class:       group_num,
+        classes:     group_num > 1 ? group_num : 1,
         programType: program_val,
         courseType:  dbMatch ? (dbMatch.courseType || type_val) : type_val
       });
@@ -2453,7 +2464,7 @@ app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req
       const hdr = String(headerRow[c] || '').trim().toLowerCase();
       if (hdr === 'course code' || hdr === 'coursecode' || hdr === 'code') {
         codeColIdx = c;
-      } else if (hdr === 'group') {
+      } else if (hdr === 'group' || hdr === 'class' || hdr === 'classes' || hdr === 'section') {
         groupColIdx = c;
       } else if (hdr === 'batches' || hdr === 'batch name' || hdr === 'batchname' || hdr === 'batch' || hdr === 'batch_name') {
         batchesColIdx = c;
@@ -2512,8 +2523,9 @@ app.post('/api/import/group-mappings', requireAdmin, upload.single('file'), (req
       let dbCourse = existingCourses.find(c => c.code === resolvedCode);
 
       if (!dbCourse && lastGroup > 0) {
-        resolvedCode = `${lastCourseCode}_G${lastGroup}`;
-        dbCourse = existingCourses.find(c => c.code === resolvedCode);
+        resolvedCode = `${lastCourseCode}_C${lastGroup}`;
+        dbCourse = existingCourses.find(c => c.code === resolvedCode) || existingCourses.find(c => c.code === `${lastCourseCode}_G${lastGroup}`);
+        if (dbCourse) resolvedCode = dbCourse.code;
       }
 
       if (!dbCourse) {

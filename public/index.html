@@ -1,25 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Department Portal - College Timetable System</title>
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="/favicon.png">
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Core Stylesheet with Cache Busting -->
-  <link rel="stylesheet" href="styles.css?v=2.8">
+  <link rel="stylesheet" href="styles.css?v=4.0">
 </head>
+
 <body>
-  
+
   <!-- Main Application Container -->
   <div id="app" class="app-container">
-    
+
     <!-- HEADER BAR -->
     <header class="app-header no-print">
       <div class="header-logo">
@@ -53,12 +60,14 @@
           <div class="form-group">
             <label for="login-password">Access Passcode</label>
             <div class="password-input-wrapper">
-              <input type="password" id="login-password" class="form-control" placeholder="••••••••" autocomplete="current-password" required>
+              <input type="password" id="login-password" class="form-control" placeholder="••••••••"
+                autocomplete="current-password" required>
               <i class="fa-solid fa-eye toggle-password" id="toggle-pwd-icon"></i>
             </div>
           </div>
 
-          <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-right-to-bracket"></i> Department Sign In</button>
+          <button type="submit" class="btn btn-primary btn-block"><i class="fa-solid fa-right-to-bracket"></i>
+            Department Sign In</button>
         </form>
         <div id="login-error" class="alert alert-danger hidden"></div>
       </div>
@@ -66,7 +75,7 @@
 
     <!-- DEPARTMENT WORKSPACE PANEL -->
     <main id="view-department" class="view-panel no-print hidden">
-      
+
       <!-- Top Department Header -->
       <div class="department-header">
         <div class="title-section">
@@ -74,7 +83,8 @@
           <p class="subtitle">Complete faculty allocations and customize visual aliases</p>
         </div>
         <div class="status-section flex-row items-center gap-2">
-          <span id="autosave-status" class="text-sm text-muted" style="font-weight: 500; font-style: italic; margin-right: 8px;"></span>
+          <span id="autosave-status" class="text-sm text-muted"
+            style="font-weight: 500; font-style: italic; margin-right: 8px;"></span>
           <span class="badge" id="dept-status-badge">Draft</span>
         </div>
       </div>
@@ -83,29 +93,49 @@
       <div class="card legend-top-card">
         <div class="card-body py-2 flex-row justify-between items-center wrap-gap">
           <div class="legend-items flex-row gap-3">
-            <div class="legend-row"><span class="legend-box recommend-t">T</span> <span class="bold text-sm">Recommended Theory Slot</span></div>
-            <div class="legend-row"><span class="legend-box recommend-p">P</span> <span class="bold text-sm">Recommended Practical Slot</span></div>
-            <div class="legend-row"><span class="legend-box recommend-m">M</span> <span class="bold text-sm">Common Slot</span></div>
-            <div class="legend-row"><span class="legend-box recommend-none"></span> <span class="bold text-sm">Non-Recommended Slot</span> (Click to Unlock)</div>
-            <div class="legend-row"><span class="legend-box recommend-global-locked"><i class="fa-solid fa-lock" style="font-size: 10px;"></i></span> <span class="bold text-sm text-danger">Admin Locked</span></div>
-            <div class="legend-row"><span class="legend-box lb-box">LB</span> <span class="bold text-sm">Lunch Break</span></div>
+            <div class="legend-row"><span class="legend-box recommend-t">T</span> <span class="bold text-sm">Recommended
+                Theory Slot</span></div>
+            <div class="legend-row"><span class="legend-box recommend-p">P</span> <span class="bold text-sm">Recommended
+                Practical Slot</span></div>
+            <div class="legend-row"><span class="legend-box recommend-global-locked"><i class="fa-solid fa-lock"
+                  style="font-size: 10px;"></i></span> <span class="bold text-sm text-danger">Admin Locked</span></div>
+            <!-- <div class="legend-row"><span class="legend-box recommend-none"></span> <span
+                class="bold text-sm">Non-Recommended Slot</span> (Click to Unlock)</div> -->
           </div>
-          <div class="view-toggle-actions flex-row gap-2">
-            <button id="btn-open-advanced-features" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Advanced Feature</button>
-            <button id="btn-dept-format-excel" class="btn btn-outline"><i class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
-            <button id="btn-dept-import-excel" class="btn btn-outline"><i class="fa-solid fa-file-import text-primary"></i> Import Timetable</button>
+          <div class="view-toggle-actions flex-row gap-2" style="align-items: center; flex-wrap: wrap;">
+            <button id="btn-open-advanced-features" class="btn btn-primary"><i
+                class="fa-solid fa-wand-magic-sparkles"></i> Advanced Feature</button>
+            <button id="btn-dept-format-excel" class="btn btn-outline"><i
+                class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
+            <button id="btn-dept-import-excel" class="btn btn-outline"><i
+                class="fa-solid fa-file-import text-primary"></i> Import Timetable</button>
             <input type="file" id="import-dept-timetable-file" class="hidden" accept=".xlsx, .xls">
-            <button id="btn-toggle-grid-mode" class="btn btn-outline"><i class="fa-solid fa-table-cells"></i> Switch to Full Week View</button>
+            <button id="btn-toggle-grid-mode" class="btn btn-outline"><i class="fa-solid fa-table-cells"></i> Switch to
+              Full Week View</button>
+            <div class="autofill-toggle-wrapper flex-row items-center gap-2"
+              style="background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 5px 12px; height: 38px;"
+              title="When ON, assigning a teacher to a recommended slot automatically fills all corresponding recommended slots of that course (Sem 1-4). Non-recommended slots and Sem 5+ assign only the clicked period.">
+              <label class="switch" style="margin-bottom: 0;">
+                <input type="checkbox" id="toggle-autofill-recommended">
+                <span class="slider"></span>
+              </label>
+              <label for="toggle-autofill-recommended"
+                style="margin-bottom: 0; font-size: 13px; font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; color: var(--text-main);">
+                <i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Auto-fill Recommended Slots
+              </label>
+            </div>
           </div>
         </div>
       </div>
 
 
       <!-- Admin Feedback Card -->
-      <div id="admin-feedback-card" class="card card-alert alert-danger hidden mb-4" style="border-left: 5px solid var(--danger); background-color: var(--danger-light); color: var(--danger-dark);">
+      <div id="admin-feedback-card" class="card card-alert alert-danger hidden mb-4"
+        style="border-left: 5px solid var(--danger); background-color: var(--danger-light); color: var(--danger-dark);">
         <div class="card-body">
           <h3 style="color: var(--danger-dark);"><i class="fa-solid fa-comment-dots"></i> Feedback from Admin</h3>
-          <p id="admin-feedback-text" class="mt-2" style="font-weight: 500; font-size: 14px; white-space: pre-wrap;"></p>
+          <p id="admin-feedback-text" class="mt-2" style="font-weight: 500; font-size: 14px; white-space: pre-wrap;">
+          </p>
         </div>
       </div>
 
@@ -128,8 +158,10 @@
             <button class="weekday-tab" data-day="THURSDAY">THURSDAY</button>
             <button class="weekday-tab" data-day="FRIDAY">FRIDAY</button>
           </div>
-          <div class="placeholder-span" id="full-week-header-label" style="display: none;"><h3 class="text-primary"><i class="fa-solid fa-calendar-week"></i> Full Week Timetable Matrix</h3></div>
-          
+          <div class="placeholder-span" id="full-week-header-label" style="display: none;">
+            <h3 class="text-primary"><i class="fa-solid fa-calendar-week"></i> Full Week Timetable Matrix</h3>
+          </div>
+
           <!-- Filters (Program, Term Switcher, Semester and Category) -->
           <div class="filters-group flex-row items-center gap-2 flex-wrap">
             <div class="filter-item">
@@ -142,10 +174,17 @@
             </div>
             <!-- Quick Term Switcher: All / Odd / Even -->
             <div class="filter-item" style="display: flex; align-items: center;">
-              <div class="term-toggle-container" id="term-quick-toggle" style="display: inline-flex; background: #e2e8f0; border-radius: 6px; padding: 2px; gap: 2px;">
-                <button type="button" class="btn btn-xs active-term-btn" data-term="" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 5px; background: #ffffff; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); cursor: pointer;">All Sems</button>
-                <button type="button" class="btn btn-xs" data-term="odd" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Odd Sems</button>
-                <button type="button" class="btn btn-xs" data-term="even" style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Even Sems</button>
+              <div class="term-toggle-container" id="term-quick-toggle"
+                style="display: inline-flex; background: #e2e8f0; border-radius: 6px; padding: 2px; gap: 2px;">
+                <button type="button" class="btn btn-xs active-term-btn" data-term=""
+                  style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 5px; background: #ffffff; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); cursor: pointer;">All
+                  Sems</button>
+                <button type="button" class="btn btn-xs" data-term="odd"
+                  style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Odd
+                  Sems</button>
+                <button type="button" class="btn btn-xs" data-term="even"
+                  style="border: none; padding: 3px 9px; font-size: 11px; font-weight: 600; border-radius: 5px; background: transparent; color: #475569; cursor: pointer;">Even
+                  Sems</button>
               </div>
             </div>
             <div class="filter-item">
@@ -161,7 +200,9 @@
               </select>
             </div>
             <div class="filter-item">
-              <button id="btn-clear-sem-timetable" class="btn btn-outline btn-sm text-danger" title="Clear allocations for selected semester" style="border-color: #ef4444; color: #dc2626; white-space: nowrap;">
+              <button id="btn-clear-sem-timetable" class="btn btn-outline btn-sm text-danger"
+                title="Clear allocations for selected semester"
+                style="border-color: #ef4444; color: #dc2626; white-space: nowrap;">
                 <i class="fa-solid fa-trash-can"></i> Clear Timetable
               </button>
             </div>
@@ -187,9 +228,13 @@
 
       <!-- IN-FLOW ACTION BAR (Repositioned just below the grid) -->
       <div class="grid-actions-bar mt-4 mb-4">
-        <button id="btn-preview-timetable" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-eye"></i> View & Print Table</button>
-        <button id="btn-submit-timetable" class="btn btn-primary btn-lg shadow-btn"><i class="fa-solid fa-paper-plane"></i> Submit Timetable</button>
-        <button id="btn-revert-submission" class="btn btn-danger btn-lg shadow-btn hidden" style="background-color: var(--danger); color: white;"><i class="fa-solid fa-undo"></i> Revert Submission to Edit</button>
+        <button id="btn-preview-timetable" class="btn btn-outline btn-lg shadow-btn"><i class="fa-solid fa-eye"></i>
+          View & Print Table</button>
+        <button id="btn-submit-timetable" class="btn btn-primary btn-lg shadow-btn"><i
+            class="fa-solid fa-paper-plane"></i> Submit Timetable</button>
+        <button id="btn-revert-submission" class="btn btn-danger btn-lg shadow-btn hidden"
+          style="background-color: var(--danger); color: white;"><i class="fa-solid fa-undo"></i> Revert Submission to
+          Edit</button>
       </div>
 
       <!-- Inline Editors Section -->
@@ -199,15 +244,18 @@
         </div>
         <div class="card-body">
           <div class="tab-sub-nav">
-            <button class="tab-sub-item active" data-subtab="subtab-dept-courses">My Courses (<span id="count-dept-courses">0</span>)</button>
-            <button class="tab-sub-item" data-subtab="subtab-dept-faculty">My Faculty (<span id="count-dept-faculty">0</span>)</button>
+            <button class="tab-sub-item active" data-subtab="subtab-dept-courses">My Courses (<span
+                id="count-dept-courses">0</span>)</button>
+            <button class="tab-sub-item" data-subtab="subtab-dept-faculty">My Faculty (<span
+                id="count-dept-faculty">0</span>)</button>
           </div>
-          
+
           <!-- Course Editor with Save All Courses button -->
           <div id="subtab-dept-courses" class="subtab-pane active mt-3">
             <div class="flex-row justify-between items-center mb-3">
               <span class="text-muted text-sm">Modify course names and aliases locally.</span>
-              <button id="btn-save-all-courses" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Course Details</button>
+              <button id="btn-save-all-courses" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Course
+                Details</button>
             </div>
             <div class="table-responsive">
               <table class="table" id="table-dept-courses">
@@ -233,7 +281,8 @@
           <div id="subtab-dept-faculty" class="subtab-pane hidden mt-3">
             <div class="flex-row justify-between items-center mb-3">
               <span class="text-muted text-sm">Modify faculty visual codes.</span>
-              <button id="btn-save-all-faculty" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Faculty Codes</button>
+              <button id="btn-save-all-faculty" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All
+                Faculty Codes</button>
             </div>
             <div class="table-responsive">
               <table class="table" id="table-dept-faculty">
@@ -283,7 +332,8 @@
               <div class="export-options-bar">
                 <div class="export-options-left">
                   <div style="display: flex; align-items: center; gap: 8px;">
-                    <label for="print-mode-select" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;">Display Format:</label>
+                    <label for="print-mode-select" class="bold text-sm"
+                      style="white-space: nowrap; margin-bottom: 0;">Display Format:</label>
                     <select id="print-mode-select" class="form-control" style="width: auto; min-width: 220px;">
                       <option value="short">Short Mode (EJ OOPS)</option>
                       <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
@@ -292,9 +342,13 @@
                   </div>
                 </div>
                 <div class="export-options-right">
-                  <button id="btn-switch-to-teacher-timetable" class="btn btn-outline" style="border-color: #6366f1; color: #4338ca;"><i class="fa-solid fa-chalkboard-user text-primary"></i> View Teacher-wise</button>
-                  <button id="btn-trigger-print" class="btn btn-primary"><i class="fa-solid fa-print"></i> Print Timetable PDF</button>
-                  <button id="btn-export-timetable-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i> Export CSV Grid</button>
+                  <button id="btn-switch-to-teacher-timetable" class="btn btn-outline"
+                    style="border-color: #6366f1; color: #4338ca;"><i
+                      class="fa-solid fa-chalkboard-user text-primary"></i> View Teacher-wise</button>
+                  <button id="btn-trigger-print" class="btn btn-primary"><i class="fa-solid fa-print"></i> Print
+                    Timetable PDF</button>
+                  <button id="btn-export-timetable-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i>
+                    Export CSV Grid</button>
                 </div>
               </div>
             </div>
@@ -305,17 +359,21 @@
           <div class="print-header text-center">
             <h2 id="print-dept-name" class="uppercase">DEPARTMENT TIMETABLE</h2>
             <h3>ST. THOMAS COLLEGE (AUTONOMOUS), THRISSUR - 680001, KERALA, INDIA</h3>
-            <h4>TIME TABLE – <span id="print-active-sem" class="uppercase">ODD SEMESTER</span> <span id="print-active-year">2026-2027</span></h4>
+            <h4>TIME TABLE – <span id="print-active-sem" class="uppercase">ODD SEMESTER</span> <span
+                id="print-active-year">2026-2027</span></h4>
           </div>
 
           <!-- Print Legend showing Theory and Practical Colors -->
-          <div class="print-legend" style="display: flex; justify-content: center; gap: 24px; font-size: 12px; margin-bottom: 20px;">
+          <div class="print-legend"
+            style="display: flex; justify-content: center; gap: 24px; font-size: 12px; margin-bottom: 20px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--warning); background-color: var(--warning-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <span
+                style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--warning); background-color: var(--warning-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
               <strong>Theory Slot (TH)</strong>
             </div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--success); background-color: var(--success-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
+              <span
+                style="display: inline-block; width: 30px; height: 16px; border: 1.5px solid var(--border); border-left: 5px solid var(--success); background-color: var(--success-light); -webkit-print-color-adjust: exact; print-color-adjust: exact;"></span>
               <strong>Practical Slot (PR)</strong>
             </div>
           </div>
@@ -338,7 +396,8 @@
         <div class="modal-header">
           <h2><i class="fa-solid fa-chalkboard-user text-primary"></i> Teacher-wise Timetable</h2>
           <div class="actions flex-row gap-2 no-print">
-            <button id="btn-close-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-xmark"></i> Close</button>
+            <button id="btn-close-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-xmark"></i>
+              Close</button>
           </div>
         </div>
         <div class="modal-body no-print" style="padding-bottom: 12px;">
@@ -347,14 +406,19 @@
               <div class="export-options-bar">
                 <div class="export-options-left">
                   <div class="flex-row items-center gap-2">
-                    <label for="select-teacher-timetable-faculty" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;"><i class="fa-solid fa-user-tie text-primary"></i> Teacher:</label>
-                    <select id="select-teacher-timetable-faculty" class="form-control" style="width: auto; min-width: 230px; font-weight: 600;">
+                    <label for="select-teacher-timetable-faculty" class="bold text-sm"
+                      style="white-space: nowrap; margin-bottom: 0;"><i class="fa-solid fa-user-tie text-primary"></i>
+                      Teacher:</label>
+                    <select id="select-teacher-timetable-faculty" class="form-control"
+                      style="width: auto; min-width: 230px; font-weight: 600;">
                       <option value="ALL">All Teachers (Entire Department)</option>
                     </select>
                   </div>
                   <div class="flex-row items-center gap-2">
-                    <label for="select-teacher-timetable-mode" class="bold text-sm" style="white-space: nowrap; margin-bottom: 0;">Display Detail:</label>
-                    <select id="select-teacher-timetable-mode" class="form-control" style="width: auto; min-width: 155px;">
+                    <label for="select-teacher-timetable-mode" class="bold text-sm"
+                      style="white-space: nowrap; margin-bottom: 0;">Display Detail:</label>
+                    <select id="select-teacher-timetable-mode" class="form-control"
+                      style="width: auto; min-width: 155px;">
                       <option value="medium" selected>Medium (Alias & Sem)</option>
                       <option value="full">Full (Course Name & Code)</option>
                       <option value="short">Short (Code Only)</option>
@@ -362,15 +426,18 @@
                   </div>
                 </div>
                 <div class="export-options-right">
-                  <button id="btn-trigger-teacher-print" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
-                  <button id="btn-export-teacher-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i> Export CSV Grid</button>
+                  <button id="btn-trigger-teacher-print" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i>
+                    Export to PDF / Print</button>
+                  <button id="btn-export-teacher-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i>
+                    Export CSV Grid</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div id="teacher-print-area" class="timetable-print-sheet" style="overflow-y: auto; flex: 1; padding: 20px 25px; background: #ffffff;">
+        <div id="teacher-print-area" class="timetable-print-sheet"
+          style="overflow-y: auto; flex: 1; padding: 20px 25px; background: #ffffff;">
           <!-- Dynamically populated teacher sheets -->
         </div>
       </div>
@@ -381,7 +448,8 @@
       <div class="modal-content modal-sm text-center">
         <div class="modal-icon"><i class="fa-solid fa-wand-magic-sparkles text-primary"></i></div>
         <h2>Apply Auto-Fill?</h2>
-        <p class="text-muted mt-2">Apply this faculty assignment to all recommended <span id="autofill-slot-type" class="bold">theory</span> slots of this course?</p>
+        <p class="text-muted mt-2">Apply this faculty assignment to all recommended <span id="autofill-slot-type"
+            class="bold">theory</span> slots of this course?</p>
         <div class="actions flex-row justify-center gap-2 mt-4">
           <button id="btn-autofill-all" class="btn btn-primary">Apply to All Slots</button>
           <button id="btn-autofill-single" class="btn btn-outline">Apply to Current Only</button>
@@ -399,9 +467,11 @@
         <div class="modal-body">
           <div class="form-group flex-column" style="gap: 4px; margin-bottom: 16px;">
             <div id="fac-select-details" class="text-sm text-muted mb-2" style="font-weight: 500;"></div>
-            <input type="text" id="fac-search-input" class="form-control" placeholder="Search faculty by name or initials code...">
+            <input type="text" id="fac-search-input" class="form-control"
+              placeholder="Search faculty by name or initials code...">
           </div>
-          <div class="table-responsive" style="max-height: 380px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
+          <div class="table-responsive"
+            style="max-height: 380px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
             <table class="table" id="table-fac-select-list">
               <thead>
                 <tr>
@@ -415,8 +485,10 @@
               </tbody>
             </table>
           </div>
-          <div class="modal-footer" style="display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1.5px solid var(--border);">
-            <button type="button" id="btn-done-fac-select" class="btn btn-primary btn-sm"><i class="fa-solid fa-check"></i> Done</button>
+          <div class="modal-footer"
+            style="display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1.5px solid var(--border);">
+            <button type="button" id="btn-done-fac-select" class="btn btn-primary btn-sm"><i
+                class="fa-solid fa-check"></i> Done</button>
           </div>
         </div>
       </div>
@@ -430,26 +502,31 @@
         </div>
         <div class="modal-body" style="padding:16px 0 0 0;">
           <input type="hidden" id="dept-mapping-course-code">
-          
+
           <h3 id="dept-mapping-course-title" style="margin-bottom:4px;font-size:15px;font-weight:600;">-</h3>
           <p id="dept-mapping-course-meta" class="text-muted text-sm mb-3"></p>
 
           <!-- Group Count Config -->
-          <div class="form-group mb-3" style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
-            <label for="dept-group-count-select" style="font-weight: 600; font-size: 13px; display:block;">How many parallel classes/batches are needed?</label>
+          <div class="form-group mb-3"
+            style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+            <label for="dept-group-count-select" style="font-weight: 600; font-size: 13px; display:block;">How many
+              parallel classes/batches are needed?</label>
             <select id="dept-group-count-select" class="form-control mt-2" style="max-width: 220px;">
               <option value="1">1 Class (No Split)</option>
-              <option value="2">2 Classes</option>
-              <option value="3">3 Classes</option>
-              <option value="4">4 Classes</option>
-              <option value="5">5 Classes</option>
+              <option value="2">2 Classes (C1, C2)</option>
+              <option value="3">3 Classes (C1, C2, C3)</option>
+              <option value="4">4 Classes (C1, C2, C3, C4)</option>
+              <option value="5">5 Classes (C1, C2, C3, C4, C5)</option>
             </select>
-            <span class="text-muted text-sm mt-1" style="display:block; margin-top: 4px;">Select how many parallel classes this course will be divided into.</span>
+            <span class="text-muted text-sm mt-1" style="display:block; margin-top: 4px;">Select how many parallel
+              classes/sections (C1, C2, etc.) this course will be divided into.</span>
           </div>
 
           <!-- Group Selectors -->
-          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 12px; color: var(--primary);"><i class="fa-solid fa-layer-group"></i> Class Batch Assignments</h4>
-          <div id="dept-group-selectors-list" style="display:flex; flex-direction:column; gap:12px; max-height:280px; overflow-y:auto; padding-right:4px; margin-bottom:10px;">
+          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 12px; color: var(--primary);"><i
+              class="fa-solid fa-layer-group"></i> Class Batch Assignments</h4>
+          <div id="dept-group-selectors-list"
+            style="display:flex; flex-direction:column; gap:12px; max-height:280px; overflow-y:auto; padding-right:4px; margin-bottom:10px;">
             <!-- Rendered dynamically -->
           </div>
           <datalist id="dept-batch-datalist"></datalist>
@@ -465,9 +542,12 @@
     <!-- MODAL: DEPARTMENT TIMETABLE EXCEL FORMAT GUIDE & TEMPLATE -->
     <div id="modal-dept-excel-format" class="modal flex-center hidden no-print">
       <div class="modal-content modal-md" style="max-width: 620px; width: 100%; padding: 24px;">
-        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-          <h2 style="font-size: 18px; font-weight: 700; margin: 0;"><i class="fa-solid fa-file-excel text-success"></i> Timetable Import Excel Format</h2>
-          <button id="btn-close-dept-excel-format" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+        <div class="modal-header"
+          style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+          <h2 style="font-size: 18px; font-weight: 700; margin: 0;"><i class="fa-solid fa-file-excel text-success"></i>
+            Timetable Import Excel Format</h2>
+          <button id="btn-close-dept-excel-format" class="btn btn-outline btn-xs" style="padding: 4px 8px;"><i
+              class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="modal-body" style="padding: 16px 0 0 0;">
           <p class="text-muted text-sm mb-3">
@@ -475,8 +555,10 @@
             The spreadsheet columns are structured by the logical relationships in the database:
           </p>
 
-          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary);"><i class="fa-solid fa-table-columns"></i> Required & Optional Columns</h4>
-          <div class="table-responsive mb-3" style="max-height: 220px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
+          <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary);"><i
+              class="fa-solid fa-table-columns"></i> Required & Optional Columns</h4>
+          <div class="table-responsive mb-3"
+            style="max-height: 220px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm);">
             <table class="table" style="font-size: 12px; margin: 0;">
               <thead>
                 <tr>
@@ -507,7 +589,8 @@
                   <td>Category name (e.g. <code>MAJOR</code>, <code>AEC</code>)</td>
                 </tr>
                 <tr>
-                  <td><strong>Slot Columns</strong><br><code>MON-1</code>, <code>MON-2</code> ... <code>FRI-6</code></td>
+                  <td><strong>Slot Columns</strong><br><code>MON-1</code>, <code>MON-2</code> ... <code>FRI-6</code>
+                  </td>
                   <td>Allocations</td>
                   <td>
                     Teacher visual code (e.g. <code>EJ</code>), Staff ID (e.g. <code>STF101</code>), or Name.<br>
@@ -518,13 +601,18 @@
             </table>
           </div>
 
-          <div style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); margin-bottom: 15px;">
-            <span class="text-sm" style="font-weight: 600; display: block; color: var(--text);"><i class="fa-solid fa-lightbulb text-warning"></i> Quick Download</span>
-            <span class="text-muted text-sm" style="display: block; margin-top: 2px;">Click below to download a pre-filled Excel template containing all courses currently registered in your department.</span>
+          <div
+            style="background-color: var(--background); padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); margin-bottom: 15px;">
+            <span class="text-sm" style="font-weight: 600; display: block; color: var(--text);"><i
+                class="fa-solid fa-lightbulb text-warning"></i> Quick Download</span>
+            <span class="text-muted text-sm" style="display: block; margin-top: 2px;">Click below to download a
+              pre-filled Excel template containing all courses currently registered in your department.</span>
           </div>
 
-          <div class="actions flex-row justify-between items-center mt-3" style="display: flex; justify-content: space-between; align-items: center;">
-            <button id="btn-download-dept-template" class="btn btn-primary"><i class="fa-solid fa-download"></i> Download Department Excel Template (.xlsx)</button>
+          <div class="actions flex-row justify-between items-center mt-3"
+            style="display: flex; justify-content: space-between; align-items: center;">
+            <button id="btn-download-dept-template" class="btn btn-primary"><i class="fa-solid fa-download"></i>
+              Download Department Excel Template (.xlsx)</button>
             <button id="btn-close-dept-excel-format-secondary" class="btn btn-outline">Close</button>
           </div>
         </div>
@@ -554,7 +642,8 @@
             <h2 style="font-size: 16px; margin: 0; font-weight: 700;">Advanced Features</h2>
             <span class="badge badge-info" style="font-size: 11px;">Department Suite</span>
           </div>
-          <button id="btn-close-advanced-features" class="btn btn-outline btn-xs" style="padding: 4px 8px; font-size: 13px;" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
+          <button id="btn-close-advanced-features" class="btn btn-outline btn-xs"
+            style="padding: 4px 8px; font-size: 13px;" title="Close Window"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <!-- Body with Sidebar and Content Panes -->
@@ -597,29 +686,37 @@
             <div id="adv-pane-teacher-unavail" class="adv-pane">
               <div class="flex-row justify-between items-center mb-3">
                 <div>
-                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-calendar-xmark text-warning"></i> Teacher Availability & Blackout Periods</h3>
-                  <p class="text-muted text-sm mb-0">Marked periods are strictly blocked from both automatic generation and manual allocation.</p>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i
+                      class="fa-solid fa-calendar-xmark text-warning"></i> Teacher Availability & Blackout Periods</h3>
+                  <p class="text-muted text-sm mb-0">Marked periods are strictly blocked from both automatic generation
+                    and manual allocation.</p>
                 </div>
-                <button id="btn-save-teacher-unavailability" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Availability</button>
+                <button id="btn-save-teacher-unavailability" class="btn btn-primary"><i class="fa-solid fa-save"></i>
+                  Save Availability</button>
               </div>
 
-              <div class="card bg-slate-50 mb-3" style="padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+              <div class="card bg-slate-50 mb-3"
+                style="padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
                 <div class="flex-row items-center gap-3 wrap-gap">
                   <div style="flex: 1; min-width: 200px;">
-                    <label for="select-avail-teacher" class="text-sm bold" style="display:block; margin-bottom: 4px;">Select Teacher</label>
+                    <label for="select-avail-teacher" class="text-sm bold"
+                      style="display:block; margin-bottom: 4px;">Select Teacher</label>
                     <select id="select-avail-teacher" class="form-control">
                       <!-- Populated dynamically -->
                     </select>
                   </div>
                   <div style="display: flex; gap: 8px; align-items: flex-end; padding-top: 20px;">
-                    <button type="button" id="btn-clear-teacher-unavail" class="btn btn-outline btn-sm">Clear All Days</button>
-                    <span id="teacher-unavail-status-badge" class="badge badge-info" style="align-self: center;">0 Blackout Periods</span>
+                    <button type="button" id="btn-clear-teacher-unavail" class="btn btn-outline btn-sm">Clear All
+                      Days</button>
+                    <span id="teacher-unavail-status-badge" class="badge badge-info" style="align-self: center;">0
+                      Blackout Periods</span>
                   </div>
                 </div>
               </div>
 
               <div class="table-responsive">
-                <table class="table table-bordered text-center" id="table-teacher-unavail-matrix" style="table-layout: fixed; font-size: 12px;">
+                <table class="table table-bordered text-center" id="table-teacher-unavail-matrix"
+                  style="table-layout: fixed; font-size: 12px;">
                   <thead>
                     <!-- Populated dynamically -->
                   </thead>
@@ -634,18 +731,22 @@
             <div id="adv-pane-subject-mapping" class="adv-pane hidden">
               <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2">
                 <div>
-                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-diagram-project text-primary"></i> Subject Teacher Mapping</h3>
-                  <p class="text-muted text-sm mb-0">Map faculty members, configure weekly teaching hours, multi-teacher divisions, and practical/theory distributions.</p>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i
+                      class="fa-solid fa-diagram-project text-primary"></i> Subject Teacher Mapping</h3>
+                  <p class="text-muted text-sm mb-0">Map faculty members, configure weekly teaching hours, multi-teacher
+                    divisions, and practical/theory distributions.</p>
                 </div>
                 <div class="flex-row gap-2">
-                  <button id="btn-save-subject-mapping" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Subject Mappings</button>
+                  <button id="btn-save-subject-mapping" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save
+                    All Subject Mappings</button>
                 </div>
               </div>
 
               <!-- Filter and Sort Bar -->
               <div class="adv-search-bar">
                 <div style="flex: 1; min-width: 200px;">
-                  <input type="text" id="subject-mapping-search" class="form-control" placeholder="Search subjects by code or name...">
+                  <input type="text" id="subject-mapping-search" class="form-control"
+                    placeholder="Search subjects by code or name...">
                 </div>
                 <div style="width: 150px;">
                   <select id="subject-mapping-program-filter" class="form-control">
@@ -680,12 +781,17 @@
             <div id="adv-pane-auto-generate" class="adv-pane hidden">
               <div class="flex-row justify-between items-center mb-3">
                 <div>
-                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-wand-magic-sparkles text-primary"></i> Automatic Timetable Generator</h3>
-                  <p class="text-muted text-sm mb-0">Generate conflict-free schedules respecting continuous practical blocks and teacher availability.</p>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i
+                      class="fa-solid fa-wand-magic-sparkles text-primary"></i> Automatic Timetable Generator</h3>
+                  <p class="text-muted text-sm mb-0">Generate conflict-free schedules respecting continuous practical
+                    blocks and teacher availability.</p>
                 </div>
                 <div class="flex-row gap-2">
-                  <button id="btn-run-auto-generate" class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Timetable</button>
-                  <button id="btn-apply-auto-generate" class="btn btn-success hidden" style="background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i> Apply to Timetable</button>
+                  <button id="btn-run-auto-generate" class="btn btn-primary"><i
+                      class="fa-solid fa-wand-magic-sparkles"></i> Generate Timetable</button>
+                  <button id="btn-apply-auto-generate" class="btn btn-success hidden"
+                    style="background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i>
+                    Apply to Timetable</button>
                 </div>
               </div>
 
@@ -715,19 +821,21 @@
                   <!-- Constraints & Workload Rules -->
                   <div class="auto-gen-card">
                     <h3><span class="step-num-badge">2</span> Constraints & Workload Rules</h3>
-                    
+
                     <div class="toggle-switch-row">
                       <div>
                         <strong class="text-sm" style="display:block;">Preserve / Pin Existing Slots</strong>
                         <span class="text-muted text-sm">Keep currently allocated slots and generate around them.</span>
                       </div>
                       <input type="checkbox" id="auto-gen-pin-slots" checked style="display: none;">
-                      <span class="badge badge-success" style="font-size: 11px;"><i class="fa-solid fa-check"></i> Always Active</span>
+                      <span class="badge badge-success" style="font-size: 11px;"><i class="fa-solid fa-check"></i>
+                        Always Active</span>
                     </div>
 
                     <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
                       <div>
-                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-flask text-success"></i> Continuous Practicals</strong>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-flask text-success"></i>
+                          Continuous Practicals</strong>
                         <span class="text-muted text-sm">2-hour unbroken lab blocks (no lunch break split).</span>
                       </div>
                       <span class="badge badge-success" style="font-size: 11px;">Enforced</span>
@@ -735,7 +843,8 @@
 
                     <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
                       <div>
-                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-mug-hot text-warning"></i> Teacher Rest Interval</strong>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-mug-hot text-warning"></i>
+                          Teacher Rest Interval</strong>
                         <span class="text-muted text-sm">Max 2 continuous teaching hours before a rest break.</span>
                       </div>
                       <span class="badge badge-warning" style="font-size: 11px;">Max 2h</span>
@@ -743,10 +852,12 @@
 
                     <div class="toggle-switch-row mt-2" style="border-top: 1px solid var(--border); padding-top: 8px;">
                       <div>
-                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-lock text-danger"></i> Admin Global Locks</strong>
+                        <strong class="text-sm" style="display:block;"><i class="fa-solid fa-lock text-danger"></i>
+                          Admin Global Locks</strong>
                         <span class="text-muted text-sm">College-wide locked periods strictly excluded.</span>
                       </div>
-                      <span class="badge badge-danger" style="font-size: 11px;" id="auto-gen-global-locks-badge">Active</span>
+                      <span class="badge badge-danger" style="font-size: 11px;"
+                        id="auto-gen-global-locks-badge">Active</span>
                     </div>
                   </div>
                 </div>
@@ -755,28 +866,36 @@
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                   <div class="auto-gen-card" style="height: 100%;">
                     <div class="flex-row justify-between items-center mb-1">
-                      <h3 style="margin-bottom: 0;"><span class="step-num-badge">3</span> Course & Teacher Bindings (<span id="auto-gen-courses-count">0</span>)</h3>
-                      <label class="text-sm bold" style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary);">
+                      <h3 style="margin-bottom: 0;"><span class="step-num-badge">3</span> Course & Teacher Bindings
+                        (<span id="auto-gen-courses-count">0</span>)</h3>
+                      <label class="text-sm bold"
+                        style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary);">
                         <input type="checkbox" id="auto-gen-select-all-courses" checked> Select All
                       </label>
                     </div>
-                    <p class="text-muted text-sm mb-2">Individual subjects selected for automatic schedule generation:</p>
-                    
+                    <p class="text-muted text-sm mb-2">Individual subjects selected for automatic schedule generation:
+                    </p>
+
                     <!-- Search & Sort Controls Toolbar -->
                     <div class="flex-row gap-2 mb-2" style="align-items: center;">
                       <div style="flex: 1; position: relative;">
-                        <input type="text" id="auto-gen-courses-search" class="form-control" placeholder="Search code or subject..." style="font-size: 11px; padding: 4px 8px 4px 26px; height: 30px;">
-                        <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 9px; font-size: 11px; color: var(--text-muted);"></i>
+                        <input type="text" id="auto-gen-courses-search" class="form-control"
+                          placeholder="Search code or subject..."
+                          style="font-size: 11px; padding: 4px 8px 4px 26px; height: 30px;">
+                        <i class="fa-solid fa-magnifying-glass"
+                          style="position: absolute; left: 8px; top: 9px; font-size: 11px; color: var(--text-muted);"></i>
                       </div>
                       <div style="width: 120px;">
-                        <select id="auto-gen-courses-program" class="form-control" style="font-size: 11px; padding: 3px 6px; height: 30px;">
+                        <select id="auto-gen-courses-program" class="form-control"
+                          style="font-size: 11px; padding: 3px 6px; height: 30px;">
                           <option value="">All (BSc & MSc)</option>
                           <option value="UG">BSc (UG)</option>
                           <option value="PG">MSc (PG)</option>
                         </select>
                       </div>
                       <div style="width: 150px;">
-                        <select id="auto-gen-courses-sort" class="form-control" style="font-size: 11px; padding: 3px 6px; height: 30px;">
+                        <select id="auto-gen-courses-sort" class="form-control"
+                          style="font-size: 11px; padding: 3px 6px; height: 30px;">
                           <option value="code-asc">Sort: Course Code (A-Z)</option>
                           <option value="code-desc">Sort: Course Code (Z-A)</option>
                           <option value="name-asc">Sort: Subject Name (A-Z)</option>
@@ -787,7 +906,8 @@
                       </div>
                     </div>
 
-                    <div id="auto-gen-faculty-bindings-list" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background-color: var(--surface);">
+                    <div id="auto-gen-faculty-bindings-list"
+                      style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background-color: var(--surface);">
                       <!-- Populated dynamically -->
                     </div>
                   </div>
@@ -800,10 +920,12 @@
               </div>
 
               <!-- RESULTS / AUDIT CARD -->
-              <div id="auto-gen-results-card" class="auto-gen-card hidden mt-3" style="background-color: var(--success-light); border-color: var(--success);">
-                <h3 id="auto-gen-results-heading" style="color: var(--success-dark);"><i class="fa-solid fa-circle-check"></i> Generation Successful!</h3>
+              <div id="auto-gen-results-card" class="auto-gen-card hidden mt-3"
+                style="background-color: var(--success-light); border-color: var(--success);">
+                <h3 id="auto-gen-results-heading" style="color: var(--success-dark);"><i
+                    class="fa-solid fa-circle-check"></i> Generation Successful!</h3>
                 <p class="text-sm" id="auto-gen-results-msg" style="color: var(--success-dark); font-weight: 500;"></p>
-                
+
                 <div class="audit-metrics-grid">
                   <div class="audit-metric-box">
                     <div class="metric-val text-success" id="audit-stat-slots">0</div>
@@ -823,9 +945,12 @@
                   </div>
                 </div>
 
-                <div id="auto-gen-suggestions-box" class="mt-3 hidden" style="background: rgba(255, 255, 255, 0.85); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 12px;">
-                  <div style="font-weight: 700; color: var(--primary); margin-bottom: 4px;"><i class="fa-solid fa-lightbulb text-warning"></i> Analysis & Suggestions:</div>
-                  <ul id="auto-gen-suggestions-list" style="padding-left: 18px; margin: 0; color: var(--text-main);"></ul>
+                <div id="auto-gen-suggestions-box" class="mt-3 hidden"
+                  style="background: rgba(255, 255, 255, 0.85); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 12px;">
+                  <div style="font-weight: 700; color: var(--primary); margin-bottom: 4px;"><i
+                      class="fa-solid fa-lightbulb text-warning"></i> Analysis & Suggestions:</div>
+                  <ul id="auto-gen-suggestions-list" style="padding-left: 18px; margin: 0; color: var(--text-main);">
+                  </ul>
                 </div>
               </div>
 
@@ -834,18 +959,25 @@
 
             <!-- TAB 4: TEACHER TIMETABLE -->
             <div id="adv-pane-teacher-timetable" class="adv-pane hidden">
-              <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2" style="background-color: var(--background); padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+              <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2"
+                style="background-color: var(--background); padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
                 <div>
-                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i class="fa-solid fa-chalkboard-user text-primary"></i> Faculty Teaching Timetables</h3>
-                  <span class="text-muted text-sm">View and export individual weekly schedules for each faculty member.</span>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;"><i
+                      class="fa-solid fa-chalkboard-user text-primary"></i> Faculty Teaching Timetables</h3>
+                  <span class="text-muted text-sm">View and export individual weekly schedules for each faculty
+                    member.</span>
                 </div>
                 <div class="actions flex-row items-center gap-2 flex-wrap">
-                  <label for="tab-select-teacher-faculty" class="bold text-sm" style="white-space: nowrap;"><i class="fa-solid fa-user-tie text-primary"></i> Select Teacher:</label>
-                  <select id="tab-select-teacher-faculty" class="form-control" style="width: auto; min-width: 220px; font-weight: 600;">
+                  <label for="tab-select-teacher-faculty" class="bold text-sm" style="white-space: nowrap;"><i
+                      class="fa-solid fa-user-tie text-primary"></i> Select Teacher:</label>
+                  <select id="tab-select-teacher-faculty" class="form-control"
+                    style="width: auto; min-width: 220px; font-weight: 600;">
                     <option value="ALL">All Teachers (Entire Department)</option>
                   </select>
-                  <button id="tab-btn-open-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-expand"></i> Full Screen View</button>
-                  <button id="tab-btn-print-teacher-pdf" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
+                  <button id="tab-btn-open-teacher-modal" class="btn btn-outline"><i class="fa-solid fa-expand"></i>
+                    Full Screen View</button>
+                  <button id="tab-btn-print-teacher-pdf" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i>
+                    Export to PDF / Print</button>
                 </div>
               </div>
               <div id="tab-teacher-timetable-container" style="min-height: 200px;">
@@ -858,17 +990,22 @@
               <!-- Sub-view A: Subject Cards Grid -->
               <div id="common-subjects-main-view">
                 <!-- Clean Toolbar Header -->
-                <div class="flex-row justify-between items-center mb-4 flex-wrap gap-3" style="background: #ffffff; padding: 14px 18px; border-radius: var(--radius-md); border: 1.5px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+                <div class="flex-row justify-between items-center mb-4 flex-wrap gap-3"
+                  style="background: #ffffff; padding: 14px 18px; border-radius: var(--radius-md); border: 1.5px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
                   <div>
                     <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main);">
-                      <i class="fa-solid fa-layer-group text-primary" style="margin-right: 6px;"></i> Common Subject Mapping
+                      <i class="fa-solid fa-layer-group text-primary" style="margin-right: 6px;"></i> Common Subject
+                      Mapping
                     </h3>
-                    <p class="text-muted text-xs mb-0 mt-1">Select a subject to view and configure department batches.</p>
+                    <p class="text-muted text-xs mb-0 mt-1">Select a subject to view and configure department batches.
+                    </p>
                   </div>
-                  
+
                   <div class="flex-row items-center gap-2">
-                    <label for="common-sem-filter" class="text-xs bold text-muted mb-0" style="white-space: nowrap;">Semester:</label>
-                    <select id="common-sem-filter" class="form-control form-control-sm" style="font-size: 12px; font-weight: 600; width: 145px; height: 32px; border-radius: 6px;">
+                    <label for="common-sem-filter" class="text-xs bold text-muted mb-0"
+                      style="white-space: nowrap;">Semester:</label>
+                    <select id="common-sem-filter" class="form-control form-control-sm"
+                      style="font-size: 12px; font-weight: 600; width: 145px; height: 32px; border-radius: 6px;">
                       <option value="">All Semesters</option>
                       <option value="odd">Odd Semesters (1, 3)</option>
                       <option value="even">Even Semesters (2, 4)</option>
@@ -877,12 +1014,15 @@
                       <option value="3">Semester 3</option>
                       <option value="4">Semester 4</option>
                     </select>
-                    <span class="badge" style="background: var(--background); border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; padding: 4px 8px;" id="common-current-dept-badge">DEPARTMENT</span>
+                    <span class="badge"
+                      style="background: var(--background); border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; padding: 4px 8px;"
+                      id="common-current-dept-badge">DEPARTMENT</span>
                   </div>
                 </div>
 
                 <!-- Grid of Subject Cards -->
-                <div id="common-subjects-tiles-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                <div id="common-subjects-tiles-grid"
+                  style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
                   <!-- Populated dynamically as clickable cards -->
                 </div>
               </div>
@@ -891,19 +1031,23 @@
               <div id="common-subject-detail-view" class="common-detail-view hidden">
                 <div class="common-detail-header-card">
                   <div class="flex-row items-center gap-3">
-                    <button type="button" id="btn-back-to-common-subjects" class="btn btn-outline btn-sm" style="font-size: 12px; padding: 5px 12px; border-radius: 6px;">
+                    <button type="button" id="btn-back-to-common-subjects" class="btn btn-outline btn-sm"
+                      style="font-size: 12px; padding: 5px 12px; border-radius: 6px;">
                       <i class="fa-solid fa-arrow-left"></i> Back
                     </button>
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span class="subject-code-badge" id="detail-subject-code-badge">AEC4</span>
-                      <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--text-main);" id="detail-subject-title">Ability Enhancement Course 4</h3>
+                      <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--text-main);"
+                        id="detail-subject-title">Ability Enhancement Course 4</h3>
                       <span class="subject-sem-tag" id="detail-subject-sem-tag">Semester 2</span>
                     </div>
                   </div>
 
                   <div class="flex-row items-center gap-2">
-                    <span class="text-xs text-muted" id="detail-batches-count-pill" style="font-weight: 600; margin-right: 4px;">0 Batches</span>
-                    <button type="button" id="btn-open-create-batch" class="btn btn-primary btn-sm" style="font-size: 12px; padding: 6px 14px; border-radius: 6px;">
+                    <span class="text-xs text-muted" id="detail-batches-count-pill"
+                      style="font-weight: 600; margin-right: 4px;">0 Batches</span>
+                    <button type="button" id="btn-open-create-batch" class="btn btn-primary btn-sm"
+                      style="font-size: 12px; padding: 6px 14px; border-radius: 6px;">
                       <i class="fa-solid fa-plus"></i> Create Batch
                     </button>
                   </div>
@@ -924,7 +1068,9 @@
                     <i class="fa-solid fa-calendar-check text-primary"></i> Curriculum & Recommended Slot Allocation
                   </h3>
                   <p class="text-muted text-sm mb-0">
-                    Visually configure Theory & Practical recommended slots and blocked periods for each semester. Auto-generation will strictly allocate the assigned subject to these exact slots first before scheduling balance hours.
+                    Visually configure Theory & Practical recommended slots and blocked periods for each semester.
+                    Auto-generation will strictly allocate the assigned subject to these exact slots first before
+                    scheduling balance hours.
                   </p>
                 </div>
                 <div class="flex-row items-center gap-2">
@@ -938,11 +1084,14 @@
               </div>
 
               <!-- Filter and Palette Toolbar Card -->
-              <div class="card bg-slate-50 mb-3" style="padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
+              <div class="card bg-slate-50 mb-3"
+                style="padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
                 <!-- Row 1: Selectors -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                <div
+                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
                   <div>
-                    <label for="curriculum-sem-select" class="text-xs bold text-muted" style="display: block; margin-bottom: 4px;">
+                    <label for="curriculum-sem-select" class="text-xs bold text-muted"
+                      style="display: block; margin-bottom: 4px;">
                       <i class="fa-solid fa-graduation-cap text-primary"></i> Select Semester:
                     </label>
                     <select id="curriculum-sem-select" class="form-control" style="font-size: 13px; height: 36px;">
@@ -951,7 +1100,8 @@
                   </div>
 
                   <div>
-                    <label for="curriculum-course-filter" class="text-xs bold text-muted" style="display: block; margin-bottom: 4px;">
+                    <label for="curriculum-course-filter" class="text-xs bold text-muted"
+                      style="display: block; margin-bottom: 4px;">
                       <i class="fa-solid fa-filter text-primary"></i> View / Filter Course:
                     </label>
                     <select id="curriculum-course-filter" class="form-control" style="font-size: 13px; height: 36px;">
@@ -962,33 +1112,45 @@
                 </div>
 
                 <!-- Row 2: Action Tool Palette & Assign Subject -->
-                <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
+                <div
+                  style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid var(--border);">
                   <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
                     <span class="text-xs bold text-muted" style="margin-right: 4px;">Slot Action Tool:</span>
-                    
-                    <button type="button" class="curriculum-mode-pill active" data-mode="T" id="tool-mode-theory" style="background: var(--warning-light); border-color: var(--warning); color: var(--warning-dark);" title="Click any cell to mark Theory Recommendation">
+
+                    <button type="button" class="curriculum-mode-pill active" data-mode="T" id="tool-mode-theory"
+                      style="background: var(--warning-light); border-color: var(--warning); color: var(--warning-dark);"
+                      title="Click any cell to mark Theory Recommendation">
                       <i class="fa-solid fa-book"></i> Theory Rec (TH)
                     </button>
 
-                    <button type="button" class="curriculum-mode-pill" data-mode="P" id="tool-mode-practical" style="background: var(--success-light); border-color: var(--success); color: var(--success-dark);" title="Click any cell to mark Practical Recommendation">
+                    <button type="button" class="curriculum-mode-pill" data-mode="P" id="tool-mode-practical"
+                      style="background: var(--success-light); border-color: var(--success); color: var(--success-dark);"
+                      title="Click any cell to mark Practical Recommendation">
                       <i class="fa-solid fa-flask"></i> Practical Rec (PR)
                     </button>
 
-                    <button type="button" class="curriculum-mode-pill" data-mode="B" id="tool-mode-block" style="background: #fee2e2; border-color: #ef4444; color: #991b1b;" title="Click any cell to Block this slot for the semester">
+                    <button type="button" class="curriculum-mode-pill" data-mode="B" id="tool-mode-block"
+                      style="background: #fee2e2; border-color: #ef4444; color: #991b1b;"
+                      title="Click any cell to Block this slot for the selected course (or entire semester)">
                       <i class="fa-solid fa-ban"></i> Block Slot
                     </button>
 
-                    <button type="button" class="curriculum-mode-pill" data-mode="CLEAR" id="tool-mode-clear" style="background: #f1f5f9; border-color: #cbd5e1; color: var(--text-muted);" title="Click any cell to Clear slot">
+                    <button type="button" class="curriculum-mode-pill" data-mode="CLEAR" id="tool-mode-clear"
+                      style="background: #f1f5f9; border-color: #cbd5e1; color: var(--text-muted);"
+                      title="Click any cell to Clear slot">
                       <i class="fa-solid fa-eraser"></i> Clear Slot
                     </button>
                   </div>
 
-                  <!-- Assign Subject Dropdown (Active when Theory or Practical is selected) -->
-                  <div id="curriculum-assign-subject-wrapper" style="display: flex; align-items: center; gap: 8px; background: #ffffff; padding: 4px 10px; border-radius: 6px; border: 1.5px solid var(--primary);">
-                    <label for="curriculum-target-subject-select" class="text-xs bold" style="color: var(--primary); white-space: nowrap; margin-bottom: 0;">
+                  <!-- Assign Subject / Target Course Dropdown -->
+                  <div id="curriculum-assign-subject-wrapper"
+                    style="display: flex; align-items: center; gap: 8px; background: #ffffff; padding: 4px 10px; border-radius: 6px; border: 1.5px solid var(--primary);">
+                    <label for="curriculum-target-subject-select" id="curriculum-target-subject-label"
+                      class="text-xs bold" style="color: var(--primary); white-space: nowrap; margin-bottom: 0;">
                       <i class="fa-solid fa-arrow-pointer"></i> Assign Subject:
                     </label>
-                    <select id="curriculum-target-subject-select" class="form-control form-control-sm" style="font-size: 12px; height: 28px; min-width: 200px; max-width: 280px; font-weight: 600;">
+                    <select id="curriculum-target-subject-select" class="form-control form-control-sm"
+                      style="font-size: 12px; height: 28px; min-width: 200px; max-width: 280px; font-weight: 600;">
                       <!-- Populated dynamically with courses of the selected semester -->
                     </select>
                   </div>
@@ -996,33 +1158,46 @@
               </div>
 
               <!-- Quick Instruction & Legend Pill Bar -->
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted);">
+              <div
+                style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 11.5px; color: var(--text-muted);">
                 <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
                   <span style="display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 14px; height: 14px; background: var(--warning-light); border-left: 3px solid var(--warning); border-radius: 2px;"></span>
+                    <span
+                      style="display: inline-block; width: 14px; height: 14px; background: var(--warning-light); border-left: 3px solid var(--warning); border-radius: 2px;"></span>
                     Theory Rec
                   </span>
                   <span style="display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 14px; height: 14px; background: var(--success-light); border-left: 3px solid var(--success); border-radius: 2px;"></span>
+                    <span
+                      style="display: inline-block; width: 14px; height: 14px; background: var(--success-light); border-left: 3px solid var(--success); border-radius: 2px;"></span>
                     Practical Rec
                   </span>
                   <span style="display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 14px; height: 14px; background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 4px, #fca5a5 4px, #fca5a5 8px); border: 1px solid #ef4444; border-radius: 2px;"></span>
+                    <span
+                      style="display: inline-block; width: 14px; height: 14px; background: #fee2e2; border: 1.5px dashed #ef4444; border-radius: 2px;"></span>
+                    Course Blocked
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 5px;">
+                    <span
+                      style="display: inline-block; width: 14px; height: 14px; background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 4px, #fca5a5 4px, #fca5a5 8px); border: 1px solid #ef4444; border-radius: 2px;"></span>
                     Semester Blocked
                   </span>
                   <span style="display: inline-flex; align-items: center; gap: 5px;">
-                    <span style="display: inline-block; width: 14px; height: 14px; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 2px;"></span>
+                    <span
+                      style="display: inline-block; width: 14px; height: 14px; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 2px;"></span>
                     Neutral / Free
                   </span>
                 </div>
-                <span id="curriculum-slot-summary-stat" class="badge badge-info" style="font-size: 11px; padding: 2px 8px;">
+                <span id="curriculum-slot-summary-stat" class="badge badge-info"
+                  style="font-size: 11px; padding: 2px 8px;">
                   0 Recommended Slots Set
                 </span>
               </div>
 
               <!-- Timetable Matrix Grid Table Container -->
-              <div class="table-responsive" style="border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: calc(92vh - 350px); overflow: auto; background: #ffffff;">
-                <table class="table table-bordered text-center curriculum-slot-grid" id="table-curriculum-slots-matrix" style="margin-bottom: 0; min-width: 900px;">
+              <div class="table-responsive"
+                style="border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: calc(92vh - 350px); overflow: auto; background: #ffffff;">
+                <table class="table table-bordered text-center curriculum-slot-grid" id="table-curriculum-slots-matrix"
+                  style="margin-bottom: 0; min-width: 900px;">
                   <thead>
                     <!-- Populated dynamically -->
                   </thead>
@@ -1033,7 +1208,8 @@
               </div>
 
               <!-- Course Hours Progress Breakdown Cards -->
-              <div id="curriculum-hours-summary-container" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+              <div id="curriculum-hours-summary-container"
+                style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
                 <!-- Populated dynamically -->
               </div>
             </div>
@@ -1051,40 +1227,56 @@
                 </div>
               </div>
 
-              <div class="card" style="max-width: 480px; padding: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: #ffffff;">
+              <div class="card"
+                style="max-width: 480px; padding: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: #ffffff;">
                 <form id="form-dept-change-password" autocomplete="off">
                   <div class="form-group mb-3">
                     <label class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Department</label>
-                    <input type="text" id="dept-pwd-deptname" class="form-control" readonly style="background-color: var(--bg-body); font-weight: 600; color: var(--primary);">
+                    <input type="text" id="dept-pwd-deptname" class="form-control" readonly
+                      style="background-color: var(--bg-body); font-weight: 600; color: var(--primary);">
                   </div>
 
                   <div class="form-group mb-3">
-                    <label for="dept-current-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Current Password</label>
+                    <label for="dept-current-pwd" class="text-xs bold text-muted"
+                      style="display:block; margin-bottom: 5px;">Current Password</label>
                     <div style="position: relative;">
-                      <input type="password" id="dept-current-pwd" class="form-control" placeholder="Enter current password" required autocomplete="current-password" style="padding-right: 38px;">
-                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-current-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                      <input type="password" id="dept-current-pwd" class="form-control"
+                        placeholder="Enter current password" required autocomplete="current-password"
+                        style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-current-pwd"
+                        style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
                     </div>
                   </div>
 
                   <div class="form-group mb-3">
-                    <label for="dept-new-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">New Password</label>
+                    <label for="dept-new-pwd" class="text-xs bold text-muted"
+                      style="display:block; margin-bottom: 5px;">New Password</label>
                     <div style="position: relative;">
-                      <input type="password" id="dept-new-pwd" class="form-control" placeholder="Enter new password (min. 4 characters)" minlength="4" required autocomplete="new-password" style="padding-right: 38px;">
-                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-new-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                      <input type="password" id="dept-new-pwd" class="form-control"
+                        placeholder="Enter new password (min. 4 characters)" minlength="4" required
+                        autocomplete="new-password" style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-new-pwd"
+                        style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
                     </div>
                   </div>
 
                   <div class="form-group mb-4">
-                    <label for="dept-confirm-pwd" class="text-xs bold text-muted" style="display:block; margin-bottom: 5px;">Confirm New Password</label>
+                    <label for="dept-confirm-pwd" class="text-xs bold text-muted"
+                      style="display:block; margin-bottom: 5px;">Confirm New Password</label>
                     <div style="position: relative;">
-                      <input type="password" id="dept-confirm-pwd" class="form-control" placeholder="Re-enter new password" minlength="4" required autocomplete="new-password" style="padding-right: 38px;">
-                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-confirm-pwd" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
+                      <input type="password" id="dept-confirm-pwd" class="form-control"
+                        placeholder="Re-enter new password" minlength="4" required autocomplete="new-password"
+                        style="padding-right: 38px;">
+                      <i class="fa-solid fa-eye toggle-dept-pwd" data-target="dept-confirm-pwd"
+                        style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted);"></i>
                     </div>
                   </div>
 
-                  <div id="dept-pwd-feedback" class="mb-3 hidden" style="font-size: 13px; padding: 10px 14px; border-radius: var(--radius-sm);"></div>
+                  <div id="dept-pwd-feedback" class="mb-3 hidden"
+                    style="font-size: 13px; padding: 10px 14px; border-radius: var(--radius-sm);"></div>
 
-                  <button type="submit" id="btn-submit-dept-pwd" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px;">
+                  <button type="submit" id="btn-submit-dept-pwd" class="btn btn-primary"
+                    style="display: inline-flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-key"></i> Update Password
                   </button>
                 </form>
@@ -1095,9 +1287,62 @@
       </div>
     </div>
 
+    <!-- MODAL: UNSAVED CHANGES WARNING IN ADVANCED FEATURES -->
+    <div id="modal-unsaved-adv-changes" class="modal flex-center hidden no-print"
+      style="z-index: 10050; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px);">
+      <div class="modal-content modal-md"
+        style="max-width: 560px; width: 92%; padding: 24px; border-radius: var(--radius-md); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); animation: fadeIn 0.15s ease-out;">
+        <div class="flex-row items-center gap-3 mb-3 pb-2" style="border-bottom: 1.5px solid var(--border);">
+          <div
+            style="width: 40px; height: 40px; border-radius: 50%; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706; font-size: 19px; flex-shrink: 0;">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+          </div>
+          <div>
+            <h3 id="unsaved-adv-modal-title" style="margin: 0; font-size: 16px; font-weight: 700; color: #1e293b;">
+              Unsaved Changes Detected</h3>
+            <span id="unsaved-adv-modal-subtitle" class="text-muted text-xs">You have unsaved changes in Advanced
+              Features</span>
+          </div>
+        </div>
+
+        <p class="text-sm text-muted mb-2">
+          You made changes in <strong id="unsaved-adv-tab-name" style="color: var(--text-main);">this section</strong>
+          that have not been saved yet. If you leave without saving, these changes will be lost:
+        </p>
+
+        <!-- Container for list of exact changes -->
+        <div
+          style="background: #f8fafc; border: 1.5px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; max-height: 220px; overflow-y: auto;">
+          <ul id="unsaved-adv-changes-list"
+            style="margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-main); display: flex; flex-direction: column; gap: 6px;">
+            <!-- Populated dynamically -->
+          </ul>
+        </div>
+
+        <div class="actions flex-row justify-between items-center pt-2"
+          style="border-top: 1px solid var(--border); gap: 8px; flex-wrap: wrap;">
+          <button type="button" id="btn-unsaved-adv-stay" class="btn btn-outline btn-sm"
+            style="font-size: 12.5px; font-weight: 600;">
+            <i class="fa-solid fa-arrow-left"></i> Stay & Save
+          </button>
+          <div class="flex-row gap-2">
+            <button type="button" id="btn-unsaved-adv-discard" class="btn btn-outline-danger btn-sm"
+              style="font-size: 12.5px; font-weight: 600; padding: 6px 12px;">
+              <i class="fa-solid fa-trash-can"></i> Discard & Proceed
+            </button>
+            <button type="button" id="btn-unsaved-adv-save-proceed" class="btn btn-primary btn-sm"
+              style="font-size: 12.5px; font-weight: 600; padding: 6px 14px;">
+              <i class="fa-solid fa-floppy-disk"></i> Save & Proceed
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- CREATE / EDIT COMMON BATCH MODAL -->
     <div id="modal-create-common-batch" class="modal flex-center hidden no-print" style="z-index: 9999;">
-      <div class="modal-content modal-md" style="max-width: 480px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+      <div class="modal-content modal-md"
+        style="max-width: 480px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
         <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
           <div class="flex-row items-center gap-2">
             <i class="fa-solid fa-folder-plus text-primary" style="font-size: 18px;"></i>
@@ -1106,23 +1351,28 @@
               <span class="text-muted text-xs" id="modal-common-batch-subtitle">Common Subject Allocation</span>
             </div>
           </div>
-          <button type="button" id="btn-close-common-batch-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+          <button type="button" id="btn-close-common-batch-modal" class="btn btn-outline btn-xs"
+            style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
-        <form id="form-create-common-batch" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 12px;">
+        <form id="form-create-common-batch" onsubmit="return false;"
+          style="display: flex; flex-direction: column; gap: 12px;">
           <input type="hidden" id="common-batch-subject-code">
           <input type="hidden" id="common-batch-semester">
           <input type="hidden" id="common-batch-id">
 
           <!-- Target Subject Chip -->
-          <div style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">
+          <div
+            style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">
             <strong style="color: var(--primary); font-size: 13px;" id="common-batch-label-display">AEC4</strong>
             <span class="subject-sem-tag" id="common-batch-sem-badge">Semester 2</span>
           </div>
 
           <!-- Offering Department (Auto Fetched from Current Department) -->
-          <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center;">
-            <span class="text-xs text-muted bold"><i class="fa-solid fa-school text-primary" style="margin-right: 4px;"></i> Offering Department:</span>
+          <div
+            style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span class="text-xs text-muted bold"><i class="fa-solid fa-school text-primary"
+                style="margin-right: 4px;"></i> Offering Department:</span>
             <strong id="common-batch-offering-dept-display" style="color: var(--primary); font-size: 13px;">-</strong>
             <input type="hidden" id="common-batch-offering-dept-val">
           </div>
@@ -1133,13 +1383,17 @@
               <label class="text-xs text-muted bold" style="margin-bottom: 0;">
                 <i class="fa-solid fa-building-columns text-primary"></i> Participating Departments:
               </label>
-              <span id="common-batch-depts-count-badge" class="badge badge-info" style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
+              <span id="common-batch-depts-count-badge" class="badge badge-info"
+                style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
             </div>
-            
+
             <!-- Dropdown Trigger Button -->
             <div id="common-batch-depts-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
-              <span id="common-batch-depts-trigger-text" class="text-muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select participating departments...</span>
-              <i id="common-batch-depts-chevron" class="fa-solid fa-chevron-down text-muted" style="font-size: 10px; transition: transform 0.2s;"></i>
+              <span id="common-batch-depts-trigger-text" class="text-muted"
+                style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select
+                participating departments...</span>
+              <i id="common-batch-depts-chevron" class="fa-solid fa-chevron-down text-muted"
+                style="font-size: 10px; transition: transform 0.2s;"></i>
             </div>
 
             <!-- Dropdown Menu Box -->
@@ -1147,37 +1401,51 @@
               <!-- Search & Quick Action Header -->
               <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
                 <div style="flex: 1; position: relative;">
-                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
-                  <input type="text" id="common-batch-depts-search-input" class="form-control" placeholder="Search departments..." style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
+                  <i class="fa-solid fa-magnifying-glass"
+                    style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
+                  <input type="text" id="common-batch-depts-search-input" class="form-control"
+                    placeholder="Search departments..."
+                    style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
                 </div>
-                <button type="button" id="btn-batch-depts-select-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
-                <button type="button" id="btn-batch-depts-clear-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
+                <button type="button" id="btn-batch-depts-select-all" class="btn btn-outline btn-xs"
+                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
+                <button type="button" id="btn-batch-depts-clear-all" class="btn btn-outline btn-xs"
+                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
               </div>
 
               <!-- Scrollable Checklist -->
-              <div id="common-batch-depts-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
+              <div id="common-batch-depts-list"
+                style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
                 <!-- Populated dynamically with checkboxes -->
               </div>
 
               <!-- Footer with Done button -->
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
-                <span id="common-batch-depts-modal-count" class="text-xs text-muted" style="font-weight: 600;">0 selected</span>
-                <button type="button" id="btn-batch-depts-done" class="btn btn-primary btn-xs" style="font-size: 10px; padding: 2px 10px;">Done</button>
+              <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+                <span id="common-batch-depts-modal-count" class="text-xs text-muted" style="font-weight: 600;">0
+                  selected</span>
+                <button type="button" id="btn-batch-depts-done" class="btn btn-primary btn-xs"
+                  style="font-size: 10px; padding: 2px 10px;">Done</button>
               </div>
             </div>
           </div>
 
           <!-- Auto-Mapped Course Confirmation Box -->
-          <div id="common-batch-mapped-course-card" style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
+          <div id="common-batch-mapped-course-card"
+            style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <span class="text-xs text-muted bold" style="text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px;">
+              <span class="text-xs text-muted bold"
+                style="text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px;">
                 <i class="fa-solid fa-link text-primary" style="margin-right: 4px;"></i> Course Mapping
               </span>
-              <button type="button" id="btn-toggle-edit-course-mapping" class="btn btn-outline btn-xs" style="font-size: 11px; padding: 2px 8px; border-radius: 4px;" title="Change or customize course mapping">
+              <button type="button" id="btn-toggle-edit-course-mapping" class="btn btn-outline btn-xs"
+                style="font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+                title="Change or customize course mapping">
                 <i class="fa-solid fa-pen-to-square"></i> Change Course
               </button>
             </div>
-            <div id="common-batch-course-confirmation" style="font-size: 13px; font-weight: 600; color: var(--text-main);">
+            <div id="common-batch-course-confirmation"
+              style="font-size: 13px; font-weight: 600; color: var(--text-main);">
               <!-- Dynamic: Code & Name -->
             </div>
             <div id="common-batch-course-meta" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
@@ -1189,8 +1457,10 @@
           <input type="hidden" id="common-batch-selected-course-code">
 
           <!-- Optional Course Selector Dropdown (Shown on Edit Mapping click) -->
-          <div id="wrapper-edit-course-mapping" class="form-group mb-0 hidden" style="background: #ffffff; border: 1px dashed var(--border); border-radius: 6px; padding: 10px; margin-top: 2px;">
-            <label for="common-batch-course-select" class="text-xs text-muted bold" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div id="wrapper-edit-course-mapping" class="form-group mb-0 hidden"
+            style="background: #ffffff; border: 1px dashed var(--border); border-radius: 6px; padding: 10px; margin-top: 2px;">
+            <label for="common-batch-course-select" class="text-xs text-muted bold"
+              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span>Select Department Course to Map</span>
               <span class="text-xs text-muted" style="font-weight: normal;">(Choose offered course)</span>
             </label>
@@ -1201,8 +1471,10 @@
 
           <!-- Batch Name -->
           <div class="form-group mb-0">
-            <label for="common-batch-name-input" class="text-xs text-muted bold" style="display: block; margin-bottom: 4px;">Batch Name</label>
-            <input type="text" id="common-batch-name-input" class="form-control" placeholder="e.g. Batch 1, Section A" style="font-size: 13px; height: 36px;" required>
+            <label for="common-batch-name-input" class="text-xs text-muted bold"
+              style="display: block; margin-bottom: 4px;">Batch Name</label>
+            <input type="text" id="common-batch-name-input" class="form-control" placeholder="e.g. Batch 1, Section A"
+              style="font-size: 13px; height: 36px;" required>
           </div>
 
           <!-- Faculty Selector (Searchable Multi-Select Dropdown) -->
@@ -1211,13 +1483,17 @@
               <label class="text-xs text-muted bold" style="margin-bottom: 0;">
                 <i class="fa-solid fa-user-tie text-primary"></i> Assigned Faculty:
               </label>
-              <span id="common-batch-teachers-count-badge" class="badge badge-info" style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
+              <span id="common-batch-teachers-count-badge" class="badge badge-info"
+                style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
             </div>
 
             <!-- Dropdown Trigger Button -->
             <div id="common-batch-teachers-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
-              <span id="common-batch-teachers-trigger-text" class="text-muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select faculty members...</span>
-              <i id="common-batch-teachers-chevron" class="fa-solid fa-chevron-down text-muted" style="font-size: 10px; transition: transform 0.2s;"></i>
+              <span id="common-batch-teachers-trigger-text" class="text-muted"
+                style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select
+                faculty members...</span>
+              <i id="common-batch-teachers-chevron" class="fa-solid fa-chevron-down text-muted"
+                style="font-size: 10px; transition: transform 0.2s;"></i>
             </div>
 
             <!-- Dropdown Menu Box -->
@@ -1225,29 +1501,40 @@
               <!-- Search & Quick Action Header -->
               <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
                 <div style="flex: 1; position: relative;">
-                  <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
-                  <input type="text" id="common-batch-teachers-search-input" class="form-control" placeholder="Search faculty by name or code..." style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
+                  <i class="fa-solid fa-magnifying-glass"
+                    style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
+                  <input type="text" id="common-batch-teachers-search-input" class="form-control"
+                    placeholder="Search faculty by name or code..."
+                    style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
                 </div>
-                <button type="button" id="btn-batch-teachers-select-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
-                <button type="button" id="btn-batch-teachers-clear-all" class="btn btn-outline btn-xs" style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
+                <button type="button" id="btn-batch-teachers-select-all" class="btn btn-outline btn-xs"
+                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
+                <button type="button" id="btn-batch-teachers-clear-all" class="btn btn-outline btn-xs"
+                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
               </div>
 
               <!-- Scrollable Checklist -->
-              <div id="common-batch-teachers-list" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
+              <div id="common-batch-teachers-list"
+                style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
                 <!-- Populated dynamically with checkboxes -->
               </div>
 
               <!-- Footer with Done button -->
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
-                <span id="common-batch-teachers-modal-count" class="text-xs text-muted" style="font-weight: 600;">0 selected</span>
-                <button type="button" id="btn-batch-teachers-done" class="btn btn-primary btn-xs" style="font-size: 10px; padding: 2px 10px;">Done</button>
+              <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
+                <span id="common-batch-teachers-modal-count" class="text-xs text-muted" style="font-weight: 600;">0
+                  selected</span>
+                <button type="button" id="btn-batch-teachers-done" class="btn btn-primary btn-xs"
+                  style="font-size: 10px; padding: 2px 10px;">Done</button>
               </div>
             </div>
           </div>
 
           <div class="actions flex-row justify-end gap-2 mt-3 pt-3" style="border-top: 1px solid var(--border);">
-            <button type="button" id="btn-cancel-common-batch" class="btn btn-outline" style="font-size: 13px;">Cancel</button>
-            <button type="button" id="btn-submit-common-batch" class="btn btn-primary" style="font-size: 13px;"><i class="fa-solid fa-save"></i> Save Batch</button>
+            <button type="button" id="btn-cancel-common-batch" class="btn btn-outline"
+              style="font-size: 13px;">Cancel</button>
+            <button type="button" id="btn-submit-common-batch" class="btn btn-primary" style="font-size: 13px;"><i
+                class="fa-solid fa-save"></i> Save Batch</button>
           </div>
         </form>
       </div>
@@ -1255,10 +1542,12 @@
 
     <!-- LOCKED PERIOD COMMON SUBJECT INSPECTION MODAL -->
     <div id="modal-locked-period-details" class="modal flex-center hidden no-print" style="z-index: 9999;">
-      <div class="modal-content modal-md" style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+      <div class="modal-content modal-md"
+        style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
         <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
           <div class="flex-row items-center gap-2">
-            <div style="width: 30px; height: 30px; border-radius: 6px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706;">
+            <div
+              style="width: 30px; height: 30px; border-radius: 6px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706;">
               <i class="fa-solid fa-lock" style="font-size: 14px;"></i>
             </div>
             <div>
@@ -1266,37 +1555,48 @@
               <span class="text-muted text-xs">Concurrent Institution Batches</span>
             </div>
           </div>
-          <button type="button" id="btn-close-locked-period-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+          <button type="button" id="btn-close-locked-period-modal" class="btn btn-outline btn-xs"
+            style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <!-- Slot Information Banner -->
-        <div style="background: var(--background); border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
+        <div
+          style="background: var(--background); border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <strong style="font-size: 13px; color: var(--text-main);" id="locked-period-slot-info">Tuesday &bull; Period 3</strong>
+            <strong style="font-size: 13px; color: var(--text-main);" id="locked-period-slot-info">Tuesday &bull; Period
+              3</strong>
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
             <span class="subject-sem-tag" id="locked-period-sem-badge">Semester 2</span>
-            <span class="badge" style="background: #b45309; color: white; font-weight: 700;" id="locked-period-label-badge">MDC-2</span>
+            <span class="badge" style="background: #b45309; color: white; font-weight: 700;"
+              id="locked-period-label-badge">MDC-2</span>
           </div>
         </div>
 
         <!-- Concurrent Batches List -->
         <div>
           <div class="flex-row justify-between items-center mb-2">
-            <span class="text-xs text-muted bold"><i class="fa-solid fa-users text-primary"></i> Concurrent Batches:</span>
+            <span class="text-xs text-muted bold"><i class="fa-solid fa-users text-primary"></i> Concurrent
+              Batches:</span>
             <span class="text-xs text-muted" id="locked-period-batches-count" style="font-weight: 600;">0 Batches</span>
           </div>
 
-          <div id="locked-period-batches-container" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+          <div id="locked-period-batches-container"
+            style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
             <!-- Populated dynamically -->
           </div>
         </div>
 
-        <div class="actions flex-row justify-between items-center mt-3 pt-3" style="border-top: 1px solid var(--border);">
-          <button type="button" id="btn-locked-period-open-mapping" class="btn btn-outline btn-sm" style="font-size: 12px;"><i class="fa-solid fa-layer-group text-primary"></i> Open Mapping</button>
+        <div class="actions flex-row justify-between items-center mt-3 pt-3"
+          style="border-top: 1px solid var(--border);">
+          <button type="button" id="btn-locked-period-open-mapping" class="btn btn-outline btn-sm"
+            style="font-size: 12px;"><i class="fa-solid fa-layer-group text-primary"></i> Open Mapping</button>
           <div class="flex-row gap-2">
-            <button type="button" id="btn-locked-period-manual-assign" class="btn btn-outline btn-sm" style="font-size: 12px; color: var(--primary);"><i class="fa-solid fa-user-plus"></i> Manual Assign</button>
-            <button type="button" id="btn-locked-period-close" class="btn btn-primary btn-sm" style="font-size: 12px;">Close</button>
+            <button type="button" id="btn-locked-period-manual-assign" class="btn btn-outline btn-sm"
+              style="font-size: 12px; color: var(--primary);"><i class="fa-solid fa-user-plus"></i> Manual
+              Assign</button>
+            <button type="button" id="btn-locked-period-close" class="btn btn-primary btn-sm"
+              style="font-size: 12px;">Close</button>
           </div>
         </div>
       </div>
@@ -1304,37 +1604,48 @@
 
     <!-- PARAMETER CHANGE RE-ALLOCATION CONFIRMATION MODAL -->
     <div id="modal-param-change-confirm" class="modal flex-center hidden no-print" style="z-index: 10005;">
-      <div class="modal-content modal-md" style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+      <div class="modal-content modal-md"
+        style="max-width: 560px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
         <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
           <div class="flex-row items-center gap-2">
-            <div style="width: 34px; height: 34px; border-radius: 8px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706; font-size: 16px;">
+            <div
+              style="width: 34px; height: 34px; border-radius: 8px; background: #fef3c7; display: flex; align-items: center; justify-content: center; color: #d97706; font-size: 16px;">
               <i class="fa-solid fa-triangle-exclamation"></i>
             </div>
             <div>
-              <h3 style="margin: 0; font-size: 15.5px; font-weight: 700; color: var(--text-main);">Parameter Changes Detected</h3>
+              <h3 style="margin: 0; font-size: 15.5px; font-weight: 700; color: var(--text-main);">Parameter Changes
+                Detected</h3>
               <span class="text-muted text-xs">Previously Allocated Subject Modifications</span>
             </div>
           </div>
-          <button type="button" id="btn-close-param-change-modal" class="btn btn-outline btn-xs" style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
+          <button type="button" id="btn-close-param-change-modal" class="btn btn-outline btn-xs"
+            style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
         <p class="text-sm text-muted mb-2">
-          The following previously allocated subject(s) have detected parameter changes that affect timetable allocation:
+          The following previously allocated subject(s) have detected parameter changes that affect timetable
+          allocation:
         </p>
 
         <!-- Container for list of affected courses and exact reason list -->
-        <div id="param-change-courses-list" style="max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;">
+        <div id="param-change-courses-list"
+          style="max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;">
           <!-- Populated dynamically -->
         </div>
 
-        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: var(--text-muted); margin-bottom: 16px;">
+        <div
+          style="background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: var(--text-muted); margin-bottom: 16px;">
           <i class="fa-solid fa-circle-info text-primary"></i>
-          <strong>Action:</strong> Clicking <strong>Continue & Regenerate</strong> will delete the previous allocations for these changed subjects and re-allocate them along with your new selections. Subjects with unchanged parameters will keep their allocated slots preserved.
+          <strong>Action:</strong> Clicking <strong>Continue & Regenerate</strong> will delete the previous allocations
+          for these changed subjects and re-allocate them along with your new selections. Subjects with unchanged
+          parameters will keep their allocated slots preserved.
         </div>
 
         <div class="actions flex-row justify-end gap-2 pt-2" style="border-top: 1px solid var(--border);">
-          <button type="button" id="btn-cancel-param-change" class="btn btn-outline btn-sm" style="font-size: 12.5px;">Cancel</button>
-          <button type="button" id="btn-confirm-regenerate-param-change" class="btn btn-primary btn-sm" style="font-size: 12.5px; background: #d97706; border-color: #b45309;">
+          <button type="button" id="btn-cancel-param-change" class="btn btn-outline btn-sm"
+            style="font-size: 12.5px;">Cancel</button>
+          <button type="button" id="btn-confirm-regenerate-param-change" class="btn btn-primary btn-sm"
+            style="font-size: 12.5px; background: #d97706; border-color: #b45309;">
             <i class="fa-solid fa-rotate"></i> Continue & Regenerate
           </button>
         </div>
@@ -1346,6 +1657,7 @@
   <!-- SheetJS Library via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Frontend Javascript Orchestrator with Cache Busting -->
-  <script src="js/app.js?v=3.6"></script>
+  <script src="js/app.js?v=4.1"></script>
 </body>
+
 </html>

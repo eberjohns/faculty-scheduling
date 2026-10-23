@@ -293,31 +293,33 @@ function bindCustomModals() {
   const btnExportGroupMappings = document.getElementById('btn-export-group-mappings');
   if (btnExportGroupMappings) {
     btnExportGroupMappings.addEventListener('click', () => {
-      const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+      const groupCourses = state.courses.filter(c => (c.group && c.group > 0) || (c.class && c.class > 0) || (c.classes && c.classes > 1) || /(_G|_C)\d+/.test(c.code));
       const uniq = [];
       groupCourses.forEach(c => {
         if (!uniq.some(uc => uc.code === c.code)) uniq.push(c);
       });
 
       if (uniq.length === 0) {
-        showModalAlert('No Groups', 'There are no group courses configured in the database to export.', 'info');
+        showModalAlert('No Classes', 'There are no class/section courses configured in the database to export.', 'info');
         return;
       }
 
-      let csv = "Course Code,Course Name,Group,Batches\n";
+      let csv = "Course Code,Course Name,Class,Batches\n";
       uniq.forEach(c => {
-        const baseCode = c.code.replace(/_G\d+$/, '');
+        const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 1);
         const mapped = (c.mappedBatches || []).join(',');
         const nameEscaped = `"${c.name.replace(/"/g, '""')}"`;
         const batchesEscaped = `"${mapped.replace(/"/g, '""')}"`;
-        csv += `${baseCode},${nameEscaped},${c.group},${batchesEscaped}\n`;
+        csv += `${baseCode},${nameEscaped},${classNum},${batchesEscaped}\n`;
       });
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
       link.setAttribute("href", url);
-      link.setAttribute("download", `group_batches_export.csv`);
+      link.setAttribute("download", `class_batches_export.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -1336,8 +1338,14 @@ function renderInspectRecords() {
   coursesTbody.innerHTML = '';
   filteredCourses.forEach(c => {
     const tr = document.createElement('tr');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const codeDisplay = classNum
+      ? `${cleanCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${classNum}</span>`
+      : cleanCode;
     tr.innerHTML = `
-      <td><strong>${c.code.replace(/_G\d+$/, '')}</strong></td>
+      <td><strong>${codeDisplay}</strong></td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>${c.name}</td>
@@ -1755,7 +1763,8 @@ function formatAllocationCell(course, day, period, allocations, mode) {
   if (assignedCodes.length === 0) return '';
 
   const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-  const groupSuffix = course.group > 0 ? ` (G${course.group})` : (course.classNum ? ` (Class ${course.classNum})` : '');
+  const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
+  const groupSuffix = classNum ? ` (C${classNum})` : '';
   const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
 
   let suffix = '';
@@ -2374,9 +2383,9 @@ function renderGroupMappings() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const groupCourses = state.courses.filter(c => c.group && c.group > 0);
+  const groupCourses = state.courses.filter(c => (c.group && c.group > 0) || (c.class && c.class > 0) || (c.classes && c.classes > 1) || /(_G|_C)\d+/.test(c.code));
   if (groupCourses.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No group courses found. Import a course Excel with group column values greater than 0.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No class/section courses found. Import a course Excel with Class column values or configure classes in department portal.</td></tr>';
     return;
   }
 
@@ -2388,12 +2397,14 @@ function renderGroupMappings() {
   uniqGroupCourses.forEach(c => {
     const tr = document.createElement('tr');
     const mapped = c.mappedBatches || [];
-    const baseCode = c.code.replace(/_G\d+$/, '');
+    const baseCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 1);
 
     tr.innerHTML = `
       <td><strong>${baseCode}</strong></td>
       <td>${c.name}</td>
-      <td><span class="badge" style="background:var(--accent);color:var(--accent-dark);font-weight:bold;border:1.5px solid var(--accent-dark);">G${c.group}</span></td>
+      <td><span class="badge" style="background:var(--accent);color:var(--accent-dark);font-weight:bold;border:1.5px solid var(--accent-dark);">C${classNum}</span></td>
       <td>${mapped.length > 0
         ? mapped.map(b => `<span class="badge badge-info" style="margin:2px;">${b}</span>`).join('')
         : '<span class="text-muted text-sm">No batches mapped</span>'}</td>
@@ -2420,13 +2431,15 @@ function openGroupMappingModal(course, initialMapped, isSingleSelect = false) {
   const syncDataset = () => { modal.dataset.currentMapped = JSON.stringify(currentMapped); };
   syncDataset();
 
-  const baseCode = course.code.replace(/_G\d+$/, '');
+  const baseCode = course.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = course.code.match(/(_G|_C)(\d+)/);
+  const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course.class || course.group || 1);
   document.getElementById('mapping-course-code').value = course.code;
   
   if (isSingleSelect) {
     document.getElementById('mapping-course-title').textContent = `Assign Batch for Major Course: ${baseCode} — ${course.name}`;
   } else {
-    document.getElementById('mapping-course-title').textContent = `${baseCode} (Group ${course.group || ''}) — ${course.name}`;
+    document.getElementById('mapping-course-title').textContent = `${baseCode} (Class C${classNum}) — ${course.name}`;
   }
 
   const cfg = state.batchConfig || {};
@@ -2657,8 +2670,14 @@ function renderMajorAllocations() {
     const currentSelection = assignedBatches.length > 0 ? assignedBatches[0] : '';
 
     const tr = document.createElement('tr');
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const codeDisplay = classNum
+      ? `${cleanCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${classNum}</span>`
+      : cleanCode;
     tr.innerHTML = `
-      <td><strong>${c.code}</strong></td>
+      <td><strong>${codeDisplay}</strong></td>
       <td>${c.name}</td>
       <td><span class="badge badge-info">${c.semester} Sem</span></td>
       <td><span class="text-sm text-muted">${c.department}</span></td>
@@ -2741,7 +2760,12 @@ function renderBatchAllocationStatus() {
     const details = `<span class="text-xs text-muted">${progLabel} | ${fundLabel} | ${b.deptName} (${semStr})</span>`;
 
     const coursesListHtml = isAllocated
-      ? assignedCourses.map(c => `<span class="badge badge-info" style="margin-right:4px;" title="${c.name}">${c.code}</span>`).join('')
+      ? assignedCourses.map(c => {
+          const cMatch = c.code.match(/(_G|_C)(\d+)/);
+          const cNum = cMatch ? parseInt(cMatch[2]) : (c.class || c.group || 0);
+          const cClean = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+          return `<span class="badge badge-info" style="margin-right:4px;" title="${c.name}">${cClean}${cNum ? ` (C${cNum})` : ''}</span>`;
+        }).join('')
       : '<span class="text-muted text-sm">None</span>';
 
     const statusPill = isAllocated

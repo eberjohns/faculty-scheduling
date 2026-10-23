@@ -2293,6 +2293,13 @@ input:checked + .slider:before {
   border: 1.5px solid #ef4444 !important;
 }
 
+.curriculum-slot-cell.slot-recommend-course-blocked {
+  background: #fff1f2 !important;
+  color: #991b1b !important;
+  font-weight: 700;
+  border: 1.5px dashed #ef4444 !important;
+}
+
 .curriculum-slot-cell.slot-dimmed {
   opacity: 0.35 !important;
 }

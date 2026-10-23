@@ -162,7 +162,7 @@ export function generateDepartmentSchedule({
   if (isSelective) {
     const selectedSet = new Set(selectedCourseCodes.map(code => code.trim().toUpperCase()));
     targetCourses = allDeptCourses.filter(c => {
-      const base = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+      const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return selectedSet.has(c.code.toUpperCase()) || selectedSet.has(base.toUpperCase());
     });
   }
@@ -612,7 +612,8 @@ export function generateDepartmentSchedule({
       SAME_DAY_STACKING: 0,
       SAME_PERIOD_REPETITION: 0,
       SHIFT_BALANCE: 0,
-      INTERVAL_CROSSING: 0
+      INTERVAL_CROSSING: 0,
+      COURSE_SLOT_BLOCKED: 0
     },
     bottleneckFaculty: {},
     bottleneckCourses: {}
@@ -657,7 +658,7 @@ export function generateDepartmentSchedule({
     if (!course) return false;
     const norm = (subjectCode || '').toUpperCase().trim();
     const cCode = (course.code || course.courseCode || '').toUpperCase().trim();
-    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const cat = (course.category || '').toUpperCase().trim();
     const name = (course.name || course.courseName || '').toUpperCase().trim();
     const dept = (course.department || '').toUpperCase().trim();
@@ -667,7 +668,7 @@ export function generateDepartmentSchedule({
       const hasBatch = commonBatches.some(b => {
         const bSubj = (b.subjectCode || '').toUpperCase().trim();
         const bCourse = (b.courseCode || '').toUpperCase().trim();
-        const bBase = bCourse.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
+        const bBase = bCourse.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         if (bSubj !== norm && !(norm.startsWith('MDC') && bSubj.startsWith('MDC'))) return false;
         return bCourse === cCode || bBase === baseCode || cCode.startsWith(bCourse) || bCourse.startsWith(baseCode);
       });
@@ -814,6 +815,17 @@ export function generateDepartmentSchedule({
       }
     }
 
+    // 0b. Course-specific slot block (Curriculum slot allocation: 'B') - Strictly enforced
+    const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+    if (cardRecs && cardRecs[day]) {
+      for (const p of periodsGroup) {
+        if (cardRecs[day][String(p)] === 'B') {
+          recordRejection('COURSE_SLOT_BLOCKED', card);
+          return false;
+        }
+      }
+    }
+
     // 1. Admin Global Locks (with semester check & selective subject scoping) - Always strictly enforced
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     for (const p of periodsGroup) {
@@ -948,8 +960,17 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // 1. Course-level checks (Global Lock, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
+    // 1. Course-level checks (Global Lock, Course Slot Block, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+    const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+    if (cardRecs && cardRecs[day]) {
+      for (const p of periodsGroup) {
+        if (cardRecs[day][String(p)] === 'B') {
+          recordRejection('COURSE_SLOT_BLOCKED', card);
+          return [];
+        }
+      }
+    }
     if (card.type === 'P') {
       const has2 = periodsGroup.includes('2');
       const has3 = periodsGroup.includes('3');
@@ -1302,6 +1323,10 @@ export function generateDepartmentSchedule({
           const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
           if (isAlreadyOccupied) return;
 
+          // Course-specific slot block: strictly skip blocked periods
+          const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+          if (isBlocked) return;
+
           const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
 
           if (isOwnRecP) {
@@ -1338,6 +1363,10 @@ export function generateDepartmentSchedule({
       candidateSlots.forEach(slotGroup => {
         const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
         if (isAlreadyOccupied) return;
+
+        // Course-specific slot block: strictly skip blocked periods
+        const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+        if (isBlocked) return;
 
         const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
 
@@ -1714,6 +1743,10 @@ export function generateDepartmentSchedule({
 
   if (diagnostics.rejectionCounts.BATCH_CLASH > 0) {
     actionableSuggestions.push('Parallel courses share identical student cohort batches. Verify your batch mappings or allow alternate semester scheduling.');
+  }
+
+  if (diagnostics.rejectionCounts.COURSE_SLOT_BLOCKED > 0) {
+    actionableSuggestions.push('Specific course slot blocks prevented scheduling in restricted periods. Review Curriculum Slot Allocation to adjust course blocks.');
   }
 
   if (diagnostics.rejectionCounts.GLOBAL_LOCK > 0) {
