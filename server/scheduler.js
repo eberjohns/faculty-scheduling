@@ -722,44 +722,13 @@ export function generateDepartmentSchedule({
   // Helper: check Admin Global Lock with Semester Scoping & Subject Selective Locking
   function isGlobalLocked(day, period, courseSemester, courseObj = null) {
     return globalLocks.some(lock => {
-      if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
-      if (String(lock.period) !== String(period)) return false;
+      if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
+      if (String(lock.period).trim() !== String(period).trim()) return false;
       const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
       const cSem = String(courseSemester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-      if (lockSem && lockSem !== 'all' && lockSem !== cSem) {
+      if (lockSem && lockSem !== 'all' && cSem && lockSem !== cSem) {
         return false;
       }
-      const normLabel = (lock.label || '').toUpperCase().trim();
-      const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
-      if (!commonCodes.includes(normLabel)) {
-        return true; // 'Other' or custom label locks entire semester
-      }
-      if (!courseObj) return true;
-
-      // 1. Direct match with course
-      if (courseMatchesCommonSubject(courseObj, normLabel, db.commonBatches || [])) {
-        return true;
-      }
-
-      // 2. Check if department offers any course matching this common subject for this semester
-      const dept = (courseObj.department || '').toUpperCase().trim();
-      const deptCoursesForSem = (db.courses || []).filter(c => {
-        const cDept = (c.department || '').toUpperCase().trim();
-        const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-        const matchesDept = !dept || cDept === dept;
-        const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
-        return matchesDept && matchesSem;
-      });
-
-      const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
-        courseMatchesCommonSubject(c, normLabel, db.commonBatches || [])
-      );
-
-      if (hasMatchingCourseInDept) {
-        return false;
-      }
-
-      // Fallback: place section lock just like other!
       return true;
     });
   }

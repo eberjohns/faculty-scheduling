@@ -314,28 +314,74 @@ async function initApp() {
   bindFacultySelectEvents();
   bindAutoGeneratorEvents();
   
-  // Auto-refresh config when window regains focus or visibility to reflect admin lock/unlock changes
+  // Auto-refresh config, courses, and subject mappings to reflect admin lock/unlock and batch mapping changes
   window.syncGlobalConfigWithAdmin = async function() {
     if (!state.currentUser || !state.currentUser.departmentName) return;
     try {
-      const res = await fetch(`${API_BASE}/config`);
-      if (res.ok) {
-        const freshConfig = await res.json();
-        if (freshConfig.commonBatches) {
-          state.commonBatches = freshConfig.commonBatches;
-        }
+      const ts = Date.now();
+      const [cfgRes, coursesRes, mapRes, groupRes] = await Promise.all([
+        fetch(`${API_BASE}/config?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/courses?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/department/subject-mapping?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/admin/group-mappings?_t=${ts}`, { cache: 'no-store' })
+      ]);
+
+      let shouldRerender = false;
+
+      if (cfgRes && cfgRes.ok) {
+        const freshConfig = await cfgRes.json();
         const oldLocks = JSON.stringify((state.config && state.config.globalLockedPeriods) || []);
         const newLocks = JSON.stringify(freshConfig.globalLockedPeriods || []);
-        if (oldLocks !== newLocks) {
+        const oldCommonBatches = JSON.stringify(state.commonBatches || []);
+        const newCommonBatches = JSON.stringify(freshConfig.commonBatches || []);
+
+        if (oldLocks !== newLocks || oldCommonBatches !== newCommonBatches) {
           state.config = freshConfig;
-          renderAllocationMatrix();
-          const locksBadge = document.getElementById('auto-gen-global-locks-badge');
-          if (locksBadge) {
-            locksBadge.textContent = `${(freshConfig.globalLockedPeriods || []).length} Locked`;
-          }
+          state.commonBatches = freshConfig.commonBatches || [];
+          shouldRerender = true;
         }
       }
-    } catch (e) {}
+
+      if (groupRes && groupRes.ok) {
+        const freshGroups = await groupRes.json();
+        const oldGroupsStr = JSON.stringify(state.groupMappings || {});
+        const newGroupsStr = JSON.stringify(freshGroups || {});
+        if (oldGroupsStr !== newGroupsStr) {
+          state.groupMappings = freshGroups;
+          shouldRerender = true;
+        }
+      }
+
+      if (coursesRes && coursesRes.ok) {
+        const freshCourses = await coursesRes.json();
+        const oldCoursesSummary = JSON.stringify((state.courses || []).map(c => [c.code, c.mappedBatches || []]));
+        const newCoursesSummary = JSON.stringify(freshCourses.map(c => [c.code, c.mappedBatches || []]));
+        if (oldCoursesSummary !== newCoursesSummary || (shouldRerender && state.courses.length !== freshCourses.length)) {
+          state.courses = freshCourses;
+          shouldRerender = true;
+        }
+      }
+
+      if (mapRes && mapRes.ok) {
+        const freshMap = await mapRes.json();
+        const oldMapStr = JSON.stringify(state.subjectTeacherMapping || {});
+        const newMapStr = JSON.stringify(freshMap || {});
+        if (oldMapStr !== newMapStr) {
+          state.subjectTeacherMapping = freshMap;
+          shouldRerender = true;
+        }
+      }
+
+      if (shouldRerender) {
+        renderAllocationMatrix();
+        const locksBadge = document.getElementById('auto-gen-global-locks-badge');
+        if (locksBadge && state.config) {
+          locksBadge.textContent = `${(state.config.globalLockedPeriods || []).length} Locked`;
+        }
+      }
+    } catch (e) {
+      console.error('syncGlobalConfigWithAdmin error:', e);
+    }
   };
 
   window.addEventListener('focus', window.syncGlobalConfigWithAdmin);
@@ -1475,7 +1521,7 @@ function courseMatchesCommonSubject(course, subjectCode, commonBatches = []) {
 
 function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) {
   if (!lock) return false;
-  if (lock.day.toUpperCase() !== day.toUpperCase()) return false;
+  if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
   if (String(lock.period).trim() !== String(period).trim()) return false;
 
   const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
@@ -1486,43 +1532,55 @@ function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) 
     return false;
   }
 
-  const normLabel = (lock.label || '').toUpperCase().trim();
-  const commonCodes = ['AEC1', 'AEC2', 'MDC1', 'AEC3', 'AEC4', 'MDC-2', 'MDC2', 'VAC1', 'MDC3', 'VAC2', 'SEC', 'VAC3'];
-
-  // If the label is NOT one of the specific common subjects (i.e. 'Other' or custom activity label),
-  // then the whole section corresponding to this semester is locked!
-  if (!commonCodes.includes(normLabel)) {
-    return true;
-  }
-
-  // If label IS a common subject (e.g. MDC, AEC, VAC, SEC):
-  // 1. Direct match with this course:
-  if (course && courseMatchesCommonSubject(course, normLabel, commonBatches)) {
-    return true;
-  }
-
-  // 2. Check if the department offers ANY course matching this common subject for this semester:
-  const dept = (course && course.department) || (state.currentUser && state.currentUser.departmentName) || '';
-  const deptCoursesForSem = (state.courses || []).filter(c => {
-    const cDept = (c.department || '').toUpperCase().trim();
-    const scSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-    const matchesDept = !dept || cDept === dept.toUpperCase().trim();
-    const matchesSem = (!lockSem || lockSem === 'all') || scSem === lockSem;
-    return matchesDept && matchesSem;
-  });
-
-  const hasMatchingCourseInDept = deptCoursesForSem.some(c => 
-    courseMatchesCommonSubject(c, normLabel, commonBatches)
-  );
-
-  if (hasMatchingCourseInDept) {
-    // Department HAS a matching course for this common subject, so other major courses are NOT locked
-    return false;
-  }
-
-  // If the department does NOT offer any course for this common subject in this semester:
-  // Place the corresponding section lock on all courses of this semester, just like "Other"!
+  // All courses belonging to this semester (or all semesters if 'all') are locked during this common period
   return true;
+}
+
+function getCourseCommonSubjectMatch(c) {
+  if (!c) return null;
+  const cat = (c.category || '').toUpperCase();
+  const sem = String(c.semester || '').trim();
+  const dept = (c.department || '').toUpperCase();
+  const code = (c.code || '').toUpperCase();
+
+  // Sem 1
+  if (sem === '1') {
+    if (cat === 'AEC' || code.includes('FA101') || code.includes('FA102') || /AEC1|AEC-1/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC1';
+      return 'AEC2';
+    }
+    if (cat === 'MDC' || code.includes('FM105') || /MDC1|MDC-1/.test(code)) return 'MDC1';
+  }
+  // Sem 2
+  if (sem === '2') {
+    if (cat === 'AEC' || /AEC3|AEC-3/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'AEC3';
+      return 'AEC4';
+    }
+    if (cat === 'MDC' || /MDC2|MDC-2/.test(code)) return 'MDC-2';
+  }
+  // Sem 3
+  if (sem === '3') {
+    if (cat === 'VAC' || code.includes('FV108') || /VAC1|VAC-1/.test(code)) return 'VAC1';
+    if (cat === 'MDC' || code.includes('FM107') || /MDC3|MDC-3/.test(code)) return 'MDC3';
+  }
+  // Sem 4
+  if (sem === '4') {
+    if (cat === 'SEC' || /SEC/.test(code)) return 'SEC';
+    if (cat === 'VAC' || /VAC2|VAC-2/.test(code)) {
+      if (dept === 'ENGLISH' || code.startsWith('ENG')) return 'VAC2';
+      return 'VAC3';
+    }
+  }
+  // Sem 5 SEC
+  if (sem === '5' && (cat === 'SEC' || /SEC/.test(code))) return 'SEC';
+
+  // Fallbacks by category
+  if (cat === 'AEC') return sem === '2' ? 'AEC3' : 'AEC1';
+  if (cat === 'MDC') return sem === '3' ? 'MDC3' : (sem === '2' ? 'MDC-2' : 'MDC1');
+  if (cat === 'VAC') return sem === '4' ? 'VAC2' : 'VAC1';
+  if (cat === 'SEC') return 'SEC';
+  return null;
 }
 
 // Renders the interactive contents of a grid cell
@@ -1627,6 +1685,25 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     const lockLabelNorm = (globalLock.label || '').trim().toUpperCase();
     const lockClean = lockLabelNorm.replace(/[^A-Z0-9]/g, '');
 
+    // 1. Check mapped courses from Batch Allocation & Mapping
+    const myDeptBatches = (state.allBatches || []).filter(b => {
+      const bDept = (b.deptCode || b.deptName || b.department || '').trim().toUpperCase();
+      return bDept === currentDeptUpper;
+    });
+    const myDeptBatchIds = myDeptBatches.map(b => b.batchId);
+
+    const matchingAllocCourses = (state.courses || []).filter(c => {
+      const m = getCourseCommonSubjectMatch(c);
+      const cat = (c.category || '').toUpperCase();
+      const semMatches = !globalLock.semester || globalLock.semester === 'all' || !c.semester || String(c.semester) === String(globalLock.semester);
+      if (!semMatches) return false;
+      const subjMatches = (m && (m === lockLabelNorm || m.replace(/[^A-Z0-9]/g, '') === lockClean)) || cat === lockClean || cat === lockLabelNorm;
+      if (!subjMatches) return false;
+      const isOffering = (c.department || '').toUpperCase() === currentDeptUpper;
+      const isMapped = (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId));
+      return isOffering || isMapped;
+    });
+
     const matchingDeptBatches = (state.commonBatches || []).filter(b => {
       const bSubj = (b.subjectCode || '').trim().toUpperCase();
       const bClean = bSubj.replace(/[^A-Z0-9]/g, '');
@@ -1643,7 +1720,65 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
       return isOffering || isParticipating;
     });
 
-    if (matchingDeptBatches.length > 0) {
+    // Prioritize courses specifically mapped to this row's batch or this department's student batches
+    const rowBatches = (classIndex && typeof getCourseClassBatches === 'function')
+      ? getCourseClassBatches(currentCourse, classIndex)
+      : [];
+    const rowSpecificCourses = rowBatches.length > 0
+      ? matchingAllocCourses.filter(c => (c.mappedBatches || []).some(bId => rowBatches.includes(bId)))
+      : [];
+    const deptSpecificCourses = matchingAllocCourses.filter(c => 
+      (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId))
+    );
+    const finalAllocCourses = rowSpecificCourses.length > 0
+      ? rowSpecificCourses
+      : (deptSpecificCourses.length > 0 ? deptSpecificCourses : matchingAllocCourses);
+
+    if (finalAllocCourses.length > 0) {
+      const batchesCards = finalAllocCourses.map(c => {
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || 1);
+        const baseCodeOnly = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const isExternal = (c.department || '').toUpperCase() !== currentDeptUpper;
+        const offeringNotice = isExternal ? `<div style="font-size: 8px; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="fa-solid fa-school" style="font-size: 7px;"></i> From ${escapeHtml(c.department)}</div>` : '';
+
+        // Look up assigned teacher in the offering department's Subject Teacher Mapping
+        const deptUpper = (c.department || '').toUpperCase();
+        const teacherMap = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && state.subjectTeacherMapping[deptUpper][c.code]) || null;
+        let teacherDisplay = 'Pending Dept Mapping';
+        if (teacherMap) {
+          const tCodes = [...new Set([...(teacherMap.teachers || []), ...(teacherMap.theoryTeachers || []), ...(teacherMap.practicalTeachers || [])])];
+          if (tCodes.length > 0) {
+            const labels = tCodes.map(tc => {
+              const f = (state.faculty || []).find(x => x.code === tc);
+              return f ? `${tc} (${f.name})` : tc;
+            });
+            teacherDisplay = labels.join(', ');
+          }
+        }
+
+        return `
+          <div class="common-batch-slot-card" style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 4px; padding: 2px 4px; margin-top: 2px; text-align: left; font-size: 9.5px; line-height: 1.25;" title="Course: ${escapeHtml(baseCodeOnly)} | Class: C${classNum} | Teacher: ${escapeHtml(teacherDisplay)}">
+            <div style="font-weight: 700; color: #1d4ed8; display: flex; align-items: center; justify-content: space-between; gap: 2px;">
+              <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 68%;"><i class="fa-solid fa-book" style="font-size: 8px;"></i> ${escapeHtml(baseCodeOnly)}</span>
+              <span style="font-size: 8px; background: #dbeafe; color: #1e40af; padding: 0 3px; border-radius: 2px; font-weight: 700;">Class C${classNum}</span>
+            </div>
+            <div style="color: #1e3a8a; font-size: 8.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <i class="fa-solid fa-chalkboard-user" style="font-size: 7.5px;"></i> ${escapeHtml(teacherDisplay)}
+            </div>
+            ${offeringNotice}
+          </div>
+        `;
+      }).join('');
+
+      lockFlagBadge = `
+        <div class="admin-lock-tag" title="Common Activity: ${globalLock.label || 'Locked Period'}" style="font-size: 9px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; display: flex; align-items: center; justify-content: space-between;">
+          <span><i class="fa-solid fa-lock" style="font-size: 8px;"></i> ${globalLock.label}</span>
+          <span style="font-size: 8px; background: #fde68a; padding: 0 3px; border-radius: 2px;">${finalAllocCourses.length} Class${finalAllocCourses.length === 1 ? '' : 'es'}</span>
+        </div>
+        ${batchesCards}
+      `;
+    } else if (matchingDeptBatches.length > 0) {
       const batchesCards = matchingDeptBatches.map(b => {
         const isExternal = (b.department || '').trim().toUpperCase() !== currentDeptUpper;
         const offeringNotice = isExternal && b.department ? `<div style="font-size: 8px; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;"><i class="fa-solid fa-school" style="font-size: 7px;"></i> From ${escapeHtml(b.department)}</div>` : '';
@@ -4062,8 +4197,6 @@ function switchAdvancedFeaturesTab(paneId) {
     renderTeacherAvailabilityEditor();
   } else if (paneId === 'adv-pane-subject-mapping') {
     renderSubjectMappingTiles();
-  } else if (paneId === 'adv-pane-common-subject-mapping') {
-    renderCommonSubjectMappingTiles();
   } else if (paneId === 'adv-pane-auto-generate') {
     initAutoGeneratorPane();
   } else if (paneId === 'adv-pane-teacher-timetable') {
@@ -4464,12 +4597,25 @@ function renderSubjectMappingTiles() {
       `;
     }).join('');
 
+    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || null);
+    const classBadgeHtml = classNum ? `<span class="badge" style="background: #e0e7ff; color: #4338ca; font-size: 10px; margin-left: 4px; font-weight: 700; border: 1px solid #c7d2fe;">Class C${classNum}</span>` : '';
+    const mapped = c.mappedBatches || [];
+    const mappedBatchesHtml = mapped.length > 0
+      ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-size: 10px; margin-left: 4px;" title="Mapped Batches: ${mapped.join(', ')}"><i class="fa-solid fa-users"></i> ${mapped.join(', ')}</span>`
+      : '';
+
     html += `
       <div class="subject-tile-card" data-course-code="${c.code}" id="subject-card-${c.code}">
         <!-- Tile Header -->
         <div class="subject-tile-header">
           <div>
-            <div class="subject-tile-title">${c.code} <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span></div>
+            <div class="subject-tile-title">
+              ${c.code}
+              <span class="badge badge-info" style="font-size: 10px; margin-left: 4px;">Sem ${c.semester}</span>
+              ${classBadgeHtml}
+              ${mappedBatchesHtml}
+            </div>
             <div class="subject-tile-name" title="${c.name}">${c.name}</div>
           </div>
           <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'} tile-category-badge" style="font-size: 11px; font-weight: 700;">
@@ -6143,13 +6289,31 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
   if (semBadge) semBadge.textContent = lockSem === 'All' ? 'All Semesters' : `Semester ${lockSem}`;
   if (labelBadge) labelBadge.textContent = lockLabel;
 
-  // Filter matching common batches
+  // Filter matching common batches and connected courses
   const batches = state.commonBatches || [];
   const userDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
-  
-  // Find batches that match the label or subject code
+  const myDeptBatches = (state.allBatches || []).filter(b => {
+    const bDept = (b.deptCode || b.deptName || b.department || '').trim().toUpperCase();
+    return bDept === userDept;
+  });
+  const myDeptBatchIds = myDeptBatches.map(b => b.batchId);
+
+  // Look up connected courses from Batch Allocation & Mapping
   const lUpper = lockLabel.toUpperCase();
   const lClean = lUpper.replace(/[^A-Z0-9]/g, '');
+
+  const connectedCourses = (state.courses || []).filter(c => {
+    const m = getCourseCommonSubjectMatch(c);
+    const cat = (c.category || '').toUpperCase();
+    const semMatches = !lockSem || lockSem === 'All' || lockSem === 'all' || !c.semester || String(c.semester) === String(lockSem);
+    if (!semMatches) return false;
+    const subjMatches = (m && (m === lUpper || m.replace(/[^A-Z0-9]/g, '') === lClean)) || cat === lClean || cat === lUpper;
+    if (!subjMatches) return false;
+    const isOffering = (c.department || '').toUpperCase() === userDept;
+    const isMapped = (c.mappedBatches || []).some(bId => myDeptBatchIds.includes(bId));
+    return isOffering || isMapped;
+  });
+
   const matchingBatches = batches.filter(b => {
     const bCode = (b.subjectCode || '').toUpperCase();
     const bClean = bCode.replace(/[^A-Z0-9]/g, '');
@@ -6158,19 +6322,62 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
     return codeMatches && semMatches;
   });
 
+  const totalConnected = connectedCourses.length > 0 ? connectedCourses.length : matchingBatches.length;
+
   if (countBadge) {
-    countBadge.textContent = `${matchingBatches.length} Batch${matchingBatches.length === 1 ? '' : 'es'}`;
+    countBadge.textContent = `${totalConnected} Class${totalConnected === 1 ? '' : 'es'}`;
   }
 
   if (container) {
-    if (matchingBatches.length === 0) {
-      container.innerHTML = `
-        <div style="padding: 20px; background: #ffffff; border: 1.5px dashed var(--border); border-radius: 8px; text-align: center;">
-          <p class="text-muted text-xs mb-1" style="font-weight: 600;"><i class="fa-solid fa-circle-info text-primary"></i> No batches configured yet for "${escapeHtml(lockLabel)}".</p>
-          <span class="text-muted" style="font-size: 11px;">You can configure batches under <strong>Common Subject Mapping</strong>.</span>
-        </div>
-      `;
-    } else {
+    if (connectedCourses.length > 0) {
+      container.innerHTML = connectedCourses.map(c => {
+        const isOffering = (c.department || '').toUpperCase() === userDept;
+        const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+        const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || 1);
+        const baseCodeOnly = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const mapped = c.mappedBatches || [];
+
+        // Teacher lookup
+        const deptUpper = (c.department || '').toUpperCase();
+        const teacherMap = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && state.subjectTeacherMapping[deptUpper][c.code]) || null;
+        let teacherDisplay = 'Pending Dept Mapping';
+        if (teacherMap) {
+          const tCodes = [...new Set([...(teacherMap.teachers || []), ...(teacherMap.theoryTeachers || []), ...(teacherMap.practicalTeachers || [])])];
+          if (tCodes.length > 0) {
+            const labels = tCodes.map(tc => {
+              const f = (state.faculty || []).find(x => x.code === tc);
+              return f ? `${tc} (${f.name})` : tc;
+            });
+            teacherDisplay = labels.join(', ');
+          }
+        }
+
+        return `
+          <div style="background: #f8faff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
+                <span class="badge" style="background: var(--accent); color: var(--accent-dark); font-weight: 700; border: 1.5px solid var(--accent-dark); font-size: 11px; padding: 2px 6px;">Class C${classNum}</span>
+                <strong style="font-size: 13px; color: var(--text-main);">${escapeHtml(baseCodeOnly)}</strong>
+                <span class="badge badge-info" style="font-size: 9px; padding: 1px 5px;">Offered by: ${escapeHtml(c.department || 'TBD')}</span>
+                ${isOffering ? `<span class="badge badge-success" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-check"></i> Your Dept (Offering)</span>` : `<span class="badge badge-primary" style="font-size: 9px; padding: 1px 5px;"><i class="fa-solid fa-users"></i> Your Dept (Participating)</span>`}
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px;">
+                <span>Course Name: <strong style="color: var(--text-main);">${escapeHtml(c.name || '')}</strong></span>
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                <span>Mapped Batches:</span>
+                ${mapped.length > 0 ? mapped.map(b => `<span style="background: #e2e8f0; color: #334155; padding: 0 4px; border-radius: 3px; font-size: 9.5px; font-weight: 600;">${escapeHtml(b)}</span>`).join('') : '<span class="text-muted" style="font-style: italic;">No batches mapped</span>'}
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <span class="fac-pill" style="margin: 0; font-weight: 600; font-size: 11px;" title="Assigned Faculty: ${escapeHtml(teacherDisplay)}">
+                <i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(teacherDisplay)}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else if (matchingBatches.length > 0) {
       container.innerHTML = matchingBatches.map(b => {
         const isOffering = (b.department || '').toUpperCase() === userDept;
         const bDepts = Array.isArray(b.departments) && b.departments.length > 0
@@ -6203,6 +6410,13 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
           </div>
         `;
       }).join('');
+    } else {
+      container.innerHTML = `
+        <div style="padding: 20px; background: #ffffff; border: 1.5px dashed var(--border); border-radius: 8px; text-align: center;">
+          <p class="text-muted text-xs mb-1" style="font-weight: 600;"><i class="fa-solid fa-circle-info text-primary"></i> No courses/batches configured yet for "${escapeHtml(lockLabel)}".</p>
+          <span class="text-muted" style="font-size: 11px;">Configure course classes and batch mappings in Admin Portal under <strong>Common Subject Mapping</strong>.</span>
+        </div>
+      `;
     }
   }
 
@@ -6216,10 +6430,7 @@ function openLockedPeriodDetailsModal(day, period, courseSem, globalLock, openSe
   if (btnMapping) {
     btnMapping.onclick = () => {
       closeModal();
-      openAdvancedFeaturesModal('adv-pane-common-subject-mapping');
-      if (matchingBatches.length > 0 && matchingBatches[0].subjectCode) {
-        openCommonSubjectDetail(matchingBatches[0].subjectCode);
-      }
+      openAdvancedFeaturesModal('adv-pane-subject-mapping');
     };
   }
 

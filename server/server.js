@@ -18,6 +18,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Prevent aggressive caching on all dynamic /api routes across all browsers
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // Serve static frontend files with no-cache to ensure browsers always receive latest updates
 app.use(express.static(path.join(__dirname, '../public'), {
   etag: false,
@@ -315,9 +323,16 @@ app.post('/api/admin/global-locked-periods', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, message: 'Locks must be an array.' });
   }
   const db = readDb();
-  db.config.globalLockedPeriods = locks;
+  db.config.globalLockedPeriods = locks
+    .map(l => ({
+      day: String(l.day || '').trim().toUpperCase(),
+      period: String(l.period || '').trim(),
+      semester: String(l.semester || 'all').trim(),
+      label: String(l.label || '').trim()
+    }))
+    .filter(l => l.day && l.period);
   writeDb(db);
-  res.json({ success: true, message: 'Global locked periods updated successfully.' });
+  res.json({ success: true, message: 'Global locked periods updated successfully.', locks: db.config.globalLockedPeriods });
 });
 
 // Common Subject Batches Endpoints
@@ -501,9 +516,11 @@ app.get('/api/courses', requireUser, (req, res) => {
   }
   const groupMappings = db.groupMappings || {};
   result = result.map(c => {
+    const cBase = (c.code || '').replace(/-(T|P)$/, '');
+    const mapped = groupMappings[c.code] || groupMappings[cBase] || c.mappedBatches || [];
     return {
       ...c,
-      mappedBatches: groupMappings[c.code] || []
+      mappedBatches: mapped
     };
   });
   res.json(result);
@@ -1672,7 +1689,21 @@ app.post('/api/admin/group-mappings', requireAdmin, (req, res) => {
   }
 
   const db = readDb();
-  db.groupMappings[courseCode] = batches.map(b => b.trim().toUpperCase());
+  if (!db.groupMappings) db.groupMappings = {};
+  const cleanBatches = batches.map(b => b.trim().toUpperCase());
+  db.groupMappings[courseCode] = cleanBatches;
+  const baseCode = courseCode.replace(/-(T|P)$/, '');
+  db.groupMappings[baseCode] = cleanBatches;
+
+  if (Array.isArray(db.courses)) {
+    db.courses.forEach(c => {
+      const cBase = (c.code || '').replace(/-(T|P)$/, '');
+      if (c.code === courseCode || cBase === baseCode) {
+        c.mappedBatches = cleanBatches;
+      }
+    });
+  }
+
   writeDb(db);
   res.json({ success: true, message: 'Group mapping updated successfully.' });
 });

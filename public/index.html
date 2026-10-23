@@ -210,8 +210,42 @@
         </div>
       </div>
 
+      <!-- Timetable Informatics Guide -->
+      <div class="informatics-card mt-3 mb-2" id="timetable-informatics-guide">
+        <div class="informatics-header">
+          <div class="informatics-title">
+            <i class="fa-solid fa-compass text-primary"></i>
+            <span>Department Timetable Scheduling Informatics</span>
+          </div>
+          <button type="button" class="informatics-toggle-btn" onclick="document.getElementById('timetable-informatics-body').classList.toggle('hidden')">
+            <i class="fa-solid fa-chevron-down"></i> Quick Guide
+          </button>
+        </div>
+        <div class="informatics-body" id="timetable-informatics-body">
+          Interactive master timetable for course allocations, period locks, and conflict-free faculty assignment.
+          <div class="informatics-grid">
+            <div class="informatics-item">
+              <strong><i class="fa-solid fa-hand-pointer text-primary"></i> Assigning Faculty</strong>
+              <p>Click any active slot cell to open the faculty selector and assign one or more teachers for that period.</p>
+            </div>
+            <div class="informatics-item">
+              <strong><i class="fa-solid fa-lock text-warning"></i> Admin-Locked Slots</strong>
+              <p>College-wide slots (AEC, SEC, MDC, Assemblies) display the connected course, class (C1), and offering department's assigned teacher.</p>
+            </div>
+            <div class="informatics-item">
+              <strong><i class="fa-solid fa-bolt text-success"></i> Auto-Add Rec Slots</strong>
+              <p>When the "Auto-Add Rec Slots" toggle is ON, assigning a teacher in any recommended slot automatically fills the other recommended slots for that course.</p>
+            </div>
+            <div class="informatics-item">
+              <strong><i class="fa-solid fa-triangle-exclamation text-danger"></i> Conflict Protection</strong>
+              <p>The system automatically checks for teacher double-booking, cross-department clashes, and blackout periods in real time.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Core Allocation Grid -->
-      <div class="card mt-3">
+      <div class="card mt-2">
         <div class="card-body padding-0">
           <div class="table-responsive">
             <table class="table table-grid" id="table-allocation-matrix">
@@ -658,10 +692,6 @@
               <i class="fa-solid fa-diagram-project text-primary"></i>
               <span>Subject Teacher Mapping</span>
             </button>
-            <button type="button" class="adv-tab-btn" data-pane="adv-pane-common-subject-mapping">
-              <i class="fa-solid fa-layer-group text-primary"></i>
-              <span>Common Subject Mapping</span>
-            </button>
             <button type="button" class="adv-tab-btn" data-pane="adv-pane-curriculum-slots">
               <i class="fa-solid fa-calendar-check text-primary"></i>
               <span>Curriculum Slot Allocation</span>
@@ -693,6 +723,33 @@
                 </div>
                 <button id="btn-save-teacher-unavailability" class="btn btn-primary"><i class="fa-solid fa-save"></i>
                   Save Availability</button>
+              </div>
+
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card warning-theme">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-lightbulb text-warning"></i>
+                    <span>Teacher Availability & Blackout Informatics</span>
+                  </div>
+                </div>
+                <div class="informatics-body">
+                  Configure teacher schedule constraints and unavailable periods before generating or assigning timetables.
+                  <div class="informatics-grid">
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-hand-pointer text-warning"></i> 1. Select & Toggle Slots</strong>
+                      <p>Choose a teacher from the dropdown, then click any period cell in the grid to mark it as unavailable/blackout.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-shield-halved text-danger"></i> 2. Strict Constraint Protection</strong>
+                      <p>Auto-generator strictly skips blocked slots. Manual assignment displays a cautionary prompt if attempted.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-floppy-disk text-primary"></i> 3. Remember to Save</strong>
+                      <p>Click "Save Availability" after making adjustments. Blocked periods update across all semester schedules.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="card bg-slate-50 mb-3"
@@ -739,6 +796,37 @@
                 <div class="flex-row gap-2">
                   <button id="btn-save-subject-mapping" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save
                     All Subject Mappings</button>
+                </div>
+              </div>
+
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-circle-info text-primary"></i>
+                    <span>Subject Teacher Mapping Informatics & Workflow</span>
+                  </div>
+                </div>
+                <div class="informatics-body">
+                  Map faculty members, configure weekly teaching hours, division splits, and practical lab arrangements for each course.
+                  <div class="informatics-grid">
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-clock text-primary"></i> Weekly Total Hours</strong>
+                      <p>Set total lecture/lab hours per week. Changing total hours dynamically re-balances teacher workloads.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-flask text-success"></i> Theory vs Practical (PR)</strong>
+                      <p>Select Practical to enable 2-hour continuous lab blocks and assign co-teachers for simultaneous lab batches.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-users-viewfinder text-primary"></i> Classes & Mapped Batches</strong>
+                      <p>Courses with parallel classes (C1, C2) show their mapped batches from Admin Batch Allocation for accurate assignment.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-calculator text-warning"></i> Auto-Balanced Hour Split</strong>
+                      <p>Assigning multiple faculty automatically splits hours equally. You can fine-tune specific hours per teacher.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -792,6 +880,37 @@
                   <button id="btn-apply-auto-generate" class="btn btn-success hidden"
                     style="background-color: var(--success); color: white;"><i class="fa-solid fa-check-double"></i>
                     Apply to Timetable</button>
+                </div>
+              </div>
+
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card success-theme">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-wand-magic-sparkles text-success"></i>
+                    <span>Auto-Generator Engine Informatics & Constraints</span>
+                  </div>
+                </div>
+                <div class="informatics-body">
+                  Intelligent constraint-satisfaction scheduling engine designed specifically for college academic workflows.
+                  <div class="informatics-grid">
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-thumbtack text-primary"></i> Pinned Slots Preserved</strong>
+                      <p>Existing manual allocations and recommended curriculum slots are locked in place and never overwritten.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-clock-rotate-left text-success"></i> Continuous Practicals</strong>
+                      <p>Practicals are strictly placed into 2-hour contiguous blocks (P1-P2, P4-P5, P6-P7) and never split across lunch break.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-battery-half text-warning"></i> Workload & Rest Rules</strong>
+                      <p>Faculty members are limited to maximum 2 continuous teaching hours to avoid fatigue, with balanced morning/afternoon distribution.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-check-double text-success"></i> Review Before Applying</strong>
+                      <p>Inspect the generated timetable preview, conflict audits, and fairness scores before clicking "Apply to Timetable".</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -980,83 +1099,35 @@
                     Export to PDF / Print</button>
                 </div>
               </div>
-              <div id="tab-teacher-timetable-container" style="min-height: 200px;">
-                <!-- Dynamically populated teacher schedule grids -->
-              </div>
-            </div>
 
-            <!-- TAB 5: COMMON SUBJECT MAPPING -->
-            <div id="adv-pane-common-subject-mapping" class="adv-pane hidden">
-              <!-- Sub-view A: Subject Cards Grid -->
-              <div id="common-subjects-main-view">
-                <!-- Clean Toolbar Header -->
-                <div class="flex-row justify-between items-center mb-4 flex-wrap gap-3"
-                  style="background: #ffffff; padding: 14px 18px; border-radius: var(--radius-md); border: 1.5px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-                  <div>
-                    <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main);">
-                      <i class="fa-solid fa-layer-group text-primary" style="margin-right: 6px;"></i> Common Subject
-                      Mapping
-                    </h3>
-                    <p class="text-muted text-xs mb-0 mt-1">Select a subject to view and configure department batches.
-                    </p>
-                  </div>
-
-                  <div class="flex-row items-center gap-2">
-                    <label for="common-sem-filter" class="text-xs bold text-muted mb-0"
-                      style="white-space: nowrap;">Semester:</label>
-                    <select id="common-sem-filter" class="form-control form-control-sm"
-                      style="font-size: 12px; font-weight: 600; width: 145px; height: 32px; border-radius: 6px;">
-                      <option value="">All Semesters</option>
-                      <option value="odd">Odd Semesters (1, 3)</option>
-                      <option value="even">Even Semesters (2, 4)</option>
-                      <option value="1">Semester 1</option>
-                      <option value="2">Semester 2</option>
-                      <option value="3">Semester 3</option>
-                      <option value="4">Semester 4</option>
-                    </select>
-                    <span class="badge"
-                      style="background: var(--background); border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; padding: 4px 8px;"
-                      id="common-current-dept-badge">DEPARTMENT</span>
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-chalkboard-user text-primary"></i>
+                    <span>Teacher Master Timetable Informatics</span>
                   </div>
                 </div>
-
-                <!-- Grid of Subject Cards -->
-                <div id="common-subjects-tiles-grid"
-                  style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
-                  <!-- Populated dynamically as clickable cards -->
-                </div>
-              </div>
-
-              <!-- Sub-view B: Subject Batches Detail View (Opened when a subject is clicked) -->
-              <div id="common-subject-detail-view" class="common-detail-view hidden">
-                <div class="common-detail-header-card">
-                  <div class="flex-row items-center gap-3">
-                    <button type="button" id="btn-back-to-common-subjects" class="btn btn-outline btn-sm"
-                      style="font-size: 12px; padding: 5px 12px; border-radius: 6px;">
-                      <i class="fa-solid fa-arrow-left"></i> Back
-                    </button>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <span class="subject-code-badge" id="detail-subject-code-badge">AEC4</span>
-                      <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--text-main);"
-                        id="detail-subject-title">Ability Enhancement Course 4</h3>
-                      <span class="subject-sem-tag" id="detail-subject-sem-tag">Semester 2</span>
+                <div class="informatics-body">
+                  View consolidated master schedules across all semesters and courses for any faculty member.
+                  <div class="informatics-grid">
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-layer-group text-primary"></i> Multi-Semester Aggregation</strong>
+                      <p>Combines lecture and lab hours taught by the teacher across Semester 1, 2, 3, 4, 5, and 6 into one weekly view.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-users text-success"></i> Co-Teaching Visibility</strong>
+                      <p>Identifies laboratory sessions where the teacher is co-teaching with other department faculty members.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-file-export text-primary"></i> Print & Export</strong>
+                      <p>Generate clean, printable teacher individual timetable slips for departmental distribution and compliance records.</p>
                     </div>
                   </div>
-
-                  <div class="flex-row items-center gap-2">
-                    <span class="text-xs text-muted" id="detail-batches-count-pill"
-                      style="font-weight: 600; margin-right: 4px;">0 Batches</span>
-                    <button type="button" id="btn-open-create-batch" class="btn btn-primary btn-sm"
-                      style="font-size: 12px; padding: 6px 14px; border-radius: 6px;">
-                      <i class="fa-solid fa-plus"></i> Create Batch
-                    </button>
-                  </div>
                 </div>
-
-                <!-- Batches List Area -->
-                <div id="detail-subject-batches-container" style="display: flex; flex-direction: column; gap: 10px;">
-                  <!-- Populated dynamically -->
-                </div>
+              </div>
+              <div id="tab-teacher-timetable-container" style="min-height: 200px;">
+                <!-- Dynamically populated teacher schedule grids -->
               </div>
             </div>
 
@@ -1080,6 +1151,37 @@
                   <button type="button" id="btn-save-curriculum-slots" class="btn btn-primary btn-sm">
                     <i class="fa-solid fa-save"></i> Save Slot Allocations
                   </button>
+                </div>
+              </div>
+
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-circle-question text-primary"></i>
+                    <span>Curriculum Slot Allocation Informatics & Guide</span>
+                  </div>
+                </div>
+                <div class="informatics-body">
+                  Guide automatic generation and manual scheduling by pre-allocating recommended period slots and restricting specific hours.
+                  <div class="informatics-grid">
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-book text-warning"></i> Theory Rec (TH)</strong>
+                      <p>Pin preferred lecture slots for a course. The auto-generator prioritizes filling these exact recommended hours first.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-flask text-success"></i> Practical Rec (PR)</strong>
+                      <p>Reserve 2-hour continuous laboratory slots. Ensures laboratory sessions occur during dedicated morning/afternoon blocks.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-ban text-danger"></i> Block Slot for Course</strong>
+                      <p>Block a specific course from a slot without affecting other courses. Or choose "General Block (BL)" to block the entire semester.</p>
+                    </div>
+                    <div class="informatics-item">
+                      <strong><i class="fa-solid fa-bolt text-primary"></i> Auto-Add Rec Slots Toggle</strong>
+                      <p>When active on the timetable, assigning a teacher to a recommended slot automatically assigns them to all recommended slots of that course.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1227,6 +1329,21 @@
                 </div>
               </div>
 
+              <!-- Informatics Guide Banner -->
+              <div class="informatics-card" style="max-width: 480px;">
+                <div class="informatics-header">
+                  <div class="informatics-title">
+                    <i class="fa-solid fa-shield-halved text-primary"></i>
+                    <span>Account Security Informatics</span>
+                  </div>
+                </div>
+                <div class="informatics-body">
+                  <p style="margin: 0; font-size: 11.5px; color: #475569;">
+                    Changing your password immediately invalidates old sessions. Ensure you record your new coordinator password in a safe place.
+                  </p>
+                </div>
+              </div>
+
               <div class="card"
                 style="max-width: 480px; padding: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: #ffffff;">
                 <form id="form-dept-change-password" autocomplete="off">
@@ -1339,207 +1456,6 @@
       </div>
     </div>
 
-    <!-- CREATE / EDIT COMMON BATCH MODAL -->
-    <div id="modal-create-common-batch" class="modal flex-center hidden no-print" style="z-index: 9999;">
-      <div class="modal-content modal-md"
-        style="max-width: 480px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
-        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border);">
-          <div class="flex-row items-center gap-2">
-            <i class="fa-solid fa-folder-plus text-primary" style="font-size: 18px;"></i>
-            <div>
-              <h3 style="margin: 0; font-size: 16px; font-weight: 700;" id="modal-common-batch-title">Create Batch</h3>
-              <span class="text-muted text-xs" id="modal-common-batch-subtitle">Common Subject Allocation</span>
-            </div>
-          </div>
-          <button type="button" id="btn-close-common-batch-modal" class="btn btn-outline btn-xs"
-            style="padding: 3px 8px; border-radius: 4px;"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-
-        <form id="form-create-common-batch" onsubmit="return false;"
-          style="display: flex; flex-direction: column; gap: 12px;">
-          <input type="hidden" id="common-batch-subject-code">
-          <input type="hidden" id="common-batch-semester">
-          <input type="hidden" id="common-batch-id">
-
-          <!-- Target Subject Chip -->
-          <div
-            style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;">
-            <strong style="color: var(--primary); font-size: 13px;" id="common-batch-label-display">AEC4</strong>
-            <span class="subject-sem-tag" id="common-batch-sem-badge">Semester 2</span>
-          </div>
-
-          <!-- Offering Department (Auto Fetched from Current Department) -->
-          <div
-            style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center;">
-            <span class="text-xs text-muted bold"><i class="fa-solid fa-school text-primary"
-                style="margin-right: 4px;"></i> Offering Department:</span>
-            <strong id="common-batch-offering-dept-display" style="color: var(--primary); font-size: 13px;">-</strong>
-            <input type="hidden" id="common-batch-offering-dept-val">
-          </div>
-
-          <!-- Department Selection (Searchable Multi-Select Dropdown) -->
-          <div class="form-group mb-0">
-            <div class="flex-row justify-between items-center mb-1">
-              <label class="text-xs text-muted bold" style="margin-bottom: 0;">
-                <i class="fa-solid fa-building-columns text-primary"></i> Participating Departments:
-              </label>
-              <span id="common-batch-depts-count-badge" class="badge badge-info"
-                style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
-            </div>
-
-            <!-- Dropdown Trigger Button -->
-            <div id="common-batch-depts-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
-              <span id="common-batch-depts-trigger-text" class="text-muted"
-                style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select
-                participating departments...</span>
-              <i id="common-batch-depts-chevron" class="fa-solid fa-chevron-down text-muted"
-                style="font-size: 10px; transition: transform 0.2s;"></i>
-            </div>
-
-            <!-- Dropdown Menu Box -->
-            <div id="common-batch-depts-dropdown-menu" class="dropdown-select-popover hidden">
-              <!-- Search & Quick Action Header -->
-              <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-                <div style="flex: 1; position: relative;">
-                  <i class="fa-solid fa-magnifying-glass"
-                    style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
-                  <input type="text" id="common-batch-depts-search-input" class="form-control"
-                    placeholder="Search departments..."
-                    style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
-                </div>
-                <button type="button" id="btn-batch-depts-select-all" class="btn btn-outline btn-xs"
-                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
-                <button type="button" id="btn-batch-depts-clear-all" class="btn btn-outline btn-xs"
-                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
-              </div>
-
-              <!-- Scrollable Checklist -->
-              <div id="common-batch-depts-list"
-                style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
-                <!-- Populated dynamically with checkboxes -->
-              </div>
-
-              <!-- Footer with Done button -->
-              <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
-                <span id="common-batch-depts-modal-count" class="text-xs text-muted" style="font-weight: 600;">0
-                  selected</span>
-                <button type="button" id="btn-batch-depts-done" class="btn btn-primary btn-xs"
-                  style="font-size: 10px; padding: 2px 10px;">Done</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Auto-Mapped Course Confirmation Box -->
-          <div id="common-batch-mapped-course-card"
-            style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 10px 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <span class="text-xs text-muted bold"
-                style="text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px;">
-                <i class="fa-solid fa-link text-primary" style="margin-right: 4px;"></i> Course Mapping
-              </span>
-              <button type="button" id="btn-toggle-edit-course-mapping" class="btn btn-outline btn-xs"
-                style="font-size: 11px; padding: 2px 8px; border-radius: 4px;"
-                title="Change or customize course mapping">
-                <i class="fa-solid fa-pen-to-square"></i> Change Course
-              </button>
-            </div>
-            <div id="common-batch-course-confirmation"
-              style="font-size: 13px; font-weight: 600; color: var(--text-main);">
-              <!-- Dynamic: Code & Name -->
-            </div>
-            <div id="common-batch-course-meta" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-              <!-- Dynamic: Category, Sem, etc. -->
-            </div>
-          </div>
-
-          <!-- Hidden input storing chosen courseCode -->
-          <input type="hidden" id="common-batch-selected-course-code">
-
-          <!-- Optional Course Selector Dropdown (Shown on Edit Mapping click) -->
-          <div id="wrapper-edit-course-mapping" class="form-group mb-0 hidden"
-            style="background: #ffffff; border: 1px dashed var(--border); border-radius: 6px; padding: 10px; margin-top: 2px;">
-            <label for="common-batch-course-select" class="text-xs text-muted bold"
-              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span>Select Department Course to Map</span>
-              <span class="text-xs text-muted" style="font-weight: normal;">(Choose offered course)</span>
-            </label>
-            <select id="common-batch-course-select" class="form-control" style="font-size: 12px; height: 34px;">
-              <!-- Populated dynamically with courses from selected department -->
-            </select>
-          </div>
-
-          <!-- Batch Name -->
-          <div class="form-group mb-0">
-            <label for="common-batch-name-input" class="text-xs text-muted bold"
-              style="display: block; margin-bottom: 4px;">Batch Name</label>
-            <input type="text" id="common-batch-name-input" class="form-control" placeholder="e.g. Batch 1, Section A"
-              style="font-size: 13px; height: 36px;" required>
-          </div>
-
-          <!-- Faculty Selector (Searchable Multi-Select Dropdown) -->
-          <div class="form-group mb-0">
-            <div class="flex-row justify-between items-center mb-1">
-              <label class="text-xs text-muted bold" style="margin-bottom: 0;">
-                <i class="fa-solid fa-user-tie text-primary"></i> Assigned Faculty:
-              </label>
-              <span id="common-batch-teachers-count-badge" class="badge badge-info"
-                style="font-size: 10px; padding: 1px 6px;">0 Selected</span>
-            </div>
-
-            <!-- Dropdown Trigger Button -->
-            <div id="common-batch-teachers-dropdown-btn" class="dropdown-select-trigger" tabindex="0">
-              <span id="common-batch-teachers-trigger-text" class="text-muted"
-                style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; font-size: 12px;">Select
-                faculty members...</span>
-              <i id="common-batch-teachers-chevron" class="fa-solid fa-chevron-down text-muted"
-                style="font-size: 10px; transition: transform 0.2s;"></i>
-            </div>
-
-            <!-- Dropdown Menu Box -->
-            <div id="common-batch-teachers-dropdown-menu" class="dropdown-select-popover hidden">
-              <!-- Search & Quick Action Header -->
-              <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
-                <div style="flex: 1; position: relative;">
-                  <i class="fa-solid fa-magnifying-glass"
-                    style="position: absolute; left: 8px; top: 7px; font-size: 10.5px; color: var(--text-muted);"></i>
-                  <input type="text" id="common-batch-teachers-search-input" class="form-control"
-                    placeholder="Search faculty by name or code..."
-                    style="font-size: 11px; height: 26px; padding: 2px 6px 2px 24px;">
-                </div>
-                <button type="button" id="btn-batch-teachers-select-all" class="btn btn-outline btn-xs"
-                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">All</button>
-                <button type="button" id="btn-batch-teachers-clear-all" class="btn btn-outline btn-xs"
-                  style="font-size: 10px; padding: 2px 6px; white-space: nowrap;">Clear</button>
-              </div>
-
-              <!-- Scrollable Checklist -->
-              <div id="common-batch-teachers-list"
-                style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border); border-radius: 4px; padding: 4px; background: var(--surface);">
-                <!-- Populated dynamically with checkboxes -->
-              </div>
-
-              <!-- Footer with Done button -->
-              <div
-                style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);">
-                <span id="common-batch-teachers-modal-count" class="text-xs text-muted" style="font-weight: 600;">0
-                  selected</span>
-                <button type="button" id="btn-batch-teachers-done" class="btn btn-primary btn-xs"
-                  style="font-size: 10px; padding: 2px 10px;">Done</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="actions flex-row justify-end gap-2 mt-3 pt-3" style="border-top: 1px solid var(--border);">
-            <button type="button" id="btn-cancel-common-batch" class="btn btn-outline"
-              style="font-size: 13px;">Cancel</button>
-            <button type="button" id="btn-submit-common-batch" class="btn btn-primary" style="font-size: 13px;"><i
-                class="fa-solid fa-save"></i> Save Batch</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
     <!-- LOCKED PERIOD COMMON SUBJECT INSPECTION MODAL -->
     <div id="modal-locked-period-details" class="modal flex-center hidden no-print" style="z-index: 9999;">
       <div class="modal-content modal-md"
@@ -1590,7 +1506,7 @@
         <div class="actions flex-row justify-between items-center mt-3 pt-3"
           style="border-top: 1px solid var(--border);">
           <button type="button" id="btn-locked-period-open-mapping" class="btn btn-outline btn-sm"
-            style="font-size: 12px;"><i class="fa-solid fa-layer-group text-primary"></i> Open Mapping</button>
+            style="font-size: 12px;"><i class="fa-solid fa-diagram-project text-primary"></i> Subject Teacher Mapping</button>
           <div class="flex-row gap-2">
             <button type="button" id="btn-locked-period-manual-assign" class="btn btn-outline btn-sm"
               style="font-size: 12px; color: var(--primary);"><i class="fa-solid fa-user-plus"></i> Manual
@@ -1657,7 +1573,7 @@
   <!-- SheetJS Library via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <!-- Frontend Javascript Orchestrator with Cache Busting -->
-  <script src="js/app.js?v=4.1"></script>
+  <script src="js/app.js?v=4.2"></script>
 </body>
 
 </html>
