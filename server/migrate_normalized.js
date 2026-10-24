@@ -22,8 +22,12 @@ export function migrateDataToNormalizedTables(sqliteDb) {
   const migrationTx = sqliteDb.transaction(() => {
     // 1. Migrate DEPARTMENTS
     const insertDept = sqliteDb.prepare(`
-      INSERT OR REPLACE INTO departments (code, name, passcode_hash, status)
+      INSERT INTO departments (code, name, passcode_hash, status)
       VALUES (?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        code = excluded.code,
+        passcode_hash = excluded.passcode_hash,
+        status = excluded.status
     `);
     const deptsObj = raw.departments || {};
     const submissionsObj = raw.submissions || {};
@@ -41,8 +45,13 @@ export function migrateDataToNormalizedTables(sqliteDb) {
 
     // 2. Migrate FACULTY
     const insertFaculty = sqliteDb.prepare(`
-      INSERT OR REPLACE INTO faculty (code, name, department_id, designation, max_weekly_hours, is_active)
+      INSERT INTO faculty (code, name, department_id, designation, max_weekly_hours, is_active)
       VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT(code) DO UPDATE SET
+        name = excluded.name,
+        department_id = excluded.department_id,
+        designation = excluded.designation,
+        max_weekly_hours = excluded.max_weekly_hours
     `);
     const facList = raw.faculty || [];
     const facultyIdMap = {}; // code -> id
@@ -65,12 +74,26 @@ export function migrateDataToNormalizedTables(sqliteDb) {
 
     // 3. Migrate COURSES & RECOMMENDATIONS
     const insertCourse = sqliteDb.prepare(`
-      INSERT OR REPLACE INTO courses (code, name, alias, department_id, semester, program_type, course_type, category, pathway, hours, theory_hours, practical_hours)
+      INSERT INTO courses (code, name, alias, department_id, semester, program_type, course_type, category, pathway, hours, theory_hours, practical_hours)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(code) DO UPDATE SET
+        name = excluded.name,
+        alias = excluded.alias,
+        department_id = excluded.department_id,
+        semester = excluded.semester,
+        program_type = excluded.program_type,
+        course_type = excluded.course_type,
+        category = excluded.category,
+        pathway = excluded.pathway,
+        hours = excluded.hours,
+        theory_hours = excluded.theory_hours,
+        practical_hours = excluded.practical_hours
     `);
     const insertRec = sqliteDb.prepare(`
-      INSERT OR REPLACE INTO curriculum_recommendations (course_id, day_of_week, period_label, slot_type)
+      INSERT INTO curriculum_recommendations (course_id, day_of_week, period_label, slot_type)
       VALUES (?, ?, ?, ?)
+      ON CONFLICT(course_id, day_of_week, period_label) DO UPDATE SET
+        slot_type = excluded.slot_type
     `);
 
     const courseList = raw.courses || [];
