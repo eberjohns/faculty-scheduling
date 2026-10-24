@@ -146,16 +146,7 @@ export function generateToken(payload) {
 export function verifyToken(token) {
   if (!token || typeof token !== 'string') return null;
 
-  // Support legacy static tokens during graceful transition
-  if (token === 'admin-token') {
-    return { role: 'admin', legacy: true };
-  }
-  if (token.startsWith('dept-token-')) {
-    const deptName = token.substring('dept-token-'.length);
-    return { role: 'department', departmentName: deptName, legacy: true };
-  }
-
-  // Parse v1 signed token
+  // Parse v1 cryptographically signed token: v1.<role>.<deptEncoded>.<exp>.<sig>
   const parts = token.split('.');
   if (parts.length !== 5 || parts[0] !== 'v1') return null;
 

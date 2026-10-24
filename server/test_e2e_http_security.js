@@ -61,8 +61,8 @@ async function runAudit() {
     const dotEnvRes = await fetch(`${BASE_URL}/.env`);
     assert.strictEqual(dotEnvRes.status, 403, 'Direct access to .env should be forbidden (403)');
     const backupRes = await fetch(`${BASE_URL}/backup.sql`);
-    assert.strictEqual(backupRes.status, 404, 'Direct access to non-existent backup/dump files should return 404');
-    console.log('Dotfiles & Backup Probe Protection: PASSED (Access to hidden dotfiles returns 403, dump files 404)');
+    assert(backupRes.status === 403 || backupRes.status === 404, 'Direct access to backup/dump files should be blocked (403/404)');
+    console.log('Dotfiles & Backup Probe Protection: PASSED (Access to hidden dotfiles & dumps blocked)');
 
     // Test 3: Unauthenticated Admin Route Rejection (RBAC)
     console.log('\n--- 3. Testing RBAC Protection on Admin Endpoints ---');
@@ -74,7 +74,15 @@ async function runAudit() {
     assert.strictEqual(unauthRes.status, 401, 'Unauthenticated config POST should return 401');
     const unauthData = await unauthRes.json();
     assert.strictEqual(unauthData.success, false, 'Expected success: false for unauth access');
-    console.log('Admin RBAC Protection: PASSED (Unauthorized requests rejected with 401)');
+
+    // Test 3b: Static fake token rejection
+    const fakeTokenRes = await fetch(`${BASE_URL}/api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'admin-token' },
+      body: JSON.stringify({ academicYear: '2026-2027' })
+    });
+    assert.strictEqual(fakeTokenRes.status, 401, 'Static admin-token must return 401 Unauthorized');
+    console.log('Admin RBAC Protection: PASSED (Unauthorized requests and fake tokens rejected with 401)');
 
     // Test 4: Department RBAC & IDOR (BOLA) Isolation
     console.log('\n--- 4. Testing Department Access Isolation & BOLA/IDOR Prevention ---');

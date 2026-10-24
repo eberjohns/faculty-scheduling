@@ -35,6 +35,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'"
@@ -42,9 +44,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Block any dotfile probes (e.g., /.env, /.git) immediately with 403 Forbidden
+// Block sensitive file extension probes and dotfiles immediately with 403 Forbidden
+const FORBIDDEN_PROBE_REGEX = /(\/\.|\.(sql|bak|dump|db|sqlite|sqlite3|tar\.gz|key|log|env)($|\?))/i;
 app.use((req, res, next) => {
-  if (req.path.startsWith('/.') || req.path.includes('/.')) {
+  if (FORBIDDEN_PROBE_REGEX.test(req.path)) {
     return res.status(403).json({ error: 'Access forbidden.' });
   }
   next();
@@ -243,7 +246,7 @@ function requireDepartment(req, res, next) {
     return res.status(401).json({ success: false, message: 'Unauthorized: Department access required.' });
   }
 
-  const reqDept = (req.body.departmentName || req.query.department || '').toUpperCase().trim();
+  const reqDept = (req.body.departmentName || req.body.department || req.query.department || '').toUpperCase().trim();
   const tokenDept = (auth.departmentName || '').toUpperCase().trim();
 
   // Admins can manage any department; departments can only manage their own
@@ -612,7 +615,7 @@ app.get('/api/courses', requireUser, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/courses/alias', requireUser, (req, res) => {
+app.post('/api/courses/alias', requireDepartment, (req, res) => {
   const { code, alias, name, departmentName } = req.body;
   if (!code) return res.status(400).json({ success: false, message: 'Course code is required' });
   
@@ -638,7 +641,7 @@ app.post('/api/courses/alias', requireUser, (req, res) => {
   res.json({ success: true, message: 'Course details updated.' });
 });
 
-app.post('/api/courses/alias/batch', requireUser, (req, res) => {
+app.post('/api/courses/alias/batch', requireDepartment, (req, res) => {
   const { courses, departmentName } = req.body;
   if (!Array.isArray(courses)) {
     return res.status(400).json({ success: false, message: 'Courses must be an array.' });
@@ -672,7 +675,7 @@ app.post('/api/courses/alias/batch', requireUser, (req, res) => {
 });
 
 // Class Configuration Endpoint
-app.post('/api/courses/class-config', requireUser, (req, res) => {
+app.post('/api/courses/class-config', requireDepartment, (req, res) => {
   const { courseCode, classes, batches, departmentName } = req.body;
   if (!courseCode || classes === undefined || !Array.isArray(batches) || !departmentName) {
     return res.status(400).json({ success: false, message: 'Missing parameters.' });
@@ -696,15 +699,6 @@ app.post('/api/courses/class-config', requireUser, (req, res) => {
 
   if (course.department.toUpperCase() !== deptUpper) {
     return res.status(403).json({ success: false, message: 'Unauthorized to edit this course.' });
-  }
-
-  // Token ownership check
-  const token = req.headers['authorization'] || req.query.token;
-  if (token !== 'admin-token') {
-    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
-    if (deptUpper !== tokenDept) {
-      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
-    }
   }
 
   const targetClassesCount = parseInt(classes) || 1;
@@ -741,7 +735,7 @@ app.post('/api/courses/class-config', requireUser, (req, res) => {
 // -------------------------------------------------------------
 // Curriculum & Recommended Slots Allocation Endpoint
 // -------------------------------------------------------------
-app.post('/api/curriculum-slots', requireUser, (req, res) => {
+app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
   const { departmentName, semester, courseRecommendations, semesterBlocks } = req.body;
   if (!departmentName) {
     return res.status(400).json({ success: false, message: 'Department name is required.' });
@@ -812,7 +806,7 @@ app.post('/api/curriculum-slots', requireUser, (req, res) => {
 // -------------------------------------------------------------
 // Reset Curriculum & Recommended Slots to Master Baseline
 // -------------------------------------------------------------
-app.post('/api/curriculum-slots/reset', requireUser, (req, res) => {
+app.post('/api/curriculum-slots/reset', requireDepartment, (req, res) => {
   const { departmentName, semester, courseFilter } = req.body;
   if (!departmentName) {
     return res.status(400).json({ success: false, message: 'Department name is required.' });
@@ -878,7 +872,7 @@ app.get('/api/faculty', requireUser, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/faculty/code', requireUser, (req, res) => {
+app.post('/api/faculty/code', requireDepartment, (req, res) => {
   const { staffId, code, departmentName } = req.body;
   if (!staffId || !code) return res.status(400).json({ success: false, message: 'Staff ID and code are required' });
   
@@ -928,7 +922,7 @@ app.post('/api/faculty/code', requireUser, (req, res) => {
   res.json({ success: true, message: 'Faculty code updated.' });
 });
 
-app.post('/api/faculty/code/batch', requireUser, (req, res) => {
+app.post('/api/faculty/code/batch', requireDepartment, (req, res) => {
   const { faculty, departmentName } = req.body;
   if (!Array.isArray(faculty)) {
     return res.status(400).json({ success: false, message: 'Faculty must be an array.' });
@@ -1962,7 +1956,7 @@ app.get('/api/department/teacher-unavailability', requireUser, (req, res) => {
   res.json(db.teacherUnavailability || {});
 });
 
-app.post('/api/department/teacher-unavailability', requireUser, (req, res) => {
+app.post('/api/department/teacher-unavailability', requireDepartment, (req, res) => {
   const { facultyCode, unavailableSlots, departmentName } = req.body;
   if (!facultyCode || !Array.isArray(unavailableSlots)) {
     return res.status(400).json({ success: false, message: 'facultyCode and unavailableSlots array are required.' });
@@ -2122,6 +2116,7 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       pinnedSlots: pinnedSlots || {},
       maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
       practicalBlockSize: parseInt(practicalBlockSize) || 2,
+      allowRelaxedFallback: true,
       forceRelaxed: !!req.body.forceRelaxed
     });
 
@@ -2505,6 +2500,196 @@ app.get('/api/reports/workload', requireUser, (req, res) => {
   });
   
   res.json(summary);
+});
+
+// Free Faculty / Staff Room Roster endpoint
+app.get('/api/admin/free-faculty', requireUser, (req, res) => {
+  const db = readDb();
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const rawPeriods = db.periods || (db.config && db.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+  const teachingPeriods = rawPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+
+  // Teacher allocation lookup
+  const teacherAssignments = {};
+  const teacherSemesters = {};
+  const teacherPrograms = {};
+
+  (db.faculty || []).forEach(f => {
+    const fcUpper = (f.code || '').trim().toUpperCase();
+    teacherAssignments[fcUpper] = {};
+    teacherSemesters[fcUpper] = new Set();
+    teacherPrograms[fcUpper] = new Set();
+    weekdays.forEach(d => {
+      teacherAssignments[fcUpper][d] = {};
+    });
+  });
+
+  const allCourses = db.courses || [];
+  const allocationsByDept = db.allocations || {};
+
+  Object.entries(allocationsByDept).forEach(([deptName, deptAlloc]) => {
+    Object.entries(deptAlloc || {}).forEach(([cCode, dayObj]) => {
+      const base = cCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const course = allCourses.find(c => c.code === cCode) ||
+                     allCourses.find(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === base) ||
+                     { code: cCode, name: cCode, alias: cCode, semester: '-', department: deptName };
+      
+      const isPg = (course.code || '').toUpperCase().includes('MSC') ||
+                   (course.pathway && course.pathway.toUpperCase().includes('MSC')) ||
+                   (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
+                   course.programType === 'PG';
+      const progType = isPg ? 'PG' : 'UG';
+      const semClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+      Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+        const dayUpper = day.toUpperCase();
+        if (!weekdays.includes(dayUpper)) return;
+
+        Object.entries(periodObj || {}).forEach(([period, facList]) => {
+          if (!Array.isArray(facList)) return;
+          const pStr = String(period).trim();
+          if (pStr.toUpperCase() === 'LB') return;
+
+          facList.forEach(facCode => {
+            const fcUpper = (facCode || '').trim().toUpperCase();
+            if (!teacherAssignments[fcUpper]) {
+              teacherAssignments[fcUpper] = {};
+              teacherSemesters[fcUpper] = new Set();
+              teacherPrograms[fcUpper] = new Set();
+              weekdays.forEach(d => {
+                teacherAssignments[fcUpper][d] = {};
+              });
+            }
+            teacherAssignments[fcUpper][dayUpper][pStr] = {
+              busy: true,
+              courseCode: cCode,
+              courseName: course.name || cCode,
+              courseAlias: course.alias || course.name || cCode,
+              semester: semClean,
+              programType: progType,
+              department: course.department || deptName
+            };
+            if (semClean && semClean !== '-') teacherSemesters[fcUpper].add(semClean);
+            teacherPrograms[fcUpper].add(progType);
+          });
+        });
+      });
+    });
+  });
+
+  // Also include Common Batches
+  const commonBatches = db.commonBatches || [];
+  const globalLocks = (db.config && db.config.globalLockedPeriods) || [];
+  commonBatches.forEach(b => {
+    const bSubj = (b.subjectCode || '').trim().toUpperCase();
+    const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+    const matchingLocks = globalLocks.filter(l => {
+      const lUpper = (l.label || '').trim().toUpperCase();
+      const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return (lUpper === bSubj || lUpper.includes(bSubj) || bSubj.includes(lUpper)) &&
+             (!lSem || lSem === 'all' || lSem.toLowerCase() === bSem.toLowerCase());
+    });
+
+    const teacherCodes = Array.isArray(b.teachers) && b.teachers.length > 0
+      ? b.teachers
+      : (b.teacherCode ? b.teacherCode.split(',').map(s => s.trim()) : []);
+
+    matchingLocks.forEach(l => {
+      const dayUpper = (l.day || '').toUpperCase();
+      const pStr = String(l.period || '').trim();
+      if (!weekdays.includes(dayUpper) || pStr.toUpperCase() === 'LB') return;
+
+      teacherCodes.forEach(tCode => {
+        const fcUpper = (tCode || '').trim().toUpperCase();
+        if (!teacherAssignments[fcUpper]) {
+          teacherAssignments[fcUpper] = {};
+          teacherSemesters[fcUpper] = new Set();
+          teacherPrograms[fcUpper] = new Set();
+          weekdays.forEach(d => {
+            teacherAssignments[fcUpper][d] = {};
+          });
+        }
+        teacherAssignments[fcUpper][dayUpper][pStr] = {
+          busy: true,
+          courseCode: b.courseCode || b.subjectCode,
+          courseName: b.batchName || b.subjectCode,
+          courseAlias: `${b.batchName} (${b.subjectCode})`,
+          semester: bSem,
+          programType: 'UG',
+          department: 'Common Batches'
+        };
+        if (bSem) teacherSemesters[fcUpper].add(bSem);
+        teacherPrograms[fcUpper].add('UG');
+      });
+    });
+  });
+
+  // Calculate detailed summary per faculty
+  const facultySummary = (db.faculty || []).map(fac => {
+    const fcUpper = (fac.code || '').trim().toUpperCase();
+    const sched = teacherAssignments[fcUpper] || {};
+    let totalBusy = 0;
+    const weeklySchedule = {};
+    const freeSlotsByDay = {};
+    const busySlotsByDay = {};
+
+    weekdays.forEach(d => {
+      weeklySchedule[d] = {};
+      freeSlotsByDay[d] = [];
+      busySlotsByDay[d] = [];
+      const daySched = sched[d] || {};
+
+      teachingPeriods.forEach(p => {
+        const assignment = daySched[p];
+        if (assignment && assignment.busy) {
+          totalBusy++;
+          weeklySchedule[d][p] = { free: false, ...assignment };
+          busySlotsByDay[d].push(p);
+        } else {
+          weeklySchedule[d][p] = { free: true };
+          freeSlotsByDay[d].push(p);
+        }
+      });
+    });
+
+    const maxPeriods = weekdays.length * teachingPeriods.length;
+    const totalFree = maxPeriods - totalBusy;
+    const programsList = Array.from(teacherPrograms[fcUpper] || []);
+    if (programsList.length === 0) {
+      const deptUpper = (fac.department || '').toUpperCase();
+      programsList.push(deptUpper.includes('MSC') || deptUpper.includes('POST GRADUATE') ? 'PG' : 'UG');
+    }
+
+    const semestersList = Array.from(teacherSemesters[fcUpper] || []).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+
+    return {
+      staffId: fac.staffId || '-',
+      name: fac.name || fac.code,
+      code: fac.code,
+      department: fac.department || 'General',
+      designation: fac.designation || 'Faculty Member',
+      email: fac.email || '',
+      phone: fac.phone || '',
+      totalBusy,
+      totalFree,
+      maxPeriods,
+      programs: programsList,
+      semesters: semestersList,
+      freeSlotsByDay,
+      busySlotsByDay,
+      weeklySchedule
+    };
+  });
+
+  const depts = Array.from(new Set((db.faculty || []).map(f => f.department).filter(Boolean))).sort();
+
+  res.json({
+    faculty: facultySummary,
+    periods: teachingPeriods,
+    weekdays,
+    departments: depts,
+    totalFaculty: facultySummary.length
+  });
 });
 
 // Clear database endpoint
@@ -2994,8 +3179,9 @@ app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req
 // Fallback to serve index.html for client-side SPA navigation routes
 app.get('*', (req, res) => {
   const reqPath = req.path;
-  // If requesting an API endpoint, dotfile, or non-existent static asset file, return 404
-  if (reqPath.startsWith('/api/') || reqPath.startsWith('/.') || path.extname(reqPath)) {
+  // If requesting an API endpoint, dotfile, non-existent static asset file, or scanner probe paths, return 404
+  const isScannerProbe = /^\/(phpmyadmin|actuator|_status|api-docs|swagger|wp-admin|console)/i.test(reqPath);
+  if (reqPath.startsWith('/api/') || reqPath.startsWith('/.') || path.extname(reqPath) || isScannerProbe) {
     return res.status(404).json({ error: 'Endpoint or resource not found.' });
   }
   res.sendFile(path.join(__dirname, '../public/index.html'));
