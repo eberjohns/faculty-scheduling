@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import pg from 'pg';
+import { createNormalizedTables } from './schema.js';
+import { migrateDataToNormalizedTables } from './migrate_normalized.js';
 
 const { Pool } = pg;
 
@@ -219,6 +221,13 @@ function initDbSync() {
   });
   dbInstance = parseDbData(rawData);
 
+  createNormalizedTables(sqliteDb);
+  const checkNormalized = sqliteDb.prepare('SELECT count(*) as count FROM courses').get();
+  if (checkNormalized.count === 0) {
+    migrateDataToNormalizedTables(sqliteDb);
+    console.log("[Database] Automatically initialized and migrated normalized relational tables.");
+  }
+
   if (dbInstance && dbInstance.__needsDbSave) {
     delete dbInstance.__needsDbSave;
     writeDb(dbInstance);
@@ -287,6 +296,7 @@ export function writeDb(data) {
         Object.entries(dbData).forEach(([key, val]) => {
           stmt.run(key, JSON.stringify(val));
         });
+        migrateDataToNormalizedTables(sqliteDb);
       });
       saveTransaction(payload);
       return true;
