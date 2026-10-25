@@ -25,18 +25,54 @@ export function migrateDataToNormalizedTables(sqliteDb) {
       INSERT INTO departments (code, name, passcode_hash, status)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
-        code = excluded.code,
         passcode_hash = excluded.passcode_hash,
         status = excluded.status
     `);
     const deptsObj = raw.departments || {};
     const submissionsObj = raw.submissions || {};
     const deptIdMap = {}; // name -> id
+    const usedDeptCodes = new Set();
+
+    sqliteDb.prepare('SELECT id, code, name FROM departments').all().forEach(d => {
+      deptIdMap[d.name.toUpperCase().trim()] = d.id;
+      if (d.code) usedDeptCodes.add(d.code.toUpperCase().trim());
+    });
+
+    function generateDeptCode(name, explicitCode) {
+      if (explicitCode && !usedDeptCodes.has(explicitCode.toUpperCase().trim())) {
+        const c = explicitCode.toUpperCase().trim();
+        usedDeptCodes.add(c);
+        return c;
+      }
+      const clean = (name || 'DEPT').toUpperCase().trim();
+      let base = '';
+      if (clean.includes('_SF')) {
+        const prefix = clean.replace(/_SF.*/, '').replace(/[^A-Z0-9]/g, '');
+        base = `${prefix.substring(0, 4)}_SF`;
+      } else {
+        const words = clean.split(/[\s,]+/).filter(Boolean);
+        if (words.length >= 2) {
+          base = words.map(w => w[0]).join('').substring(0, 6);
+        } else {
+          base = clean.substring(0, 5).replace(/[^A-Z0-9]/g, '');
+        }
+      }
+      if (!base) base = 'DEPT';
+      let candidate = base;
+      let counter = 1;
+      while (usedDeptCodes.has(candidate)) {
+        candidate = `${base}${counter}`;
+        counter++;
+      }
+      usedDeptCodes.add(candidate);
+      return candidate;
+    }
 
     Object.entries(deptsObj).forEach(([name, dData]) => {
-      const code = (dData.code || name.substring(0, 4)).toUpperCase().trim();
+      const dName = name.toUpperCase().trim();
+      const code = generateDeptCode(dName, dData.code);
       const status = (submissionsObj[name] && submissionsObj[name].status) || 'Draft';
-      insertDept.run(code, name.toUpperCase().trim(), dData.passcode || '', status);
+      insertDept.run(code, dName, dData.passcode || '', status);
     });
 
     sqliteDb.prepare('SELECT id, name FROM departments').all().forEach(d => {
@@ -61,9 +97,11 @@ export function migrateDataToNormalizedTables(sqliteDb) {
       let dId = deptIdMap[dName];
       if (!dId) {
         // Create department if missing
-        const res = insertDept.run(dName.substring(0, 4), dName, '', 'Draft');
-        dId = res.lastInsertRowid;
-        deptIdMap[dName] = dId;
+        const code = generateDeptCode(dName);
+        insertDept.run(code, dName, '', 'Draft');
+        const dRow = sqliteDb.prepare('SELECT id FROM departments WHERE name = ?').get(dName);
+        dId = dRow ? dRow.id : null;
+        if (dId) deptIdMap[dName] = dId;
       }
       insertFaculty.run(f.code.trim(), f.name.trim(), dId, f.designation || 'Faculty', f.maxHours || 20);
     });
@@ -103,9 +141,11 @@ export function migrateDataToNormalizedTables(sqliteDb) {
       const dName = (c.department || '').toUpperCase().trim();
       let dId = deptIdMap[dName];
       if (!dId) {
-        const res = insertDept.run(dName.substring(0, 4), dName, '', 'Draft');
-        dId = res.lastInsertRowid;
-        deptIdMap[dName] = dId;
+        const code = generateDeptCode(dName);
+        insertDept.run(code, dName, '', 'Draft');
+        const dRow = sqliteDb.prepare('SELECT id FROM departments WHERE name = ?').get(dName);
+        dId = dRow ? dRow.id : null;
+        if (dId) deptIdMap[dName] = dId;
       }
       const cCode = c.code.trim();
       const sem = String(c.semester || '1').trim();

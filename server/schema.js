@@ -11,7 +11,7 @@ export function createNormalizedTables(db) {
     -- 1. DEPARTMENTS
     CREATE TABLE IF NOT EXISTS departments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      code TEXT UNIQUE NOT NULL,
+      code TEXT NOT NULL,
       name TEXT UNIQUE NOT NULL,
       passcode_hash TEXT NOT NULL,
       status TEXT DEFAULT 'Draft',
