@@ -692,6 +692,18 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-main) !important;
 }
 
+/* Open / Non-recommended slot with assignments (clean surface with primary accent border) */
+.slot-open-assigned,
+.slot-open-assigned.slot-has-assignments {
+  background-color: var(--surface) !important;
+  border-left: 4px solid var(--primary) !important;
+  color: var(--text-main) !important;
+}
+.slot-open-assigned.slot-active {
+  border: 2px solid var(--primary) !important;
+}
+
+
 /* Global Locked Slot (Admin Institution-Wide Lock) */
 .slot-global-locked {
   background-image: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 10px, #fca5a5 10px, #fca5a5 20px) !important;

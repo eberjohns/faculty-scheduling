@@ -1628,6 +1628,50 @@ function getCourseCommonSubjectMatch(c) {
   return null;
 }
 
+// Helper: Checks if a course has any curriculum recommendations defined
+function courseHasRecommendations(course) {
+  if (!course) return false;
+  const recs = (course.recommendations && Object.keys(course.recommendations).length > 0)
+    ? course.recommendations
+    : (course.masterRecommendations || {});
+  return Object.values(recs).some(dayObj => 
+    dayObj && typeof dayObj === 'object' && Object.values(dayObj).some(val => val === 'T' || val === 'P' || val === 'B')
+  );
+}
+window.courseHasRecommendations = courseHasRecommendations;
+
+// Helper: Scoped course resolver by department and code/class
+function findCourseForDept(code, dept) {
+  if (!code) return null;
+  const targetDept = (dept || (state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
+  const cleanCode = code.replace(/-(T|P)$/, '');
+  const baseCode = cleanCode.replace(/(_G|_C)\d+$/, '');
+
+  // 1. In target dept: exact code match
+  let found = (state.courses || []).find(c => (c.department || '').toUpperCase() === targetDept && c.code === code);
+  if (found) return found;
+
+  // 2. In target dept: clean code match (e.g. ENG2FA103(2)_C1)
+  found = (state.courses || []).find(c => (c.department || '').toUpperCase() === targetDept && c.code === cleanCode);
+  if (found) return found;
+
+  // 3. In target dept: base code match (e.g. ENG2FA103(2))
+  found = (state.courses || []).find(c => (c.department || '').toUpperCase() === targetDept && c.code === baseCode);
+  if (found) return found;
+
+  // 4. In target dept: class variant starting with baseCode
+  found = (state.courses || []).find(c => (c.department || '').toUpperCase() === targetDept && (c.code.startsWith(baseCode + '_C') || c.code.startsWith(baseCode + '_G')));
+  if (found) return found;
+
+  // 5. Fallback across all courses: cleanCode
+  found = (state.courses || []).find(c => c.code === cleanCode);
+  if (found) return found;
+
+  // 6. Fallback across all courses: exact or baseCode
+  return (state.courses || []).find(c => c.code === code) || (state.courses || []).find(c => c.code === baseCode);
+}
+window.findCourseForDept = findCourseForDept;
+
 // Universal Slot Type Resolver: determines if an assigned or recommended slot is Theory ('T'), Practical ('P'), or MDC ('M')
 function determineSlotType(course, cCode, day, period, facList = [], dayAllocations = {}, deptMapping = null) {
   const codeStr = String(cCode || (course && course.code) || '').trim();
@@ -1719,10 +1763,12 @@ window.determineSlotType = determineSlotType;
 function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = null) {
   // Check if period is flagged by Admin for this course's semester & subject
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
-  const currentCourse = courseT || courseP || (state.courses && state.courses.find(c => c.code === baseCode));
+  const currentCourse = courseT || courseP || findCourseForDept(baseCode);
   const courseSem = String((courseT && courseT.semester) || (courseP && courseP.semester) || (currentCourse && currentCourse.semester) || '').replace(/^Sem(ester)?\s*/i, '').trim();
   const courseSemNum = parseInt(courseSem.replace(/\D+/g, ''), 10) || 0;
   
+  const hasRecs = courseHasRecommendations(courseT) || courseHasRecommendations(courseP) || courseHasRecommendations(currentCourse);
+
   const matchingLocks = globalLocks.filter(l => 
     isPeriodLockedForCourse(l, currentCourse, day, period, state.commonBatches || [])
   );
@@ -1735,10 +1781,11 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   const recT = (courseT && courseT.recommendations && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
   const recP = (courseP && courseP.recommendations && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
   
-  const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M');
+  const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M') || (currentCourse && currentCourse.courseType === 'M');
   
-  // Non-recommended slots are only locked in the first 4 semesters (Sem 1 - 4). Sem 5+ are open.
-  let highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
+  // Non-recommended slots are only locked in the first 4 semesters (Sem 1 - 4) for courses that have recommendations.
+  // Courses without curriculum recommendations are fully open and can be assigned anywhere without locking.
+  let highlightClass = (courseSemNum >= 5 || !hasRecs) ? '' : 'slot-recommend-none';
   let slotLabel = '';
   
   // Calculate keys for lookup based on class index if provided
@@ -1788,7 +1835,8 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     activeCourseCode = coursePCode || classDefaultCode;
   } else {
     activeCourseCode = courseTCode || coursePCode || classDefaultCode;
-    highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
+    highlightClass = (courseSemNum >= 5 || !hasRecs) ? '' : 'slot-recommend-none';
+    slotLabel = '';
   }
 
   // Load active assigned codes across candidate keys for this course/class/slot
@@ -1885,14 +1933,22 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     
     // Clear out default none/unassigned classes so assigned coloring applies cleanly
     highlightClass = highlightClass.replace(/\bslot-recommend-(none|t|p|m)\b/g, '').trim();
-    if (assignedSlotType === 'P') {
-      highlightClass += ' slot-recommend-p';
-      if (coursePCode) activeCourseCode = coursePCode;
-    } else if (assignedSlotType === 'M') {
-      highlightClass += ' slot-recommend-m';
+    if (hasRecs && (recT || recP)) {
+      if (assignedSlotType === 'P') {
+        highlightClass += ' slot-recommend-p';
+        if (coursePCode) activeCourseCode = coursePCode;
+      } else if (assignedSlotType === 'M') {
+        highlightClass += ' slot-recommend-m';
+      } else {
+        highlightClass += ' slot-recommend-t';
+        if (courseTCode) activeCourseCode = courseTCode;
+      }
     } else {
-      highlightClass += ' slot-recommend-t';
-      if (courseTCode) activeCourseCode = courseTCode;
+      // Non-recommended course or open/unlocked slot: do NOT make it a recommended cell badge
+      highlightClass += ' slot-open-assigned';
+      slotLabel = '';
+      if (assignedSlotType === 'P' && coursePCode) activeCourseCode = coursePCode;
+      else if (courseTCode) activeCourseCode = courseTCode;
     }
   }
 
@@ -2102,9 +2158,10 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
 
   // Check if period is flagged by Admin
   const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
-  const course = state.courses.find(c => c.code === activeCourseCode) || state.courses.find(c => c.code === baseCode);
+  const course = findCourseForDept(activeCourseCode) || findCourseForDept(baseCode);
   const courseSem = course ? String(course.semester).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
   const courseSemNum = course ? (parseInt(String(course.semester).replace(/\D+/g, ''), 10) || 0) : 0;
+  const hasRecs = courseHasRecommendations(course);
   
   const matchingLocks = globalLocks.filter(l => 
     isPeriodLockedForCourse(l, course, day, period, state.commonBatches || [])
@@ -2133,8 +2190,8 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
     }
   }
 
-  // Unrecommended slot lock only exists in the first 4 semesters (Sem 1 - 4)
-  if (cell.classList.contains('slot-recommend-none') && courseSemNum < 5) {
+  // Unrecommended slot lock only exists in the first 4 semesters (Sem 1 - 4) for courses that have recommendations
+  if (hasRecs && cell.classList.contains('slot-recommend-none') && courseSemNum < 5) {
     if (!cell.classList.contains('slot-active')) {
       showModalConfirm(
         'Unlock Slot?', 
@@ -2155,14 +2212,14 @@ let activeSlotContext = null;
 window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
   
-  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
-  const course = (state.courses || []).find(c => c.code === courseCode) || (state.courses || []).find(c => c.code === baseCode) || (state.courses || []).find(c => c.code === baseCodeForRec);
+  const course = findCourseForDept(courseCode) || findCourseForDept(baseCode);
   const classNumMatch = (courseCode || baseCode).match(/(_G|_C)(\d+)/);
   const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course ? (course.class || course.group || 0) : 0);
   const mappedBatches = course ? course.mappedBatches : [];
   const cleanBase = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const formattedCode = formatCourseCodeWithGroup(cleanBase, classNum, mappedBatches);
   
+  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCode] || localSubjectMappings[baseCodeForRec] || {};
   const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
   const typeText = isPrac ? 'Practical' : 'Theory';
@@ -2195,8 +2252,8 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
 };
 
 window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
-  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
-  const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCodeForRec);
+  const course = findCourseForDept(courseCode);
+  const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
   const pracTeachers = (mData.practicalTeachers && mData.practicalTeachers.length > 0)
     ? mData.practicalTeachers
@@ -2231,17 +2288,10 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
   const toggleAutofill = document.getElementById('toggle-autofill-recommended');
   const isAutofillOn = !!(toggleAutofill && toggleAutofill.checked);
 
-  const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
-  const courseSemNum = course ? (parseInt(String(course.semester || '').replace(/\D+/g, ''), 10) || 0) : 0;
-
-  const recCourse = (course && course.recommendations && Object.keys(course.recommendations).length > 0)
-    ? course
-    : (state.courses.find(c => c.code === baseCodeForRec) || course);
-
-  const recs = recCourse ? (
-    (recCourse.recommendations && Object.keys(recCourse.recommendations).length > 0)
-      ? recCourse.recommendations
-      : (recCourse.masterRecommendations || {})
+  const recs = course ? (
+    (course.recommendations && Object.keys(course.recommendations).length > 0)
+      ? course.recommendations
+      : (course.masterRecommendations || {})
   ) : {};
 
   const clickedSlotRec = (recs[day] && recs[day][period]) || '';
@@ -2249,10 +2299,11 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
 
   // Auto-fill ONLY runs if:
   // 1. Toggle is ON
-  // 2. The course belongs to Sem 1 - 4 (disabled for open/unconstrained sections like Sem 5+)
+  // 2. The course has recommendations
   // 3. The user clicked on an actual recommended practical slot ('P'). Clicking an unrecommended slot will NOT auto-fill!
-  if (isAutofillOn && course && courseSemNum < 5 && isClickedSlotRecommended) {
+  if (isAutofillOn && course && isClickedSlotRecommended) {
     const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
 
     weekdays.forEach(d => {
       const dayRecs = recs[d] || {};
@@ -2260,12 +2311,20 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
         if (dayRecs[p] === 'P') {
           if (d === day && String(p) === String(period)) return;
 
+          const isLockedByAdmin = globalLocks.some(l => isPeriodLockedForCourse(l, course, d, p, state.commonBatches || []));
+          if (isLockedByAdmin) return;
+
           pracTeachers.forEach(fc => {
             const unavailList = (state.teacherUnavailability && state.teacherUnavailability[fc]) || [];
             const isUnavail = unavailList.some(u => u.day.toUpperCase() === d.toUpperCase() && (u.period === 'all' || String(u.period) === String(p)));
+            const crossReq = (state.crossDepartmentRequests || []).find(r => 
+              r.status === 'APPROVED' && 
+              (r.assignedFacultyCode || '').toUpperCase() === fc.toUpperCase() &&
+              (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === d.toUpperCase() && String(s.period) === String(p))
+            );
             const hasClash = checkLocalClash(fc, d, p, courseCode);
 
-            if (!hasClash && !isUnavail) {
+            if (!hasClash && !isUnavail && !crossReq) {
               if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
               if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
               if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
@@ -2374,7 +2433,7 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     
     if (!validation.valid) {
       const conf = validation.conflicts[0];
-      const clashingCourse = state.courses.find(c => c.code === conf.clashingCourseCode);
+      const clashingCourse = findCourseForDept(conf.clashingCourseCode);
       const clashingClassNum = (clashingCourse && (clashingCourse.class || clashingCourse.group)) || (conf.clashingCourseCode.match(/(_G|_C)(\d+)/) ? conf.clashingCourseCode.match(/(_G|_C)(\d+)/)[2] : null);
       const clashingGroupSuffix = clashingClassNum ? ` (Class C${clashingClassNum})` : '';
       showModalAlert(
@@ -2394,8 +2453,8 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       state.allocations[courseCode][day][period].push(facultyCode);
     }
     
+    const course = findCourseForDept(courseCode);
     const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-    const course = state.courses.find(c => c.code === courseCode) || state.courses.find(c => c.code === baseCodeForRec);
     const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
     const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
 
@@ -2403,17 +2462,10 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
     const toggleAutofill = document.getElementById('toggle-autofill-recommended');
     const isAutofillOn = !!(toggleAutofill && toggleAutofill.checked);
 
-    const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
-    const courseSemNum = course ? (parseInt(String(course.semester || '').replace(/\D+/g, ''), 10) || 0) : 0;
-
-    const recCourse = (course && course.recommendations && Object.keys(course.recommendations).length > 0)
-      ? course
-      : (state.courses.find(c => c.code === baseCodeForRec) || course);
-
-    const recs = recCourse ? (
-      (recCourse.recommendations && Object.keys(recCourse.recommendations).length > 0)
-        ? recCourse.recommendations
-        : (recCourse.masterRecommendations || {})
+    const recs = course ? (
+      (course.recommendations && Object.keys(course.recommendations).length > 0)
+        ? course.recommendations
+        : (course.masterRecommendations || {})
     ) : {};
     
     const clickedSlotRec = (recs[day] && recs[day][period]) || '';
@@ -2421,11 +2473,12 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
 
     // Auto-fill ONLY runs if:
     // 1. Toggle is ON
-    // 2. The course belongs to Sem 1 - 4 (disabled for open/unconstrained sections like Sem 5+)
+    // 2. The course has recommendations
     // 3. The user clicked on an actual recommended slot ('T' or 'P'). Clicking an unrecommended slot will NOT auto-fill!
-    if (isAutofillOn && course && courseSemNum < 5 && isClickedSlotRecommended) {
+    if (isAutofillOn && course && isClickedSlotRecommended) {
       const targetType = clickedSlotRec;
       const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+      const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
 
       weekdays.forEach(d => {
         const dayRecs = recs[d] || {};
@@ -2434,12 +2487,21 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
             // Skip the current period which was already assigned
             if (d === day && String(p) === String(period)) return;
 
+            // Check admin lock
+            const isLockedByAdmin = globalLocks.some(l => isPeriodLockedForCourse(l, course, d, p, state.commonBatches || []));
+            if (isLockedByAdmin) return;
+
             // Check if teacher has an unavailability or clash in department
             const unavailList = (state.teacherUnavailability && state.teacherUnavailability[facultyCode]) || [];
             const isUnavail = unavailList.some(u => u.day.toUpperCase() === d.toUpperCase() && (u.period === 'all' || String(u.period) === String(p)));
+            const crossReq = (state.crossDepartmentRequests || []).find(r => 
+              r.status === 'APPROVED' && 
+              (r.assignedFacultyCode || '').toUpperCase() === facultyCode.toUpperCase() &&
+              (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === d.toUpperCase() && String(s.period) === String(p))
+            );
             const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
 
-            if (!hasClash && !isUnavail) {
+            if (!hasClash && !isUnavail && !crossReq) {
               if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
               if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
               if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
@@ -2575,9 +2637,8 @@ function showAutoFillPrompt(courseCode, type, facultyCode) {
 document.getElementById('btn-autofill-all').addEventListener('click', () => {
   if (autoFillContext) {
     const { courseCode, type, facultyCode } = autoFillContext;
-    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/_C\d+/, '');
-    const course = state.courses.find(c => c.code === courseCode)
-               || state.courses.find(c => c.code === baseCodeForRec);
+    const course = findCourseForDept(courseCode);
+    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
     const teachersToAssign = (type === 'P' && mData.practicalTeachers && mData.practicalTeachers.length > 0)
       ? mData.practicalTeachers
@@ -2622,8 +2683,10 @@ function closeAutoFill() {
 }
 
 function checkLocalClash(facultyCode, day, period, excludeCourseCode) {
+  const normExclude = (excludeCourseCode || '').replace(/-(T|P)$/, '');
   for (const courseCode of Object.keys(state.allocations)) {
     if (courseCode === excludeCourseCode) continue;
+    if (courseCode.replace(/-(T|P)$/, '') === normExclude) continue;
     const days = state.allocations[courseCode];
     if (days[day] && days[day][period] && days[day][period].includes(facultyCode)) {
       return true;
