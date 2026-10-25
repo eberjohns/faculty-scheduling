@@ -77,9 +77,9 @@ const tamperedToken = tamperedParts.join('.');
 const verifiedTampered = verifyToken(tamperedToken);
 assert.strictEqual(verifiedTampered, null, 'Tampered token must be rejected');
 
-// Legacy fallback tokens test
-assert.deepStrictEqual(verifyToken('admin-token'), { role: 'admin', legacy: true });
-assert.deepStrictEqual(verifyToken('dept-token-ECE'), { role: 'department', departmentName: 'ECE', legacy: true });
+// Hardened anti-forgery test: static backdoor tokens MUST be rejected
+assert.strictEqual(verifyToken('admin-token'), null, 'Static admin-token must be rejected');
+assert.strictEqual(verifyToken('dept-token-ECE'), null, 'Static dept-token must be rejected');
 console.log('Token Generation & Anti-Tamper Signature Verification: PASSED');
 
 // 4. Input Sanitization against Prototype Pollution & Null Bytes

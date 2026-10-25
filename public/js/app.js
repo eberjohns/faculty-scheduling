@@ -1415,6 +1415,12 @@ function renderAllocationMatrix() {
       }
     });
   }
+
+  // Synchronize open print previews or teacher timetables if visible
+  syncPrintViewsIfActive();
+
+  // Synchronize manual allocations into Subject Teacher Mapping in real time
+  syncAllocationsToSubjectMapping();
 }
 
 // Merges data representation of -T and -P suffixes
@@ -1583,6 +1589,93 @@ function getCourseCommonSubjectMatch(c) {
   return null;
 }
 
+// Universal Slot Type Resolver: determines if an assigned or recommended slot is Theory ('T'), Practical ('P'), or MDC ('M')
+function determineSlotType(course, cCode, day, period, facList = [], dayAllocations = {}, deptMapping = null) {
+  const codeStr = String(cCode || (course && course.code) || '').trim();
+  
+  // 1. Explicit suffix in course key always takes precedence
+  if (codeStr.endsWith('-P') || codeStr.includes('-P_') || codeStr.includes('_P-') || codeStr.includes('-P(')) return 'P';
+  if (codeStr.endsWith('-T') || codeStr.includes('-T_') || codeStr.includes('_T-') || codeStr.includes('-T(')) return 'T';
+  
+  // 2. Multidisciplinary / Minor category check
+  if ((course && course.courseType === 'M') || (course && course.category === 'MDC')) return 'M';
+
+  // 3. Curriculum Recommendation check (if set for this slot in course)
+  if (course && course.recommendations && course.recommendations[day]) {
+    const rec = course.recommendations[day][period];
+    if (rec === 'P') return 'P';
+    if (rec === 'T') return 'T';
+    if (rec === 'B') return 'B';
+  }
+
+  // 4. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
+  const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
+  const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
+
+  if (thHours !== null && prHours !== null) {
+    if (prHours === 0 && thHours > 0) return 'T';
+    if (thHours === 0 && prHours > 0) return 'P';
+  } else if (course && course.courseType === 'T') {
+    return 'T';
+  }
+
+  // 5. Composite / Hybrid courses (courses with both Theory and Practical hours)
+  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
+
+  // 5a. If multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
+  if (assignedList.length > 1) {
+    return 'P';
+  }
+
+  // 5b. Check consecutive periods with the same faculty on the same day (labs are 2+ periods)
+  if (dayAllocations && typeof dayAllocations === 'object') {
+    const pNum = parseInt(String(period).replace(/\D+/g, ''), 10);
+    if (!isNaN(pNum)) {
+      const prevPeriod = String(pNum - 1);
+      const nextPeriod = String(pNum + 1);
+      const prevList = Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
+      const nextList = Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
+      
+      const sharesFacultyPrev = assignedList.length > 0 && assignedList.some(f => prevList.includes(f));
+      const sharesFacultyNext = assignedList.length > 0 && assignedList.some(f => nextList.includes(f));
+      
+      if (sharesFacultyPrev || sharesFacultyNext) {
+        return 'P';
+      }
+    }
+  }
+
+  // 5c. Check Subject-Teacher Mapping if available
+  const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const courseMap = deptMapping || 
+    (typeof state !== 'undefined' && state.subjectTeacherMapping && (
+      (course && course.department && state.subjectTeacherMapping[course.department.toUpperCase()] && state.subjectTeacherMapping[course.department.toUpperCase()][baseCode]) ||
+      (state.currentUser && state.currentUser.departmentName && state.subjectTeacherMapping[state.currentUser.departmentName.toUpperCase()] && state.subjectTeacherMapping[state.currentUser.departmentName.toUpperCase()][baseCode]) ||
+      (typeof activePrintDept !== 'undefined' && activePrintDept && state.subjectTeacherMapping[activePrintDept.toUpperCase()] && state.subjectTeacherMapping[activePrintDept.toUpperCase()][baseCode])
+    ));
+
+  if (courseMap && assignedList.length > 0) {
+    const isOnlyPractical = assignedList.every(f => 
+      (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
+    );
+    if (isOnlyPractical) return 'P';
+
+    const isOnlyTheory = assignedList.every(f => 
+      (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
+    );
+    if (isOnlyTheory) return 'T';
+  }
+
+  // 5d. Standalone single-period slot with 1 teacher for a hybrid course
+  // In college schedules, 1-period isolated sessions are Theory lectures
+  if (thHours && thHours > 0) {
+    return 'T';
+  }
+
+  return (course && course.courseType === 'P') ? 'P' : 'T';
+}
+window.determineSlotType = determineSlotType;
+
 // Renders the interactive contents of a grid cell
 function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = null) {
   // Check if period is flagged by Admin for this course's semester & subject
@@ -1651,6 +1744,32 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   const assignedT = (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period]) || [];
   const assignedP = (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period]) || [];
   const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
+
+  // When teachers are assigned, ensure Theory vs Practical coloring matches the session type
+  if (mergedAssigned.length > 0) {
+    const dayAllocations = {};
+    const periodsList = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+    periodsList.forEach(p => {
+      const aT = (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][p]) || [];
+      const aP = (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][p]) || [];
+      const aM = Array.from(new Set([...aT, ...aP]));
+      if (aM.length > 0) dayAllocations[p] = aM;
+    });
+
+    const assignedSlotType = determineSlotType(currentCourse, activeCourseCode, day, period, mergedAssigned, dayAllocations);
+    
+    // Clear out default none/unassigned classes so assigned coloring applies cleanly
+    highlightClass = highlightClass.replace(/\bslot-recommend-(none|t|p|m)\b/g, '').trim();
+    if (assignedSlotType === 'P') {
+      highlightClass += ' slot-recommend-p';
+      if (coursePCode) activeCourseCode = coursePCode;
+    } else if (assignedSlotType === 'M') {
+      highlightClass += ' slot-recommend-m';
+    } else {
+      highlightClass += ' slot-recommend-t';
+      if (courseTCode) activeCourseCode = courseTCode;
+    }
+  }
 
   // Render assigned pills with dark red crosses and tooltips
   let pillsHtml = '';
@@ -2190,12 +2309,14 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
 
     // For practical slots: keep modal open so helpers can be assigned to the same period, with real-time update
     if (isPrac) {
+      syncAllocationsToSubjectMapping(courseCode);
       renderFacultySelectList();
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
       triggerAutosave();
     } else {
       // Close faculty selector modal for single-teacher theory slots
+      syncAllocationsToSubjectMapping(courseCode);
       document.getElementById('modal-faculty-select').classList.add('hidden');
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
@@ -2213,6 +2334,7 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
   
   if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
+    syncAllocationsToSubjectMapping(courseCode);
     renderFacultySelectList(); // refresh list in modal
     renderAllocationMatrix(); // refresh grid
     updateDeptLiveWorkloadTracker(); // refresh workload
@@ -2223,6 +2345,7 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
 window.unassignFaculty = function(courseCode, day, period, facultyCode) {
   if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
+    syncAllocationsToSubjectMapping(courseCode);
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
     triggerAutosave();
@@ -2728,6 +2851,7 @@ function bindPrintEvents() {
   });
   
   document.getElementById('btn-trigger-print').addEventListener('click', () => {
+    buildPrintTimetableHtml(document.getElementById('print-mode-select')?.value || 'medium');
     window.print();
   });
   
@@ -2764,19 +2888,51 @@ function bindFacultySelectEvents() {
 }
 
 
+function syncPrintViewsIfActive() {
+  // 1. Department timetable print modal
+  const printModal = document.getElementById('modal-print-preview');
+  if (printModal && !printModal.classList.contains('hidden')) {
+    const mode = document.getElementById('print-mode-select')?.value || 'medium';
+    buildPrintTimetableHtml(mode);
+  }
+
+  // 2. Teacher timetable print modal
+  const teacherModal = document.getElementById('modal-teacher-timetable');
+  if (teacherModal && !teacherModal.classList.contains('hidden')) {
+    const facCode = document.getElementById('select-teacher-timetable-faculty')?.value || 'ALL';
+    const mode = document.getElementById('select-teacher-timetable-mode')?.value || 'medium';
+    const container = document.getElementById('teacher-print-area');
+    if (container) renderTeacherTimetables(container, facCode, mode);
+  }
+
+  // 3. Advanced Features tab: Teacher Timetable
+  const advModal = document.getElementById('modal-advanced-features');
+  if (advModal && !advModal.classList.contains('hidden') && typeof activeAdvancedFeaturesTab !== 'undefined' && activeAdvancedFeaturesTab === 'adv-pane-teacher-timetable') {
+    renderTeacherTimetablesTab();
+  }
+}
+
 function openTimetablePrintPreview(deptName) {
-  activePrintDept = deptName;
-  document.getElementById('print-dept-name').textContent = `DEPARTMENT OF ${deptName}`;
-  document.getElementById('print-active-sem').textContent = `${state.config.semesterType} SEMESTER`;
-  document.getElementById('print-active-year').textContent = state.config.academicYear;
+  activePrintDept = deptName || (state.currentUser ? state.currentUser.departmentName : '') || '';
+  const printDeptElem = document.getElementById('print-dept-name');
+  if (printDeptElem) printDeptElem.textContent = `DEPARTMENT OF ${activePrintDept}`;
+  const printSemElem = document.getElementById('print-active-sem');
+  if (printSemElem) printSemElem.textContent = `${(state.config && state.config.semesterType) || 'ODD'} SEMESTER`;
+  const printYearElem = document.getElementById('print-active-year');
+  if (printYearElem) printYearElem.textContent = (state.config && state.config.academicYear) || '';
   
-  buildPrintTimetableHtml('medium');
-  document.getElementById('modal-print-preview').classList.remove('hidden');
+  const modeSelect = document.getElementById('print-mode-select');
+  const mode = modeSelect ? modeSelect.value : 'medium';
+  buildPrintTimetableHtml(mode);
+  
+  const modal = document.getElementById('modal-print-preview');
+  if (modal) modal.classList.remove('hidden');
 }
 
 function buildPrintTimetableHtml(displayMode) {
-  const periods = state.config.periods;
+  const periods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
   const table = document.getElementById('print-grid-table');
+  if (!table) return;
   const thead = table.querySelector('thead');
   const tbody = table.querySelector('tbody');
   
@@ -2784,12 +2940,20 @@ function buildPrintTimetableHtml(displayMode) {
     <tr>
       <th style="width: 80px;">Day</th>
       <th style="width: 100px; text-align: left;">Class/Semester</th>
-      ${periods.map(p => `<th>${p}</th>`).join('')}
+      ${periods.map(p => `<th>${String(p).toUpperCase() === 'LB' ? 'Lunch Break' : p}</th>`).join('')}
     </tr>
   `;
 
-  const deptCourses = state.courses.filter(c => c.department === activePrintDept);
-  renderPrintGridRows(deptCourses, state.allocations, periods, displayMode, tbody);
+  const deptUpper = (activePrintDept || (state.currentUser ? state.currentUser.departmentName : '') || '').trim().toUpperCase();
+  const allocs = state.allocations || {};
+  const deptCourses = (state.courses || []).filter(c => {
+    const cDept = (c.department || '').trim().toUpperCase();
+    if (cDept === deptUpper) return true;
+    const cBase = (c.code || '').replace(/-(T|P)$/, '');
+    return allocs[c.code] || allocs[cBase] || allocs[`${cBase}-T`] || allocs[`${cBase}-P`];
+  });
+
+  renderPrintGridRows(deptCourses, allocs, periods, displayMode, tbody);
 }
 
 function formatCategory(cat) {
@@ -2802,7 +2966,7 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
-  const semLabel = state.config.semesterLabels[course.semester] || `${course.semester} Sem`;
+  const semLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[course.semester]) || `${course.semester} Sem`;
   const catStr = formatCategory(course.category);
   
   if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
@@ -2810,11 +2974,76 @@ function getTimetableRowCategory(course) {
   }
   
   const isPg = course.code.toUpperCase().includes('MSC') || 
-               course.pathway.toUpperCase().includes('MSC') || 
-               course.pathway.toUpperCase().includes('POST GRADUATE') ||
+               (course.pathway && course.pathway.toUpperCase().includes('MSC')) || 
+               (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
                course.programType === 'PG';
   const progLabel = isPg ? 'MSC' : 'BSC';
   return `${semLabel} ${progLabel} ${catStr}`;
+}
+
+// Probes all possible allocation keys (exact, -T, -P, baseCode, class variants _C1-T, _C1-P)
+function getCourseSlotAllocations(course, day, period, allocations) {
+  if (!allocations || !course) return { codes: [], type: (course && course.courseType) || 'T' };
+  
+  const cCode = course.code || '';
+  const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const classMatch = cCode.match(/(_C|_G)(\d+)/);
+  const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
+
+  const foundCodes = [];
+  let detectedType = course.courseType || (cCode.endsWith('-P') ? 'P' : 'T');
+
+  const keysToCheck = [];
+  if (classNum) {
+    keysToCheck.push({ key: `${baseCode}_C${classNum}-T`, type: 'T' });
+    keysToCheck.push({ key: `${baseCode}_C${classNum}-P`, type: 'P' });
+    keysToCheck.push({ key: `${baseCode}_C${classNum}`, type: detectedType });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}-T`, type: 'T' });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}-P`, type: 'P' });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}`, type: detectedType });
+  }
+  keysToCheck.push({ key: cCode, type: cCode.endsWith('-P') ? 'P' : (cCode.endsWith('-T') ? 'T' : detectedType) });
+  keysToCheck.push({ key: `${cCode}-T`, type: 'T' });
+  keysToCheck.push({ key: `${cCode}-P`, type: 'P' });
+  keysToCheck.push({ key: `${baseCode}-T`, type: 'T' });
+  keysToCheck.push({ key: `${baseCode}-P`, type: 'P' });
+  keysToCheck.push({ key: baseCode, type: detectedType });
+
+  const seenKeys = new Set();
+  keysToCheck.forEach(({ key, type }) => {
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+
+    if (allocations[key] && allocations[key][day] && allocations[key][day][period]) {
+      const list = allocations[key][day][period];
+      if (Array.isArray(list) && list.length > 0) {
+        list.forEach(fc => {
+          const cleanFc = (fc || '').trim();
+          if (cleanFc && !foundCodes.includes(cleanFc)) {
+            foundCodes.push(cleanFc);
+          }
+        });
+      }
+    }
+  });
+
+  if (foundCodes.length > 0) {
+    const dayAllocations = {};
+    const periodsList = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+    periodsList.forEach(p => {
+      keysToCheck.forEach(({ key }) => {
+        if (allocations[key] && allocations[key][day] && allocations[key][day][p]) {
+          const l = allocations[key][day][p];
+          if (Array.isArray(l) && l.length > 0) {
+            dayAllocations[p] = Array.from(new Set([...(dayAllocations[p] || []), ...l]));
+          }
+        }
+      });
+    });
+    detectedType = determineSlotType(course, cCode, day, period, foundCodes, dayAllocations);
+  }
+
+  return { codes: foundCodes, type: detectedType };
 }
 
 function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) {
@@ -2867,10 +3096,26 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
       catCourses.forEach(course => {
         const coursePeriods = [];
+        const slotDataMap = {};
+
         periods.forEach(p => {
-          if (p.toUpperCase() === 'LB') return;
-          const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-          if (assigned.length > 0) coursePeriods.push(p);
+          if (String(p).toUpperCase() === 'LB') return;
+          const { codes: assigned, type: detectedType } = getCourseSlotAllocations(course, day, p, allocations);
+          if (assigned.length > 0) {
+            coursePeriods.push(p);
+            const isPractical = detectedType === 'P';
+            const printClass = detectedType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
+            const tooltip = assigned.map(code => {
+              const facObj = (state.faculty || []).find(f => f.code === code);
+              return facObj ? facObj.name : code;
+            }).join(' / ');
+
+            slotDataMap[p] = {
+              html: formatAllocationCell(course, day, p, allocations, displayMode, detectedType),
+              classes: printClass,
+              tooltip: tooltip
+            };
+          }
         });
 
         if (coursePeriods.length === 0) return;
@@ -2880,19 +3125,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const hasClash = coursePeriods.some(p => !!subRows[r][p]);
           if (!hasClash) {
             coursePeriods.forEach(p => {
-              const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
-              const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
-              const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-              const tooltip = assigned.map(code => {
-                const facObj = state.faculty.find(f => f.code === code);
-                return facObj ? facObj.name : code;
-              }).join(' / ');
-              
-              subRows[r][p] = {
-                html: formatAllocationCell(course, day, p, allocations, displayMode),
-                classes: printClass,
-                tooltip: tooltip
-              };
+              subRows[r][p] = slotDataMap[p];
             });
             placed = true;
             break;
@@ -2902,19 +3135,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         if (!placed) {
           const newRow = {};
           coursePeriods.forEach(p => {
-            const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
-            const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
-            const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-            const tooltip = assigned.map(code => {
-              const facObj = state.faculty.find(f => f.code === code);
-              return facObj ? facObj.name : code;
-            }).join(' / ');
-
-            newRow[p] = {
-              html: formatAllocationCell(course, day, p, allocations, displayMode),
-              classes: printClass,
-              tooltip: tooltip
-            };
+            newRow[p] = slotDataMap[p];
           });
           subRows.push(newRow);
         }
@@ -2934,7 +3155,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const tdDay = document.createElement('td');
           tdDay.rowSpan = weekdayTotalRows;
           tdDay.className = 'day-cell';
-          tdDay.textContent = weekdayShort[day];
+          tdDay.textContent = weekdayShort[day] || day;
           tr.appendChild(tdDay);
         }
 
@@ -2948,7 +3169,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
         periods.forEach(p => {
           const td = document.createElement('td');
-          if (p.toUpperCase() === 'LB') {
+          if (String(p).toUpperCase() === 'LB') {
             td.className = 'break-cell';
             td.textContent = 'LB';
           } else {
@@ -2973,14 +3194,14 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
   });
 }
 
-function formatAllocationCell(course, day, period, allocations, mode) {
-  const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
+function formatAllocationCell(course, day, period, allocations, mode, detectedType = null) {
+  const { codes: assignedCodes, type: allocType } = getCourseSlotAllocations(course, day, period, allocations);
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const alias = (course.alias || course.name || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
   const groupSuffix = classNum ? ` (C${classNum})` : '';
-  const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
+  const isPractical = (detectedType || allocType) === 'P';
 
   let suffix = '';
   if (mode === 'full') {
@@ -2997,10 +3218,10 @@ function formatAllocationCell(course, day, period, allocations, mode) {
     return `${assignedCodes.join('/')} - ${alias}${groupSuffix}${suffix}`;
   } else {
     const facNames = assignedCodes.map(code => {
-      const facObj = state.faculty.find(f => f.code === code);
+      const facObj = (state.faculty || []).find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
-    const cleanName = course.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
+    const cleanName = (course.name || course.code).replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
     return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${groupSuffix}${suffix}</div>`;
   }
 }
@@ -3041,7 +3262,8 @@ function exportPrintTimetableToCSV() {
 // =============================================================
 
 function computeFacultyWeeklySchedules(deptName) {
-  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const targetDept = (deptName || (state.currentUser ? state.currentUser.departmentName : '') || '').trim().toUpperCase();
+  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toUpperCase() === targetDept);
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 
   const schedules = {};
@@ -3060,39 +3282,85 @@ function computeFacultyWeeklySchedules(deptName) {
 
   const deptAlloc = state.allocations || {};
 
+  // Also initialize any faculty allocated in this department's timetable
+  Object.values(deptAlloc).forEach(dayObj => {
+    Object.values(dayObj || {}).forEach(periodObj => {
+      Object.values(periodObj || {}).forEach(facList => {
+        if (Array.isArray(facList)) {
+          facList.forEach(facCode => {
+            const fcNorm = (facCode || '').trim();
+            if (fcNorm && !schedules[fcNorm]) {
+              const facObj = (state.faculty || []).find(f => (f.code || '').trim().toUpperCase() === fcNorm.toUpperCase()) || {
+                code: fcNorm,
+                name: fcNorm,
+                department: deptName,
+                designation: 'Faculty Member'
+              };
+              schedules[fcNorm] = {
+                info: facObj,
+                totalHours: 0,
+                theoryHours: 0,
+                practicalHours: 0,
+                slots: {}
+              };
+              weekdays.forEach(d => {
+                schedules[fcNorm].slots[d] = {};
+              });
+            }
+          });
+        }
+      });
+    });
+  });
+
   Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
-    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_C\d+-(T|P)$/, '').replace(/_C\d+$/, '').replace(/_G\d+$/, '');
-    const course = state.courses.find(c => c.code === cCode) || 
-                   state.courses.find(c => c.code === baseCode) || 
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+    const course = (state.courses || []).find(c => c.code === cCode) || 
+                   (state.courses || []).find(c => c.code === baseCode) || 
                    { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
 
-    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
+    const classMatch = cCode.match(/(_C|_G)(\d+)/);
+    const classSuffix = classMatch ? ` (C${classMatch[2]})` : '';
+    const cleanAlias = (course.alias || course.name || cCode).replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+    const dispAlias = cleanAlias + classSuffix;
 
     Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
       const dayUpper = day.toUpperCase();
       Object.entries(periodObj || {}).forEach(([period, facList]) => {
-        if (Array.isArray(facList)) {
+        if (Array.isArray(facList) && facList.length > 0) {
+          const slotType = determineSlotType(course, cCode, dayUpper, period, facList, periodObj);
+          const isPrac = (slotType === 'P');
+
           facList.forEach(facCode => {
-            if (schedules[facCode]) {
-              if (!schedules[facCode].slots[dayUpper]) {
-                schedules[facCode].slots[dayUpper] = {};
+            const fc = (facCode || '').trim();
+            const schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase()) || fc;
+            if (schedules[schedKey]) {
+              if (!schedules[schedKey].slots[dayUpper]) {
+                schedules[schedKey].slots[dayUpper] = {};
               }
-              if (!schedules[facCode].slots[dayUpper][period]) {
-                schedules[facCode].slots[dayUpper][period] = [];
+              if (!schedules[schedKey].slots[dayUpper][period]) {
+                schedules[schedKey].slots[dayUpper][period] = [];
               }
-              schedules[facCode].slots[dayUpper][period].push({
-                courseCode: cCode,
-                courseName: course.name,
-                courseAlias: course.alias || course.name,
-                semester: course.semester,
-                category: course.category,
-                type: isPrac ? 'P' : 'T'
-              });
-              schedules[facCode].totalHours++;
-              if (isPrac) {
-                schedules[facCode].practicalHours++;
-              } else {
-                schedules[facCode].theoryHours++;
+              const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === cCode);
+              if (!already) {
+                const coTeachers = facList.filter(f => f.trim().toUpperCase() !== fc.toUpperCase());
+                schedules[schedKey].slots[dayUpper][period].push({
+                  courseCode: cCode,
+                  courseName: course.name || cCode,
+                  courseAlias: dispAlias,
+                  semester: course.semester,
+                  category: course.category,
+                  roomNo: course.roomNo || '',
+                  section: classSuffix ? classSuffix.trim() : '',
+                  coTeachers: coTeachers,
+                  type: isPrac ? 'P' : 'T'
+                });
+                schedules[schedKey].totalHours++;
+                if (isPrac) {
+                  schedules[schedKey].practicalHours++;
+                } else {
+                  schedules[schedKey].theoryHours++;
+                }
               }
             }
           });
@@ -3128,16 +3396,18 @@ function computeFacultyWeeklySchedules(deptName) {
       if (!dayUpper || !period) return;
 
       teacherCodes.forEach(tCode => {
-        if (schedules[tCode]) {
-          if (!schedules[tCode].slots[dayUpper]) {
-            schedules[tCode].slots[dayUpper] = {};
+        const fc = (tCode || '').trim();
+        const schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase()) || fc;
+        if (schedules[schedKey]) {
+          if (!schedules[schedKey].slots[dayUpper]) {
+            schedules[schedKey].slots[dayUpper] = {};
           }
-          if (!schedules[tCode].slots[dayUpper][period]) {
-            schedules[tCode].slots[dayUpper][period] = [];
+          if (!schedules[schedKey].slots[dayUpper][period]) {
+            schedules[schedKey].slots[dayUpper][period] = [];
           }
-          const already = schedules[tCode].slots[dayUpper][period].some(x => x.courseCode === (b.courseCode || b.subjectCode) && x.batchName === b.batchName);
+          const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === (b.courseCode || b.subjectCode) && x.batchName === b.batchName);
           if (!already) {
-            schedules[tCode].slots[dayUpper][period].push({
+            schedules[schedKey].slots[dayUpper][period].push({
               courseCode: b.courseCode || b.subjectCode,
               courseName: `${b.batchName}: ${b.courseName || b.courseCode || b.subjectCode}`,
               courseAlias: `${b.batchName} (${b.subjectCode})`,
@@ -3146,8 +3416,8 @@ function computeFacultyWeeklySchedules(deptName) {
               type: 'T',
               batchName: b.batchName
             });
-            schedules[tCode].totalHours++;
-            schedules[tCode].theoryHours++;
+            schedules[schedKey].totalHours++;
+            schedules[schedKey].theoryHours++;
           }
         }
       });
@@ -3194,14 +3464,22 @@ function renderTeacherTimetableSheet(facSchedule, displayMode, periods, deptName
           }
 
           const semLabel = item.semester && item.semester !== '-' ? `Sem ${item.semester}` : '';
+          const coTeacherHtml = (item.coTeachers && item.coTeachers.length > 0)
+            ? `<div class="teacher-slot-coteacher" style="font-size: 10px; color: #166534; font-weight: 700; margin-top: 2px;"><i class="fa-solid fa-users" style="font-size: 9px;"></i> with ${item.coTeachers.join(', ')}</div>`
+            : '';
+          const roomHtml = item.roomNo
+            ? `<span class="teacher-slot-room" style="font-size: 10px; opacity: 0.85; font-weight: 600;">[Rm: ${item.roomNo}]</span>`
+            : '';
 
           return `
             <div class="teacher-slot-inner">
               <span class="teacher-slot-course" title="${item.courseName} (${item.courseCode})">${dispText}</span>
-              <div style="display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 2px;">
+              <div style="display: flex; gap: 4px; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 2px;">
                 ${semLabel ? `<span class="teacher-slot-sem-pill">${semLabel}</span>` : ''}
+                ${roomHtml}
                 <span class="teacher-slot-type-badge">${typeLabel}</span>
               </div>
+              ${coTeacherHtml}
             </div>
           `;
         }).join('<div style="border-top: 1px dashed rgba(0,0,0,0.15); margin: 3px 0;"></div>');
@@ -3257,11 +3535,15 @@ function renderTeacherTimetables(containerElement, targetFacultyCode = 'ALL', di
   if (!containerElement) return;
   const deptName = state.currentUser ? state.currentUser.departmentName : 'Department';
   const schedules = computeFacultyWeeklySchedules(deptName);
-  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const periods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
 
-  const facultyList = targetFacultyCode === 'ALL'
-    ? Object.values(schedules)
-    : [schedules[targetFacultyCode]].filter(Boolean);
+  let facultyList = [];
+  if (targetFacultyCode === 'ALL') {
+    facultyList = Object.values(schedules);
+  } else {
+    const targetKey = Object.keys(schedules).find(k => k.toUpperCase() === String(targetFacultyCode).toUpperCase()) || targetFacultyCode;
+    facultyList = [schedules[targetKey]].filter(Boolean);
+  }
 
   if (facultyList.length === 0) {
     containerElement.innerHTML = `
@@ -3280,18 +3562,27 @@ function renderTeacherTimetables(containerElement, targetFacultyCode = 'ALL', di
 
 function populateTeacherTimetableDropdowns() {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
-  const deptFaculty = state.faculty.filter(f => f.department === deptName);
+  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toUpperCase() === deptName.trim().toUpperCase());
 
   const modalSelect = document.getElementById('select-teacher-timetable-faculty');
   const tabSelect = document.getElementById('tab-select-teacher-faculty');
+
+  const curTabVal = tabSelect ? tabSelect.value : 'ALL';
+  const curModalVal = modalSelect ? modalSelect.value : 'ALL';
 
   const optionsHtml = `
     <option value="ALL">All Teachers (${deptFaculty.length} Faculty Members)</option>
     ${deptFaculty.map(f => `<option value="${f.code}">${f.name} (${f.code})</option>`).join('')}
   `;
 
-  if (modalSelect) modalSelect.innerHTML = optionsHtml;
-  if (tabSelect) tabSelect.innerHTML = optionsHtml;
+  if (modalSelect) {
+    modalSelect.innerHTML = optionsHtml;
+    modalSelect.value = curModalVal;
+  }
+  if (tabSelect) {
+    tabSelect.innerHTML = optionsHtml;
+    tabSelect.value = curTabVal;
+  }
 }
 
 function openTeacherTimetableModal(selectedFacultyCode = 'ALL') {
@@ -3411,6 +3702,9 @@ function bindTeacherTimetableEvents() {
   const btnPrint = document.getElementById('btn-trigger-teacher-print');
   if (btnPrint) {
     btnPrint.addEventListener('click', () => {
+      const facCode = modalSelectFac ? modalSelectFac.value : 'ALL';
+      const mode = modalSelectMode ? modalSelectMode.value : 'medium';
+      if (printArea) renderTeacherTimetables(printArea, facCode, mode);
       window.print();
     });
   }
@@ -4271,6 +4565,237 @@ function updateSplitBadge(cCode, targetTotal, hoursObj, badgeId) {
   }
 }
 
+let isSyncingAllocationsToSubjectMapping = false;
+
+function syncAllocationsToSubjectMapping(targetCourseCode = null) {
+  if (isSyncingAllocationsToSubjectMapping) return;
+  isSyncingAllocationsToSubjectMapping = true;
+
+  try {
+    const deptName = (state.currentUser ? state.currentUser.departmentName : '') || '';
+    const deptUpper = deptName.trim().toUpperCase();
+    const deptCourses = (state.courses || []).filter(c => (c.department || '').trim().toUpperCase() === deptUpper);
+    if (deptCourses.length === 0) return;
+
+    const coursesToSync = targetCourseCode
+      ? deptCourses.filter(c => {
+          const base = (c.code || '').replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+          const targetBase = targetCourseCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+          return c.code === targetCourseCode || base === targetBase || targetCourseCode.startsWith(c.code) || c.code.startsWith(targetCourseCode);
+        })
+      : deptCourses;
+
+    const allocs = state.allocations || {};
+
+    coursesToSync.forEach(course => {
+      const cCode = course.code || '';
+      const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+      const classMatch = cCode.match(/(_C|_G)(\d+)/);
+      const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
+
+      // Gather all matching allocation keys for this course
+      const candidateKeys = [];
+      if (classNum) {
+        candidateKeys.push(`${baseCode}_C${classNum}-T`, `${baseCode}_C${classNum}-P`, `${baseCode}_C${classNum}`);
+        candidateKeys.push(`${baseCode}_G${classNum}-T`, `${baseCode}_G${classNum}-P`, `${baseCode}_G${classNum}`);
+      }
+      candidateKeys.push(cCode, `${cCode}-T`, `${cCode}-P`, `${baseCode}-T`, `${baseCode}-P`, baseCode);
+
+      // If course has multiple classes configured (classes > 1), capture class keys as well
+      const classesCount = Math.max(1, parseInt(course.classes) || 1);
+      if (classesCount > 1) {
+        for (let cl = 1; cl <= classesCount; cl++) {
+          candidateKeys.push(`${baseCode}_C${cl}-T`, `${baseCode}_C${cl}-P`, `${baseCode}_C${cl}`);
+          candidateKeys.push(`${baseCode}_G${cl}-T`, `${baseCode}_G${cl}-P`, `${baseCode}_G${cl}`);
+        }
+      }
+
+      const uniqueKeys = Array.from(new Set(candidateKeys));
+
+      // Track slots and teachers per class
+      const classStats = {};
+      let hasAnyAllocation = false;
+
+      uniqueKeys.forEach(key => {
+        const dayObj = allocs[key];
+        if (!dayObj) return;
+
+        const classMatchInKey = key.match(/(_C|_G)(\d+)/);
+        const classId = classMatchInKey ? `C${classMatchInKey[2]}` : (classNum ? `C${classNum}` : 'C1');
+
+        if (!classStats[classId]) {
+          classStats[classId] = {
+            theorySlots: new Set(),
+            practicalSlots: new Set(),
+            teacherTheoryCount: {},
+            teacherPracCount: {}
+          };
+        }
+
+        const isKeyPractical = key.endsWith('-P') || key.includes('-P');
+        const isKeyTheory = key.endsWith('-T') || key.includes('-T');
+
+        Object.entries(dayObj).forEach(([day, periodObj]) => {
+          const dayUpper = day.toUpperCase();
+          Object.entries(periodObj || {}).forEach(([period, facList]) => {
+            if (!Array.isArray(facList) || facList.length === 0) return;
+            if (String(period).toUpperCase() === 'LB') return;
+
+            hasAnyAllocation = true;
+            const slotPeriodKey = `${dayUpper}_${period}`;
+
+            // Determine whether this slot is Practical or Theory
+            let slotType = 'T';
+            if (isKeyPractical) {
+              slotType = 'P';
+            } else if (isKeyTheory) {
+              slotType = 'T';
+            } else {
+              const rec = (course.recommendations && course.recommendations[dayUpper] && course.recommendations[dayUpper][period]) ||
+                          (course.masterRecommendations && course.masterRecommendations[dayUpper] && course.masterRecommendations[dayUpper][period]) || '';
+              if (rec === 'P') {
+                slotType = 'P';
+              } else if (rec === 'T') {
+                slotType = 'T';
+              } else if (course.courseType === 'P' || cCode.endsWith('-P')) {
+                slotType = 'P';
+              } else {
+                slotType = 'T';
+              }
+            }
+
+            if (slotType === 'P') {
+              classStats[classId].practicalSlots.add(slotPeriodKey);
+              facList.forEach(fc => {
+                const code = (fc || '').trim();
+                if (code) {
+                  classStats[classId].teacherPracCount[code] = (classStats[classId].teacherPracCount[code] || 0) + 1;
+                }
+              });
+            } else {
+              classStats[classId].theorySlots.add(slotPeriodKey);
+              facList.forEach(fc => {
+                const code = (fc || '').trim();
+                if (code) {
+                  classStats[classId].teacherTheoryCount[code] = (classStats[classId].teacherTheoryCount[code] || 0) + 1;
+                }
+              });
+            }
+          });
+        });
+      });
+
+      if (!hasAnyAllocation) return; // Retain baseline if no manual allocations exist for this course
+
+      // Aggregate statistics across classes
+      const allClasses = Object.keys(classStats);
+      let maxTheorySlots = 0;
+      let maxPracSlots = 0;
+      allClasses.forEach(clId => {
+        const thCount = classStats[clId].theorySlots.size;
+        const prCount = classStats[clId].practicalSlots.size;
+        if (thCount > maxTheorySlots) maxTheorySlots = thCount;
+        if (prCount > maxPracSlots) maxPracSlots = prCount;
+      });
+
+      const theoryHours = maxTheorySlots;
+      const practicalHours = maxPracSlots;
+      const totalWeeklyHours = theoryHours + practicalHours;
+      if (totalWeeklyHours === 0) return;
+
+      const isPrac = practicalHours > 0;
+      const detectedCourseType = isPrac ? 'P' : 'T';
+
+      // Collect all teachers and their per-teacher hours
+      const theoryTeachersSet = new Set();
+      const practicalTeachersSet = new Set();
+      const theoryTeacherHours = {};
+
+      allClasses.forEach(clId => {
+        Object.entries(classStats[clId].teacherTheoryCount).forEach(([fc, count]) => {
+          theoryTeachersSet.add(fc);
+          const perClassTh = Math.max(1, Math.round(count / (allClasses.length > 1 && count > theoryHours ? allClasses.length : 1)));
+          theoryTeacherHours[fc] = Math.max(theoryTeacherHours[fc] || 0, perClassTh);
+        });
+        Object.keys(classStats[clId].teacherPracCount).forEach(fc => {
+          practicalTeachersSet.add(fc);
+        });
+      });
+
+      const theoryTeachers = Array.from(theoryTeachersSet);
+      const practicalTeachers = Array.from(practicalTeachersSet);
+      const unifiedTeachers = Array.from(new Set([...practicalTeachers, ...theoryTeachers]));
+
+      // Validate and balance theory teacher hours so their sum matches theoryHours
+      let balancedTheoryTeacherHours = {};
+      if (theoryTeachers.length > 0 && theoryHours > 0) {
+        balancedTheoryTeacherHours = validateAndBalanceTeacherHours(theoryHours, theoryTeachers, theoryTeacherHours);
+      }
+
+      // Unified teacher hours across theory and practical
+      const unifiedTeacherHours = {};
+      unifiedTeachers.forEach(fc => {
+        let hrs = 0;
+        if (isPrac && practicalTeachers.includes(fc)) {
+          hrs += practicalHours; // Co-teaching in lab: teaches all practical hours
+        }
+        if (theoryTeachers.includes(fc)) {
+          hrs += (balancedTheoryTeacherHours[fc] || 0);
+        }
+        unifiedTeacherHours[fc] = hrs;
+      });
+
+      // Update localSubjectMappings for cCode and baseCode
+      const updatedMapping = {
+        hours: totalWeeklyHours,
+        courseType: detectedCourseType,
+        practicalHours: isPrac ? practicalHours : 0,
+        theoryHours: theoryHours,
+        practicalTeachers: isPrac ? practicalTeachers : [],
+        theoryTeachers: theoryTeachers,
+        theoryTeacherHours: balancedTheoryTeacherHours,
+        teachers: unifiedTeachers,
+        teacherHours: isPrac ? unifiedTeacherHours : balancedTheoryTeacherHours
+      };
+
+      localSubjectMappings[cCode] = updatedMapping;
+      if (baseCode && baseCode !== cCode) {
+        localSubjectMappings[baseCode] = { ...updatedMapping };
+      }
+
+      // Update state.courses object in memory
+      const courseObj = state.courses.find(c => c.code === cCode) || state.courses.find(c => c.code === baseCode);
+      if (courseObj) {
+        courseObj.hours = totalWeeklyHours;
+        courseObj.courseType = detectedCourseType;
+        courseObj.practicalHours = isPrac ? practicalHours : 0;
+        courseObj.theoryHours = theoryHours;
+        courseObj.teachers = unifiedTeachers;
+        courseObj.teacherHours = isPrac ? unifiedTeacherHours : balancedTheoryTeacherHours;
+        courseObj.practicalTeachers = isPrac ? practicalTeachers : [];
+        courseObj.theoryTeachers = theoryTeachers;
+        courseObj.theoryTeacherHours = balancedTheoryTeacherHours;
+      }
+
+      syncAutoGenConfigForCourse(cCode);
+      if (baseCode && baseCode !== cCode) {
+        syncAutoGenConfigForCourse(baseCode);
+      }
+    });
+
+    // If Subject Teacher Mapping tab is active/visible, refresh tiles in real time
+    const advModal = document.getElementById('modal-advanced-features');
+    const subPane = document.getElementById('adv-pane-subject-mapping');
+    if (advModal && !advModal.classList.contains('hidden') && subPane && !subPane.classList.contains('hidden')) {
+      renderSubjectMappingTiles();
+    }
+  } catch (err) {
+    console.error('Error synchronizing allocations to subject mapping:', err);
+  } finally {
+    isSyncingAllocationsToSubjectMapping = false;
+  }
+}
+
 function initLocalSubjectMappings() {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const deptUpper = deptName.toUpperCase();
@@ -4365,6 +4890,9 @@ function initLocalSubjectMappings() {
       }
     }
   });
+
+  // Automatically reflect any active manual allocations into the mappings
+  syncAllocationsToSubjectMapping();
 
   if (savedSubjectMappingsSnapshot === null) {
     updateSubjectMappingsSnapshot();
@@ -4533,11 +5061,20 @@ function renderSubjectMappingTiles() {
     };
 
     const isPrac = mapping.courseType === 'P';
-    const theoryTeachers = mapping.courseType === 'T' ? (mapping.teachers || []) : (mapping.theoryTeachers || []);
+    const theoryTeachers = isPrac ? (mapping.theoryTeachers || []) : (mapping.teachers || []);
     
     // Ensure hours are strictly validated and balanced
-    mapping.teacherHours = validateAndBalanceTeacherHours(mapping.hours, theoryTeachers, mapping.teacherHours);
-    const theoryTeacherHours = mapping.courseType === 'T' ? mapping.teacherHours : (mapping.theoryTeacherHours || {});
+    let theoryTeacherHours;
+    if (isPrac) {
+      if (theoryTeachers.length > 0 && (mapping.theoryHours || 0) > 0) {
+        mapping.theoryTeacherHours = validateAndBalanceTeacherHours(mapping.theoryHours || 0, theoryTeachers, mapping.theoryTeacherHours);
+      }
+      theoryTeacherHours = mapping.theoryTeacherHours || {};
+    } else {
+      mapping.teacherHours = validateAndBalanceTeacherHours(mapping.hours, theoryTeachers, mapping.teacherHours);
+      mapping.theoryTeacherHours = mapping.teacherHours;
+      theoryTeacherHours = mapping.teacherHours || {};
+    }
     const practicalTeachers = mapping.practicalTeachers || [];
     const practicalHours = mapping.practicalHours || 2;
     const maxEvenPrac = mapping.hours % 2 === 0 ? mapping.hours : Math.max(2, mapping.hours - 1);
@@ -4546,9 +5083,6 @@ function renderSubjectMappingTiles() {
     const pureTheorySum = theoryTeachers.reduce((acc, t) => acc + (parseInt(theoryTeacherHours[t]) || 0), 0);
 
     // Calculate sum of practical's theory hours
-    if (mapping.theoryTeachers && mapping.theoryTeachers.length > 0) {
-      mapping.theoryTeacherHours = validateAndBalanceTeacherHours(mapping.theoryHours || 0, mapping.theoryTeachers, mapping.theoryTeacherHours);
-    }
     const pracTheorySum = (mapping.theoryTeachers || []).reduce((acc, t) => acc + (parseInt(mapping.theoryTeacherHours && mapping.theoryTeacherHours[t]) || 0), 0);
 
     // Theory pills (pure theory)
