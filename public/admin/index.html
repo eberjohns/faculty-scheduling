@@ -322,10 +322,16 @@
           <div id="tab-admin-data" class="tab-pane hidden">
             <div class="content-header">
               <h1>Inspect Academic Records</h1>
-              <div class="header-search-bar flex-row gap-2">
-                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 250px;">
+              <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap;">
+                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 220px;">
                 <select id="data-select-dept" class="form-control width-auto">
                   <option value="">All Departments</option>
+                </select>
+                <select id="data-select-semester" class="form-control width-auto">
+                  <option value="">All Semesters</option>
+                </select>
+                <select id="data-select-category" class="form-control width-auto">
+                  <option value="">All Categories</option>
                 </select>
               </div>
             </div>
@@ -338,21 +344,36 @@
             <!-- Courses list -->
             <div id="subtab-courses" class="subtab-pane active">
               <div class="card mt-2">
+                <!-- Bulk Actions Toolbar -->
+                <div class="flex-row justify-between items-center p-3" style="border-bottom: 1px solid var(--border); background: var(--surface); gap: 12px; flex-wrap: wrap;">
+                  <div class="flex-row items-center gap-2">
+                    <button type="button" id="btn-bulk-select-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-check-double text-primary"></i> Select All</button>
+                    <button type="button" id="btn-bulk-deselect-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-xmark"></i> Deselect All</button>
+                    <span id="selected-courses-count" class="text-sm text-muted font-semibold ml-2">0 selected</span>
+                  </div>
+                  <div>
+                    <button type="button" id="btn-bulk-delete-courses" class="btn btn-danger btn-xs" disabled style="padding: 4px 12px; font-weight: 700;">
+                      <i class="fa-solid fa-trash"></i> Delete Selected (<span id="delete-count-badge">0</span>)
+                    </button>
+                  </div>
+                </div>
+
                 <div class="table-responsive">
                   <table class="table" id="table-manage-courses">
                     <thead>
                       <tr>
+                        <th style="width: 44px; text-align: center;"><input type="checkbox" id="select-all-courses-header" title="Select all visible courses"></th>
                         <th>Course Code</th>
                         <th>Semester</th>
                         <th>Category</th>
                         <th>Course Name</th>
                         <th>Visual Alias</th>
                         <th>Department</th>
-                        <th>Actions</th>
+                        <th style="text-align: center;">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <!-- Rendered Dynamically (Read Only) -->
+                      <!-- Rendered Dynamically -->
                     </tbody>
                   </table>
                 </div>
@@ -1233,19 +1254,34 @@
 
     <!-- MODAL: EDIT COURSE -->
     <div id="modal-edit-course" class="modal flex-center hidden no-print">
-      <div class="modal-content modal-md" style="max-width: 450px; width: 100%; padding: 24px;">
+      <div class="modal-content modal-md" style="max-width: 480px; width: 100%; padding: 24px;">
         <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
-          <h2>Edit Course Details</h2>
+          <h2 id="edit-course-modal-title">Edit Course Details</h2>
         </div>
         <div class="modal-body" style="padding: 16px 0 0 0;">
           <input type="hidden" id="edit-course-code">
-          <div class="form-group">
+          <input type="hidden" id="edit-course-dept">
+          
+          <div class="form-group mb-3">
             <label for="edit-course-name">Course Name</label>
             <input type="text" id="edit-course-name" class="form-control" placeholder="Enter course name" required>
           </div>
-          <div class="form-group mt-3">
+          <div class="form-group mb-3">
             <label for="edit-course-alias">Visual Alias</label>
             <input type="text" id="edit-course-alias" class="form-control" placeholder="Enter custom alias">
+          </div>
+          <div class="form-group mb-3">
+            <label for="edit-course-classes" style="font-weight: 700;">Number of Classes (Class Split)</label>
+            <select id="edit-course-classes" class="form-control">
+              <option value="1">1 Class (Single Class)</option>
+              <option value="2">2 Classes (C1, C2)</option>
+              <option value="3">3 Classes (C1, C2, C3)</option>
+              <option value="4">4 Classes (C1, C2, C3, C4)</option>
+              <option value="5">5 Classes (C1, C2, C3, C4, C5)</option>
+            </select>
+            <small class="text-muted" style="display: block; margin-top: 4px; font-size: 11px;">
+              Configures independent class sections for this course in the department.
+            </small>
           </div>
         </div>
         <div class="actions flex-row justify-end gap-2 mt-4">

@@ -167,8 +167,10 @@ function bindCustomModals() {
   // Course Edit Modal save
   document.getElementById('btn-save-course-details').addEventListener('click', async () => {
     const code = document.getElementById('edit-course-code').value;
+    const dept = document.getElementById('edit-course-dept').value;
     const name = document.getElementById('edit-course-name').value.trim();
     const alias = document.getElementById('edit-course-alias').value.trim();
+    const classes = parseInt(document.getElementById('edit-course-classes').value, 10) || 1;
 
     if (!name) {
       showModalAlert('Error', 'Course Name is required.', 'danger');
@@ -179,12 +181,12 @@ function bindCustomModals() {
       const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(code)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, alias })
+        body: JSON.stringify({ name, alias, classes, department: dept })
       });
       const result = await res.json();
       if (res.ok) {
         document.getElementById('modal-edit-course').classList.add('hidden');
-        showModalAlert('Success', 'Course details updated successfully.', 'success');
+        showModalAlert('Success', 'Course details and class split updated successfully.', 'success');
         await fetchGlobalData();
         renderInspectRecords();
       } else {
@@ -1305,14 +1307,123 @@ function renderImportReport(warnings) {
 }
 
 // -------------------------------------------------------------
-// Inspect Records (Read-Only Searchable Grid)
+// Inspect Records (Searchable Grid, Multi-Select & Class Split Management)
 // -------------------------------------------------------------
+let selectedCourseRecords = new Map(); // key: code:::class:::dept -> { code, class, department }
+
+function updateBulkCoursesUI() {
+  const checkboxes = document.querySelectorAll('.course-row-checkbox');
+  checkboxes.forEach(cb => {
+    const k = `${cb.getAttribute('data-code')}:::${cb.getAttribute('data-class')}:::${cb.getAttribute('data-dept')}`;
+    cb.checked = selectedCourseRecords.has(k);
+  });
+
+  const count = selectedCourseRecords.size;
+  const countLabel = document.getElementById('selected-courses-count');
+  const countBadge = document.getElementById('delete-count-badge');
+  const btnDelete = document.getElementById('btn-bulk-delete-courses');
+  const headerCheck = document.getElementById('select-all-courses-header');
+
+  if (countLabel) countLabel.textContent = `${count} selected`;
+  if (countBadge) countBadge.textContent = String(count);
+  if (btnDelete) btnDelete.disabled = (count === 0);
+
+  if (headerCheck && window._visibleFilteredCourses && window._visibleFilteredCourses.length > 0) {
+    const allVisSelected = window._visibleFilteredCourses.every(c => {
+      const clNum = (c.code.match(/(_G|_C)(\d+)/) || [])[2] || (c.class || c.group || 0);
+      const k = `${c.code}:::${clNum}:::${c.department}`;
+      return selectedCourseRecords.has(k);
+    });
+    headerCheck.checked = allVisSelected;
+  }
+}
+
 function bindSearchEvents() {
   const searchInput = document.getElementById('data-search-input');
   const deptFilter = document.getElementById('data-select-dept');
+  const semFilter = document.getElementById('data-select-semester');
+  const catFilter = document.getElementById('data-select-category');
   
-  searchInput.addEventListener('input', () => renderInspectRecords());
-  deptFilter.addEventListener('change', () => renderInspectRecords());
+  if (searchInput) searchInput.addEventListener('input', () => renderInspectRecords());
+  if (deptFilter) deptFilter.addEventListener('change', () => renderInspectRecords());
+  if (semFilter) semFilter.addEventListener('change', () => renderInspectRecords());
+  if (catFilter) catFilter.addEventListener('change', () => renderInspectRecords());
+
+  // Bulk actions buttons
+  const btnSelectAll = document.getElementById('btn-bulk-select-all');
+  const btnDeselectAll = document.getElementById('btn-bulk-deselect-all');
+  const headerCheck = document.getElementById('select-all-courses-header');
+  const btnBulkDelete = document.getElementById('btn-bulk-delete-courses');
+
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      (window._visibleFilteredCourses || []).forEach(c => {
+        const clNum = (c.code.match(/(_G|_C)(\d+)/) || [])[2] || (c.class || c.group || 0);
+        const k = `${c.code}:::${clNum}:::${c.department}`;
+        selectedCourseRecords.set(k, { code: c.code, class: parseInt(clNum, 10), department: c.department });
+      });
+      updateBulkCoursesUI();
+    });
+  }
+
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', () => {
+      selectedCourseRecords.clear();
+      updateBulkCoursesUI();
+    });
+  }
+
+  if (headerCheck) {
+    headerCheck.addEventListener('change', () => {
+      const isChecked = headerCheck.checked;
+      if (isChecked) {
+        (window._visibleFilteredCourses || []).forEach(c => {
+          const clNum = (c.code.match(/(_G|_C)(\d+)/) || [])[2] || (c.class || c.group || 0);
+          const k = `${c.code}:::${clNum}:::${c.department}`;
+          selectedCourseRecords.set(k, { code: c.code, class: parseInt(clNum, 10), department: c.department });
+        });
+      } else {
+        (window._visibleFilteredCourses || []).forEach(c => {
+          const clNum = (c.code.match(/(_G|_C)(\d+)/) || [])[2] || (c.class || c.group || 0);
+          const k = `${c.code}:::${clNum}:::${c.department}`;
+          selectedCourseRecords.delete(k);
+        });
+      }
+      updateBulkCoursesUI();
+    });
+  }
+
+  if (btnBulkDelete) {
+    btnBulkDelete.addEventListener('click', () => {
+      const records = Array.from(selectedCourseRecords.values());
+      if (records.length === 0) return;
+
+      showModalConfirm(
+        'Delete Selected Course Records?',
+        `Are you sure you want to permanently delete the ${records.length} selected course record(s)? This will also remove any allocations associated with them.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/courses/bulk-delete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ records })
+            });
+            const result = await res.json();
+            if (res.ok) {
+              selectedCourseRecords.clear();
+              showModalAlert('Success', result.message || 'Courses deleted successfully.', 'success');
+              await fetchGlobalData();
+              renderInspectRecords();
+            } else {
+              showModalAlert('Error', result.message || 'Failed to delete selected courses.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error.', 'danger');
+          }
+        }
+      );
+    });
+  }
 
   // Bind sub-tabs toggle
   document.querySelectorAll('.tab-sub-item').forEach(btn => {
@@ -1333,13 +1444,17 @@ function bindSearchEvents() {
 function renderInspectRecords() {
   const query = document.getElementById('data-search-input').value.toLowerCase().trim();
   const selectedDept = document.getElementById('data-select-dept').value;
+  const semFilter = document.getElementById('data-select-semester');
+  const catFilter = document.getElementById('data-select-category');
+  const selectedSemester = semFilter ? semFilter.value : '';
+  const selectedCategory = catFilter ? catFilter.value : '';
 
   // Initialize department filter dropdown options
   const deptFilter = document.getElementById('data-select-dept');
-  if (deptFilter.options.length <= 1) {
+  if (deptFilter && deptFilter.options.length <= 1) {
     const deptSet = new Set();
-    state.courses.forEach(c => deptSet.add(c.department));
-    state.faculty.forEach(f => deptSet.add(f.department));
+    state.courses.forEach(c => c.department && deptSet.add(c.department));
+    state.faculty.forEach(f => f.department && deptSet.add(f.department));
     Array.from(deptSet).sort().forEach(name => {
       const opt = document.createElement('option');
       opt.value = name;
@@ -1348,10 +1463,46 @@ function renderInspectRecords() {
     });
   }
 
+  // Initialize semester filter dropdown options
+  if (semFilter && semFilter.options.length <= 1) {
+    const semSet = new Set();
+    state.courses.forEach(c => {
+      if (c.semester !== undefined && c.semester !== null && c.semester !== '') {
+        semSet.add(String(c.semester));
+      }
+    });
+    Array.from(semSet).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0)).forEach(sem => {
+      const opt = document.createElement('option');
+      opt.value = sem;
+      opt.textContent = `Semester ${sem}`;
+      semFilter.appendChild(opt);
+    });
+  }
+
+  // Initialize category filter dropdown options
+  if (catFilter && catFilter.options.length <= 1) {
+    const catSet = new Set();
+    state.courses.forEach(c => {
+      if (c.category) catSet.add(String(c.category).trim());
+    });
+    Array.from(catSet).sort().forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      catFilter.appendChild(opt);
+    });
+  }
+
   // Filter Courses
   let filteredCourses = state.courses;
   if (selectedDept) {
     filteredCourses = filteredCourses.filter(c => c.department === selectedDept);
+  }
+  if (selectedSemester) {
+    filteredCourses = filteredCourses.filter(c => String(c.semester) === String(selectedSemester));
+  }
+  if (selectedCategory) {
+    filteredCourses = filteredCourses.filter(c => String(c.category || '').trim().toUpperCase() === String(selectedCategory).trim().toUpperCase());
   }
   if (query) {
     filteredCourses = filteredCourses.filter(c => 
@@ -1361,61 +1512,155 @@ function renderInspectRecords() {
     );
   }
 
+  // Sort courses so that class variants of the same course and department are contiguous for table grouping
+  filteredCourses = [...filteredCourses].sort((a, b) => {
+    const cleanA = a.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const cleanB = b.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    if (cleanA !== cleanB) return cleanA.localeCompare(cleanB);
+    const deptA = (a.department || '').toUpperCase();
+    const deptB = (b.department || '').toUpperCase();
+    if (deptA !== deptB) return deptA.localeCompare(deptB);
+    const classA = a.class || (a.code.match(/(_G|_C)(\d+)/) ? parseInt(a.code.match(/(_G|_C)(\d+)/)[2], 10) : 0);
+    const classB = b.class || (b.code.match(/(_G|_C)(\d+)/) ? parseInt(b.code.match(/(_G|_C)(\d+)/)[2], 10) : 0);
+    return classA - classB;
+  });
+
+  window._visibleFilteredCourses = filteredCourses;
   document.getElementById('count-courses').textContent = filteredCourses.length;
 
+  // Group counts for action buttons per (cleanBaseCode + department)
+  const groupCounts = {};
+  filteredCourses.forEach(c => {
+    const clean = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const gk = `${clean}:::${(c.department || '').toUpperCase()}`;
+    groupCounts[gk] = (groupCounts[gk] || 0) + 1;
+  });
+
+  const seenGroups = new Set();
   const coursesTbody = document.querySelector('#table-manage-courses tbody');
   coursesTbody.innerHTML = '';
+
   filteredCourses.forEach(c => {
     const tr = document.createElement('tr');
     const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
-    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+    const classNum = classNumMatch ? parseInt(classNumMatch[2], 10) : (c.class || c.group || 0);
     const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
     const codeDisplay = classNum
       ? `${cleanCode} <span class="badge" style="background-color: hsl(256, 75%, 52%); color: white; padding: 2px 6px; font-size: 11px; margin-left: 4px; border-radius: 4px;">C${classNum}</span>`
       : cleanCode;
+    
+    const rowKey = `${c.code}:::${classNum}:::${c.department}`;
+    const isChecked = selectedCourseRecords.has(rowKey);
+
+    const gk = `${cleanCode}:::${(c.department || '').toUpperCase()}`;
+    const isFirstInGroup = !seenGroups.has(gk);
+    if (isFirstInGroup) seenGroups.add(gk);
+
+    let actionsTdHtml = '';
+    if (isFirstInGroup) {
+      const spanCount = groupCounts[gk] || 1;
+      actionsTdHtml = `
+        <td rowspan="${spanCount}" class="actions-cell" style="vertical-align: middle; text-align: center; border-left: 1px solid var(--border); background: var(--surface);">
+          <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: center;">
+            <button type="button" class="btn btn-outline btn-sm btn-edit-course" style="padding: 3px 8px; font-weight: 600;" title="Edit Course details & class split for ${c.department}">
+              <i class="fa-solid fa-edit text-primary"></i> Edit
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-danger btn-delete-course" style="padding: 3px 8px; font-weight: 600;" title="Delete all classes of this course in ${c.department}">
+              <i class="fa-solid fa-trash"></i> Delete
+            </button>
+          </div>
+        </td>
+      `;
+    }
+
     tr.innerHTML = `
+      <td style="text-align: center; width: 44px;">
+        <input type="checkbox" class="course-row-checkbox" data-code="${c.code}" data-class="${classNum}" data-dept="${c.department}" ${isChecked ? 'checked' : ''}>
+      </td>
       <td><strong>${codeDisplay}</strong></td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>${c.name}</td>
       <td><span class="badge badge-info">${c.alias || '-'}</span></td>
-      <td><span class="text-sm text-muted">${c.department}</span></td>
-      <td>
-        <button class="btn btn-outline btn-sm btn-edit-course" style="padding: 2px 8px;"><i class="fa-solid fa-edit"></i> Edit</button>
-        <button class="btn btn-outline btn-sm btn-danger btn-delete-course" style="padding: 2px 8px; margin-left: 4px;"><i class="fa-solid fa-trash"></i> Delete</button>
-      </td>
+      <td><span class="text-sm text-muted font-semibold">${c.department}</span></td>
+      ${actionsTdHtml}
     `;
-    tr.querySelector('.btn-edit-course').addEventListener('click', () => {
-      document.getElementById('edit-course-code').value = c.code;
-      document.getElementById('edit-course-name').value = c.name;
-      document.getElementById('edit-course-alias').value = c.alias || '';
-      document.getElementById('modal-edit-course').classList.remove('hidden');
+
+    // Row checkbox listener
+    const rowCb = tr.querySelector('.course-row-checkbox');
+    rowCb.addEventListener('change', () => {
+      if (rowCb.checked) {
+        selectedCourseRecords.set(rowKey, { code: c.code, class: classNum, department: c.department });
+      } else {
+        selectedCourseRecords.delete(rowKey);
+      }
+      updateBulkCoursesUI();
     });
-    tr.querySelector('.btn-delete-course').addEventListener('click', () => {
-      showModalConfirm(
-        'Delete Course?',
-        `Are you sure you want to delete course '${c.name}' (${c.code.replace(/_G\d+$/, '')})? This will also remove all its allocations and group mappings.`,
-        async () => {
-          try {
-            const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(c.code)}`, {
-              method: 'DELETE'
-            });
-            const result = await res.json();
-            if (res.ok) {
-              showModalAlert('Success', 'Course deleted successfully.', 'success');
-              await fetchGlobalData();
-              renderInspectRecords();
-            } else {
-              showModalAlert('Error', result.message || 'Failed to delete course.', 'danger');
-            }
-          } catch (e) {
-            showModalAlert('Error', 'Connection error.', 'danger');
-          }
+
+    if (isFirstInGroup) {
+      const btnEdit = tr.querySelector('.btn-edit-course');
+      const btnDelete = tr.querySelector('.btn-delete-course');
+
+      btnEdit.addEventListener('click', () => {
+        document.getElementById('edit-course-code').value = cleanCode;
+        document.getElementById('edit-course-dept').value = c.department;
+        document.getElementById('edit-course-name').value = c.name;
+        document.getElementById('edit-course-alias').value = c.alias || '';
+        
+        // Count how many class variants exist for this cleanCode and department
+        const deptVariants = state.courses.filter(x => 
+          x.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cleanCode && 
+          (x.department || '').toUpperCase() === (c.department || '').toUpperCase()
+        );
+        const currentCount = deptVariants.length > 0 ? deptVariants.length : (c.classes || 1);
+        const classSelect = document.getElementById('edit-course-classes');
+        if (classSelect) {
+          classSelect.value = String(Math.max(1, Math.min(5, currentCount)));
         }
-      );
-    });
+
+        const titleEl = document.getElementById('edit-course-modal-title');
+        if (titleEl) {
+          titleEl.textContent = `Edit Course: ${cleanCode} (${c.department})`;
+        }
+
+        document.getElementById('modal-edit-course').classList.remove('hidden');
+      });
+
+      btnDelete.addEventListener('click', () => {
+        showModalConfirm(
+          'Delete Course?',
+          `Are you sure you want to delete course '${c.name}' (${cleanCode}) in department '${c.department}'? This will remove all ${groupCounts[gk]} class record(s) and their allocations.`,
+          async () => {
+            try {
+              const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(cleanCode)}?department=${encodeURIComponent(c.department)}`, {
+                method: 'DELETE'
+              });
+              const result = await res.json();
+              if (res.ok) {
+                // Clear any selected records for this course & dept
+                Array.from(selectedCourseRecords.keys()).forEach(k => {
+                  if (k.startsWith(`${cleanCode}`) && k.endsWith(`:::${c.department}`)) {
+                    selectedCourseRecords.delete(k);
+                  }
+                });
+                showModalAlert('Success', 'Course deleted successfully.', 'success');
+                await fetchGlobalData();
+                renderInspectRecords();
+              } else {
+                showModalAlert('Error', result.message || 'Failed to delete course.', 'danger');
+              }
+            } catch (e) {
+              showModalAlert('Error', 'Connection error.', 'danger');
+            }
+          }
+        );
+      });
+    }
+
     coursesTbody.appendChild(tr);
   });
+
+  updateBulkCoursesUI();
 
   // Filter Faculty
   let filteredFaculty = state.faculty;

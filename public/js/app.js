@@ -1335,9 +1335,6 @@ function renderAllocationMatrix() {
         tr.innerHTML = `
           <td style="text-align:left;">
             ${formattedCode}
-            <button class="btn btn-outline btn-xs btn-matrix-class-cfg" title="Configure Classes & Batches" style="padding: 1px 5px; font-size: 10px; margin-left: 6px; line-height: 1.2; border-radius: 3px; vertical-align: middle;" onclick="event.stopPropagation(); openDeptBatchMappingModal('${cleanBaseCode}')" ${locked ? 'disabled' : ''}>
-              <i class="fa-solid fa-layer-group"></i>
-            </button>
           </td>
           <td style="text-align:left;" title="${dispName}">
             <span class="badge badge-info">${rowAlias}</span>
@@ -1418,9 +1415,6 @@ function renderAllocationMatrix() {
         tr.innerHTML = `
           <td style="text-align:left;">
             ${formattedCode}
-            <button class="btn btn-outline btn-xs btn-matrix-class-cfg" title="Configure Classes & Batches" style="padding: 1px 5px; font-size: 10px; margin-left: 6px; line-height: 1.2; border-radius: 3px; vertical-align: middle;" onclick="event.stopPropagation(); openDeptBatchMappingModal('${cleanBaseCode}')" ${locked ? 'disabled' : ''}>
-              <i class="fa-solid fa-layer-group"></i>
-            </button>
           </td>
           <td style="text-align:left;">
             <span class="badge badge-info">${rowAlias}</span>
@@ -2843,9 +2837,6 @@ function renderDeptDataEditors() {
       <td>
         <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; max-width: 250px;">
           <div style="display:flex; flex-wrap:wrap; gap:4px; flex:1;">${batchListHtml}</div>
-          <button class="btn btn-outline btn-xs" style="padding: 2px 6px; font-size:10px; margin-left: auto;" onclick="openDeptBatchMappingModal('${c.code}')" ${locked ? 'disabled' : ''} title="Configure Classes & Batches">
-            <i class="fa-solid fa-layer-group"></i> Classes
-          </button>
         </div>
       </td>
       <td>

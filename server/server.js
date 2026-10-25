@@ -678,66 +678,11 @@ app.post('/api/courses/alias/batch', requireDepartment, (req, res) => {
   res.json({ success: true, message: 'All course details updated successfully.' });
 });
 
-// Class Configuration Endpoint
-app.post('/api/courses/class-config', requireDepartment, (req, res) => {
-  const { courseCode, classes, batches, departmentName } = req.body;
-  if (!courseCode || classes === undefined || !Array.isArray(batches) || !departmentName) {
-    return res.status(400).json({ success: false, message: 'Missing parameters.' });
-  }
-
-  const db = readDb();
-  const deptUpper = departmentName.toUpperCase();
-
-  // Verify Edit Lock Status
-  if (isDepartmentLocked(db, deptUpper)) {
-    return res.status(403).json({
-      success: false,
-      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
-    });
-  }
-
-  // Find course and verify ownership
-  const targetBaseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
-  const course = db.courses.find(c => 
-    c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode &&
-    c.department.toUpperCase() === deptUpper
-  );
-  if (!course) return res.status(404).json({ success: false, message: 'Course not found in this department.' });
-
-  const targetClassesCount = parseInt(classes) || 1;
-
-  // Set the classes count property directly on base course variations for THIS department
-  const matchingCourses = db.courses.filter(c => 
-    c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode &&
-    c.department.toUpperCase() === deptUpper
-  );
-  matchingCourses.forEach(c => {
-    // Explicit class variants (e.g. _C1, _C2) remain single-class rows
-    if (!/(_G|_C)\d+$/.test(c.code)) {
-      c.classes = targetClassesCount;
-    }
-  });
-
-  // Clear old mapped batches for this base code and C1..C5 classes
-  delete db.groupMappings[targetBaseCode];
-  for (let i = 1; i <= 5; i++) {
-    delete db.groupMappings[`${targetBaseCode}_C${i}`];
-  }
-
-  if (targetClassesCount > 1) {
-    for (let i = 1; i <= targetClassesCount; i++) {
-      const mapped = batches[i - 1] ? [batches[i - 1].trim().toUpperCase()] : [];
-      db.groupMappings[`${targetBaseCode}_C${i}`] = mapped;
-    }
-  } else {
-    db.groupMappings[targetBaseCode] = batches.map(b => b.trim().toUpperCase());
-  }
-
-  writeDb(db);
-
-  res.json({
-    success: true,
-    message: `Successfully updated class configuration to ${targetClassesCount} classes.`
+// Class Configuration Endpoint - Moved exclusively to Admin Portal
+app.post('/api/courses/class-config', (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: 'Class configuration functionality is managed exclusively by administrators in the Admin Portal.'
   });
 });
 
@@ -1849,18 +1794,141 @@ app.post('/api/admin/group-mappings', requireAdmin, (req, res) => {
 
 app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim();
-  const { name, alias, programType } = req.body;
+  const { name, alias, programType, classes, department } = req.body;
 
   const db = readDb();
-  const course = db.courses.find(c => c.code === code);
-  if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+  const cleanBaseCode = code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const deptUpper = (department || '').trim().toUpperCase();
 
-  if (name        !== undefined) course.name        = name.trim();
-  if (alias       !== undefined) course.alias       = alias.trim();
-  if (programType !== undefined) {
-    const valid = ['UG', 'PG', 'INT'];
-    const pt = programType.trim().toUpperCase();
-    course.programType = valid.includes(pt) ? pt : 'UG';
+  // Find matching courses for this code/baseCode and department
+  let matchingCourses = db.courses.filter(c => {
+    const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const deptMatch = !deptUpper || (c.department || '').trim().toUpperCase() === deptUpper;
+    return (cBase === cleanBaseCode || c.code === code) && deptMatch;
+  });
+
+  if (matchingCourses.length === 0) {
+    return res.status(404).json({ success: false, message: 'Course not found' });
+  }
+
+  // Update name, alias, programType across matching courses
+  matchingCourses.forEach(course => {
+    if (name !== undefined) course.name = name.trim();
+    if (alias !== undefined) course.alias = alias.trim();
+    if (programType !== undefined) {
+      const valid = ['UG', 'PG', 'INT'];
+      const pt = programType.trim().toUpperCase();
+      course.programType = valid.includes(pt) ? pt : 'UG';
+    }
+  });
+
+  // Handle number of classes (Class Split) update
+  if (classes !== undefined) {
+    const targetClassesCount = Math.max(1, Math.min(5, parseInt(classes, 10) || 1));
+    const targetDept = deptUpper || matchingCourses[0].department;
+    
+    // Archetype course to clone attributes from
+    const archetype = matchingCourses[0];
+
+    // Current class variants for this baseCode and department
+    const currentClassVariants = db.courses.filter(c => {
+      const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === targetDept.toUpperCase();
+    });
+
+    if (targetClassesCount === 1) {
+      // Revert to a single class (cleanBaseCode)
+      const keep = currentClassVariants[0];
+      keep.code = cleanBaseCode;
+      keep.class = 0;
+      keep.group = 0;
+      keep.classes = 1;
+
+      // Remove the other variants
+      const toRemoveCodes = currentClassVariants.slice(1).map(c => c.code);
+      if (toRemoveCodes.length > 0) {
+        db.courses = db.courses.filter(c => !toRemoveCodes.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
+        
+        // Clean up allocations for removed codes
+        if (db.allocations && db.allocations[targetDept]) {
+          toRemoveCodes.forEach(remCode => {
+            delete db.allocations[targetDept][remCode];
+            delete db.allocations[targetDept][`${remCode}-T`];
+            delete db.allocations[targetDept][`${remCode}-P`];
+          });
+        }
+        for (let i = 2; i <= 5; i++) {
+          delete db.groupMappings[`${cleanBaseCode}_C${i}`];
+        }
+      }
+    } else {
+      // Split into targetClassesCount classes: _C1, _C2, ... _C{targetClassesCount}
+      const existingByNum = {};
+      const unsuffixed = [];
+      currentClassVariants.forEach(c => {
+        const m = c.code.match(/(_G|_C)(\d+)$/);
+        if (m) {
+          existingByNum[parseInt(m[2], 10)] = c;
+        } else {
+          unsuffixed.push(c);
+        }
+      });
+
+      // If we had unsuffixed record and need _C1, convert it or create _C1
+      if (unsuffixed.length > 0 && !existingByNum[1]) {
+        unsuffixed[0].code = `${cleanBaseCode}_C1`;
+        unsuffixed[0].class = 1;
+        unsuffixed[0].group = 1;
+        unsuffixed[0].classes = 1;
+        existingByNum[1] = unsuffixed[0];
+      }
+
+      // Ensure classes 1..targetClassesCount exist
+      for (let cl = 1; cl <= targetClassesCount; cl++) {
+        if (!existingByNum[cl]) {
+          const newCourse = {
+            ...archetype,
+            code: `${cleanBaseCode}_C${cl}`,
+            class: cl,
+            group: cl,
+            classes: 1,
+            department: targetDept
+          };
+          db.courses.push(newCourse);
+          existingByNum[cl] = newCourse;
+        } else {
+          existingByNum[cl].class = cl;
+          existingByNum[cl].group = cl;
+          existingByNum[cl].classes = 1;
+        }
+      }
+
+      // If previous count was higher than targetClassesCount, remove excess
+      const toRemove = [];
+      Object.keys(existingByNum).forEach(clStr => {
+        const cl = parseInt(clStr, 10);
+        if (cl > targetClassesCount) {
+          toRemove.push(existingByNum[cl].code);
+        }
+      });
+
+      // Remove any leftover unsuffixed duplicates
+      unsuffixed.slice(1).forEach(u => toRemove.push(u.code));
+
+      if (toRemove.length > 0) {
+        db.courses = db.courses.filter(c => !toRemove.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
+        if (db.allocations && db.allocations[targetDept]) {
+          toRemove.forEach(remCode => {
+            delete db.allocations[targetDept][remCode];
+            delete db.allocations[targetDept][`${remCode}-T`];
+            delete db.allocations[targetDept][`${remCode}-P`];
+          });
+        }
+        toRemove.forEach(remCode => {
+          delete db.groupMappings[remCode];
+        });
+      }
+    }
   }
 
   writeDb(db);
@@ -1870,24 +1938,95 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
 // Delete Course
 app.delete('/api/admin/courses/:code', requireAdmin, (req, res) => {
   const code = req.params.code.trim();
+  const dept = (req.query.department || (req.body && req.body.department) || '').trim().toUpperCase();
   const db = readDb();
+  
+  const cleanBaseCode = code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const initialLength = db.courses.length;
-  db.courses = db.courses.filter(c => c.code !== code);
+
+  if (dept) {
+    // Delete all class variants of this course in this department
+    db.courses = db.courses.filter(c => {
+      const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const cDept = (c.department || '').trim().toUpperCase();
+      return !((cBase === cleanBaseCode || c.code === code) && cDept === dept);
+    });
+
+    if (db.allocations && db.allocations[dept]) {
+      Object.keys(db.allocations[dept]).forEach(cKey => {
+        const kBase = cKey.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        if (kBase === cleanBaseCode || cKey === code) {
+          delete db.allocations[dept][cKey];
+        }
+      });
+    }
+
+    if (db.groupMappings) {
+      delete db.groupMappings[cleanBaseCode];
+      for (let i = 1; i <= 5; i++) delete db.groupMappings[`${cleanBaseCode}_C${i}`];
+    }
+  } else {
+    db.courses = db.courses.filter(c => c.code !== code);
+    Object.keys(db.allocations).forEach(d => {
+      if (db.allocations[d] && db.allocations[d][code]) {
+        delete db.allocations[d][code];
+      }
+    });
+    if (db.groupMappings && db.groupMappings[code]) {
+      delete db.groupMappings[code];
+    }
+  }
+
   if (db.courses.length === initialLength) {
     return res.status(404).json({ success: false, message: 'Course not found' });
   }
-  // Also clean up any allocations
-  Object.keys(db.allocations).forEach(dept => {
-    if (db.allocations[dept] && db.allocations[dept][code]) {
-      delete db.allocations[dept][code];
-    }
-  });
-  // Also clean up groupMappings
-  if (db.groupMappings && db.groupMappings[code]) {
-    delete db.groupMappings[code];
-  }
+
   writeDb(db);
   res.json({ success: true, message: 'Course deleted successfully.' });
+});
+
+// Bulk Delete Courses
+app.post('/api/admin/courses/bulk-delete', requireAdmin, (req, res) => {
+  const { records } = req.body;
+  if (!Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ success: false, message: 'No records provided for deletion.' });
+  }
+
+  const db = readDb();
+  let deletedCount = 0;
+
+  records.forEach(rec => {
+    const targetCode = (rec.code || '').trim();
+    const targetDept = (rec.department || '').trim().toUpperCase();
+    const targetClass = parseInt(rec.class || 0, 10);
+
+    const initialLen = db.courses.length;
+    db.courses = db.courses.filter(c => {
+      const codeMatch = c.code === targetCode;
+      const deptMatch = !targetDept || (c.department || '').trim().toUpperCase() === targetDept;
+      const classMatch = (c.class || 0) === targetClass || targetClass === 0;
+      return !(codeMatch && deptMatch && classMatch);
+    });
+
+    if (db.courses.length < initialLen) {
+      deletedCount += (initialLen - db.courses.length);
+      if (targetDept && db.allocations && db.allocations[targetDept]) {
+        delete db.allocations[targetDept][targetCode];
+        delete db.allocations[targetDept][`${targetCode}-T`];
+        delete db.allocations[targetDept][`${targetCode}-P`];
+      }
+      if (db.groupMappings) {
+        delete db.groupMappings[targetCode];
+      }
+    }
+  });
+
+  writeDb(db);
+  res.json({
+    success: true,
+    deletedCount,
+    message: `Successfully deleted ${deletedCount} course record(s).`
+  });
 });
 
 // Delete Faculty member
