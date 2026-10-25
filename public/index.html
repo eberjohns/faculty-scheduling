@@ -704,6 +704,10 @@
               <i class="fa-solid fa-chalkboard-user text-primary"></i>
               <span>Teacher Timetable</span>
             </button>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-cross-dept">
+              <i class="fa-solid fa-people-arrows text-primary"></i>
+              <span>Cross-Dept Teaching</span>
+            </button>
             <button type="button" class="adv-tab-btn" data-pane="adv-pane-change-password">
               <i class="fa-solid fa-key text-primary"></i>
               <span>Change Password</span>
@@ -1190,14 +1194,26 @@
                 style="padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
                 <!-- Row 1: Selectors -->
                 <div
-                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                  <div>
+                    <label for="curriculum-program-select" class="text-xs bold text-muted"
+                      style="display: block; margin-bottom: 4px;">
+                      <i class="fa-solid fa-layer-group text-primary"></i> Filter Program:
+                    </label>
+                    <select id="curriculum-program-select" class="form-control" style="font-size: 13px; height: 36px;">
+                      <option value="">All Programs (UG & PG)</option>
+                      <option value="UG">UG (Under Graduate / BSc)</option>
+                      <option value="PG">PG (Post Graduate / MSc)</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label for="curriculum-sem-select" class="text-xs bold text-muted"
                       style="display: block; margin-bottom: 4px;">
                       <i class="fa-solid fa-graduation-cap text-primary"></i> Select Semester:
                     </label>
                     <select id="curriculum-sem-select" class="form-control" style="font-size: 13px; height: 36px;">
-                      <!-- Populated dynamically with semesters -->
+                      <!-- Populated dynamically with all loaded semesters -->
                     </select>
                   </div>
 
@@ -1399,6 +1415,52 @@
                 </form>
               </div>
             </div>
+
+            <!-- TAB: CROSS-DEPARTMENT TEACHING REQUESTS & APPROVALS -->
+            <div id="adv-pane-cross-dept" class="adv-pane hidden">
+              <div class="flex-row justify-between items-center mb-3 flex-wrap gap-2">
+                <div>
+                  <h3 style="margin-bottom: 2px; font-size: 15px;">
+                    <i class="fa-solid fa-people-arrows text-primary"></i> Cross-Department Teaching Requests
+                  </h3>
+                  <p class="text-muted text-sm mb-0">
+                    Request expert faculty from other departments or review incoming teaching requests for your faculty.
+                  </p>
+                </div>
+                <div class="actions flex-row gap-2">
+                  <button type="button" id="btn-refresh-cross-dept" class="btn btn-outline btn-sm">
+                    <i class="fa-solid fa-rotate"></i> Refresh
+                  </button>
+                  <button type="button" id="btn-open-new-cross-dept-request" class="btn btn-primary btn-sm">
+                    <i class="fa-solid fa-paper-plane"></i> Request Faculty from Other Dept
+                  </button>
+                </div>
+              </div>
+
+              <!-- Sub-tabs: Incoming vs Outgoing -->
+              <div class="flex-row gap-2 mb-3" style="border-bottom: 2px solid var(--border); padding-bottom: 8px;">
+                <button type="button" class="btn btn-sm btn-primary cross-dept-subtab" data-subtab="incoming" id="subtab-btn-incoming">
+                  <i class="fa-solid fa-inbox"></i> Incoming Requests (<span id="cross-dept-incoming-count">0</span>)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline cross-dept-subtab" data-subtab="outgoing" id="subtab-btn-outgoing">
+                  <i class="fa-solid fa-paper-plane"></i> Outgoing Requests (<span id="cross-dept-outgoing-count">0</span>)
+                </button>
+              </div>
+
+              <!-- Incoming Requests Container -->
+              <div id="cross-dept-incoming-section">
+                <div id="cross-dept-incoming-list" class="flex-col gap-3">
+                  <!-- Populated dynamically -->
+                </div>
+              </div>
+
+              <!-- Outgoing Requests Container -->
+              <div id="cross-dept-outgoing-section" class="hidden">
+                <div id="cross-dept-outgoing-list" class="flex-col gap-3">
+                  <!-- Populated dynamically -->
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1565,6 +1627,133 @@
             <i class="fa-solid fa-rotate"></i> Continue & Regenerate
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL: CREATE CROSS-DEPARTMENT REQUEST -->
+    <div id="modal-new-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020;">
+      <div class="modal-content modal-md" style="max-width: 620px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border);">
+          <h3 style="margin: 0; font-size: 16px;"><i class="fa-solid fa-paper-plane text-primary"></i> Request Faculty from Other Department</h3>
+          <button type="button" id="btn-close-new-cross-dept-modal" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <form id="form-new-cross-dept-request">
+          <div class="form-group mb-2">
+            <label for="cross-req-offering-dept" class="text-xs bold text-muted">Select Target Offering Department *</label>
+            <select id="cross-req-offering-dept" class="form-control" required>
+              <option value="" disabled selected>Select Department (e.g. STATISTICS)</option>
+            </select>
+          </div>
+
+          <div class="form-group mb-2">
+            <label for="cross-req-course" class="text-xs bold text-muted">Select Your Course to be Taught *</label>
+            <input type="text" id="cross-req-course-search" class="form-control mb-1" placeholder="Search course by code or name..." style="font-size: 12px; padding: 5px 8px;">
+            <select id="cross-req-course" class="form-control" required>
+              <option value="" disabled selected>Select Course from your Department</option>
+            </select>
+          </div>
+
+          <div class="form-group mb-2">
+            <label for="cross-req-type" class="text-xs bold text-muted">Teaching Category *</label>
+            <select id="cross-req-type" class="form-control" required>
+              <option value="T">Theory (TH)</option>
+              <option value="P">Practical (PR)</option>
+              <option value="BOTH">Theory + Practical (Combined)</option>
+            </select>
+          </div>
+
+          <div id="cross-req-hours-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" class="mb-2">
+            <div class="form-group" id="cross-req-th-box">
+              <label for="cross-req-th-hours" class="text-xs bold text-muted">Theory Hours</label>
+              <input type="number" id="cross-req-th-hours" class="form-control text-center" min="0" max="10" value="2" style="font-weight: 700;">
+            </div>
+            <div class="form-group" id="cross-req-pr-box">
+              <label for="cross-req-pr-hours" class="text-xs bold text-muted">Practical Hours</label>
+              <input type="number" id="cross-req-pr-hours" class="form-control text-center" min="0" max="10" step="2" value="0" style="font-weight: 700;">
+            </div>
+            <div class="form-group">
+              <label class="text-xs bold text-muted">Total Hours</label>
+              <div id="cross-req-total-hours-display" class="form-control text-center" style="font-weight: 700; background: #f1f5f9; display: flex; align-items: center; justify-content: center; height: calc(1.5em + .75rem + 2px);">2 hrs</div>
+              <input type="hidden" id="cross-req-hours" value="2">
+            </div>
+          </div>
+
+          <!-- Mandatory Recommended Slot Pinning Picker -->
+          <div class="form-group mb-3">
+            <div class="flex-row justify-between items-center mb-1">
+              <span class="text-xs bold text-muted"><i class="fa-solid fa-calendar-check text-warning"></i> Pin Compulsory Period Slots *</span>
+              <span id="cross-req-pinned-count" class="badge badge-warning" style="font-size: 11px;">Selected: 0 / 2 hrs</span>
+            </div>
+            
+            <!-- Dual Color-Coded Theory vs Practical Mode Selector -->
+            <div class="flex-row items-center justify-between mb-2 p-1" style="background: #f1f5f9; border-radius: 6px; border: 1px solid var(--border);">
+              <span class="text-xs text-muted" style="margin-left: 6px; font-weight: 600;">Slot Type to Mark:</span>
+              <div class="flex-row gap-1" id="cross-req-slot-mode-group">
+                <button type="button" class="btn btn-xs cross-slot-mode-btn" data-mode="T" id="btn-cross-slot-mode-t" style="background: #fef3c7; color: #b45309; border: 1.5px solid #d97706; font-weight: 700; padding: 3px 8px;">
+                  <span class="legend-box recommend-t" style="margin-right: 4px; display: inline-block;">T</span> Mark Theory Slot
+                </button>
+                <button type="button" class="btn btn-xs cross-slot-mode-btn" data-mode="P" id="btn-cross-slot-mode-p" style="background: #ffffff; color: #475569; border: 1.5px solid var(--border); font-weight: 600; padding: 3px 8px;">
+                  <span class="legend-box recommend-p" style="margin-right: 4px; display: inline-block;">P</span> Mark Practical Slot
+                </button>
+              </div>
+            </div>
+
+            <p class="text-muted text-xs mb-1">
+              Select the exact periods when the faculty will teach. Colors match standard Theory (Amber) and Practical (Green).
+            </p>
+            <div id="cross-req-slot-picker-grid" style="border: 1.5px solid var(--border); border-radius: 6px; padding: 6px; background: #ffffff; max-height: 200px; overflow-y: auto;">
+              <!-- Slot table rendered dynamically -->
+            </div>
+          </div>
+
+          <div id="cross-req-feedback" class="mb-2 hidden" style="font-size: 12px; padding: 8px 12px; border-radius: 4px;"></div>
+
+          <div class="actions flex-row justify-end gap-2 pt-2" style="border-top: 1px solid var(--border);">
+            <button type="button" id="btn-cancel-cross-req" class="btn btn-outline btn-sm">Cancel</button>
+            <button type="submit" id="btn-submit-cross-req" class="btn btn-primary btn-sm">
+              <i class="fa-solid fa-paper-plane"></i> Send Teaching Request
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: APPROVE INCOMING CROSS-DEPARTMENT REQUEST -->
+    <div id="modal-approve-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020;">
+      <div class="modal-content modal-md" style="max-width: 540px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border);">
+          <h3 style="margin: 0; font-size: 16px;"><i class="fa-solid fa-user-check text-success"></i> Assign Teacher & Approve Request</h3>
+          <button type="button" id="btn-close-approve-cross-dept-modal" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div id="approve-cross-dept-details" class="mb-3" style="background: #f8fafc; border: 1.5px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: 12.5px;">
+          <!-- Request summary rendered here -->
+        </div>
+
+        <form id="form-approve-cross-dept">
+          <input type="hidden" id="approve-cross-req-id">
+          <div class="form-group mb-3">
+            <label for="approve-cross-faculty-select" class="text-xs bold text-muted">Select Teacher from Your Department to Assign *</label>
+            <select id="approve-cross-faculty-select" class="form-control" required>
+              <option value="" disabled selected>Select Teacher</option>
+            </select>
+          </div>
+
+          <div id="approve-cross-feedback" class="mb-2 hidden" style="font-size: 12px; padding: 8px 12px; border-radius: 4px;"></div>
+
+          <div class="actions flex-row justify-between gap-2 pt-2" style="border-top: 1px solid var(--border);">
+            <button type="button" id="btn-reject-cross-dept" class="btn btn-outline-danger btn-sm">
+              <i class="fa-solid fa-ban"></i> Reject Request
+            </button>
+            <div class="flex-row gap-2">
+              <button type="button" id="btn-cancel-approve-cross" class="btn btn-outline btn-sm">Cancel</button>
+              <button type="submit" id="btn-confirm-approve-cross" class="btn btn-primary btn-sm">
+                <i class="fa-solid fa-check"></i> Assign Teacher & Approve
+              </button>
+            </div>
+          </div>
+        </form>
       </div>
     </div>
 

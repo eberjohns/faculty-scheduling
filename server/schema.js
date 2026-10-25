@@ -122,5 +122,24 @@ export function createNormalizedTables(db) {
       config_value TEXT NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- 11. CROSS DEPARTMENT REQUESTS
+    CREATE TABLE IF NOT EXISTS cross_department_requests (
+      id TEXT PRIMARY KEY,
+      requesting_dept TEXT NOT NULL,
+      offering_dept TEXT NOT NULL,
+      course_code TEXT NOT NULL,
+      course_name TEXT,
+      semester TEXT,
+      course_type TEXT NOT NULL,
+      hours INTEGER NOT NULL,
+      pinned_slots TEXT NOT NULL,
+      status TEXT DEFAULT 'PENDING',
+      assigned_faculty_code TEXT,
+      assigned_faculty_name TEXT,
+      rejection_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }

@@ -33,6 +33,7 @@ let state = {
   teacherUnavailability: {},
   subjectTeacherMapping: {},
   commonBatches: [],
+  crossDepartmentRequests: [],
   allocatedCourseParamSnapshots: (function() {
     try {
       return JSON.parse(sessionStorage.getItem('allocatedCourseParamSnapshots') || '{}');
@@ -445,7 +446,7 @@ async function loadLoginDepartments() {
 
 async function fetchGlobalData() {
   try {
-    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes, mappingRes, commonBatchesRes] = await Promise.all([
+    const [configRes, deptsRes, coursesRes, facultyRes, batchesRes, groupRes, unavailRes, mappingRes, commonBatchesRes, crossDeptRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/departments`),
       authFetch(`${API_BASE}/courses`),
@@ -454,7 +455,8 @@ async function fetchGlobalData() {
       authFetch(`${API_BASE}/admin/group-mappings`),
       authFetch(`${API_BASE}/department/teacher-unavailability`),
       authFetch(`${API_BASE}/department/subject-mapping`),
-      authFetch(`${API_BASE}/common-batches`)
+      authFetch(`${API_BASE}/common-batches`),
+      authFetch(`${API_BASE}/cross-dept-requests`)
     ]);
     
     state.config = await configRes.json();
@@ -473,6 +475,12 @@ async function fetchGlobalData() {
       state.commonBatches = await commonBatchesRes.json();
     } else {
       state.commonBatches = (state.config && state.config.commonBatches) || [];
+    }
+    if (crossDeptRes && crossDeptRes.ok) {
+      const cdrData = await crossDeptRes.json();
+      state.crossDepartmentRequests = cdrData.requests || [];
+    } else {
+      state.crossDepartmentRequests = [];
     }
     // Initialize local subject mappings immediately on startup
     initLocalSubjectMappings();
@@ -892,10 +900,35 @@ function bindDeptEvents() {
                 deptCourses = deptCourses.filter(c => String(c.semester) === String(activeSem));
               }
               const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
+              const myDept = (state.currentUser.departmentName || '').toUpperCase();
+              const approvedCrossReqs = (state.crossDepartmentRequests || []).filter(
+                r => r.status === 'APPROVED' && (r.requestingDept || '').toUpperCase() === myDept
+              );
+
               Object.keys(state.allocations).forEach(cCode => {
                 const base = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
                 if (targetBases.has(base) || targetBases.has(cCode)) {
-                  delete state.allocations[cCode];
+                  const crossForCourse = approvedCrossReqs.filter(r => {
+                    const rBase = r.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+                    const rClass = (r.courseCode.match(/(_G|_C)(\d+)/) || [])[2];
+                    const cClass = (cCode.match(/(_G|_C)(\d+)/) || [])[2];
+                    return r.courseCode === cCode || (rBase === base && (!rClass || !cClass || rClass === cClass));
+                  });
+                  if (crossForCourse.length > 0) {
+                    // Retain cross-department assigned slots permanently
+                    const preserved = {};
+                    crossForCourse.forEach(r => {
+                      (r.pinnedSlots || []).forEach(slot => {
+                        const day = (slot.day || '').toUpperCase();
+                        const p = String(slot.period);
+                        if (!preserved[day]) preserved[day] = {};
+                        preserved[day][p] = [r.assignedFacultyCode];
+                      });
+                    });
+                    state.allocations[cCode] = preserved;
+                  } else {
+                    delete state.allocations[cCode];
+                  }
                 }
               });
               renderAllocationMatrix();
@@ -1703,57 +1736,121 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   let slotLabel = '';
   
   // Calculate keys for lookup based on class index if provided
+  const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const effClass = classIndex || (baseCode.match(/(_G|_C)(\d+)/) || [])[2] || (currentCourse && (currentCourse.class || currentCourse.group)) || null;
+
   let courseTCode = courseT ? courseT.code : '';
   let coursePCode = courseP ? courseP.code : '';
   if (classIndex) {
-    courseTCode = courseT ? `${baseCode}_C${classIndex}-T` : '';
-    coursePCode = courseP ? `${baseCode}_C${classIndex}-P` : '';
+    courseTCode = courseT ? `${cleanBaseCode}_C${classIndex}-T` : '';
+    coursePCode = courseP ? `${cleanBaseCode}_C${classIndex}-P` : '';
   }
   
-  let activeCourseCode = courseTCode || coursePCode;
+  let activeCourseCode = courseTCode || coursePCode || (effClass ? `${cleanBaseCode}_C${effClass}` : baseCode);
 
   if (recT === 'B' || recP === 'B') {
     highlightClass = 'slot-recommend-blocked';
     slotLabel = 'Blocked';
-    activeCourseCode = courseTCode || coursePCode;
+    activeCourseCode = courseTCode || coursePCode || baseCode;
   } else if (isM) {
     highlightClass = 'slot-recommend-m';
     slotLabel = '';
   } else if (recT === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = courseTCode;
+    activeCourseCode = courseTCode || baseCode;
   } else if (recP === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = coursePCode;
+    activeCourseCode = coursePCode || baseCode;
   } else if (recT === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = courseTCode;
+    activeCourseCode = courseTCode || baseCode;
   } else if (recP === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = coursePCode;
+    activeCourseCode = coursePCode || baseCode;
   } else {
-    activeCourseCode = courseTCode || coursePCode;
+    activeCourseCode = courseTCode || coursePCode || baseCode;
     highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
   }
 
-  // Load active assigned codes for this slot (merging allocations from both suffixes if any)
-  const assignedT = (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period]) || [];
-  const assignedP = (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period]) || [];
-  const mergedAssigned = Array.from(new Set([...assignedT, ...assignedP]));
+  // Load active assigned codes across all candidate keys for this course/class/slot
+  const candidateKeys = [
+    activeCourseCode,
+    courseTCode,
+    coursePCode,
+    baseCode,
+    effClass ? `${cleanBaseCode}_C${effClass}` : null,
+    effClass ? `${cleanBaseCode}_C${effClass}-T` : null,
+    effClass ? `${cleanBaseCode}_C${effClass}-P` : null,
+    `${baseCode}-T`,
+    `${baseCode}-P`,
+    cleanBaseCode
+  ].filter(Boolean);
+
+  const foundAssigned = [];
+  const seenAssigned = new Set();
+  candidateKeys.forEach(k => {
+    if (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][period]) {
+      const list = state.allocations[k][day][period];
+      if (Array.isArray(list)) {
+        list.forEach(fc => {
+          if (fc && !seenAssigned.has(fc)) {
+            seenAssigned.add(fc);
+            foundAssigned.push(fc);
+          }
+        });
+      }
+    }
+  });
+
+  // Check approved cross-department requests for this course and slot
+  const myDeptUpper = ((state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
+  const approvedCross = (state.crossDepartmentRequests || []).find(r => 
+    r.status === 'APPROVED' &&
+    r.assignedFacultyCode &&
+    (r.requestingDept || '').trim().toUpperCase() === myDeptUpper &&
+    (
+      r.courseCode === baseCode ||
+      r.courseCode === activeCourseCode ||
+      r.courseCode === cleanBaseCode ||
+      (effClass && (r.courseCode === `${cleanBaseCode}_C${effClass}` || r.courseCode === `${cleanBaseCode}_G${effClass}`)) ||
+      r.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cleanBaseCode
+    ) &&
+    (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period))
+  );
+
+  if (approvedCross && approvedCross.assignedFacultyCode) {
+    if (!seenAssigned.has(approvedCross.assignedFacultyCode)) {
+      seenAssigned.add(approvedCross.assignedFacultyCode);
+      foundAssigned.push(approvedCross.assignedFacultyCode);
+    }
+    const crossSlot = (approvedCross.pinnedSlots || []).find(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period));
+    const sType = (crossSlot && crossSlot.type) || approvedCross.courseType || 'T';
+    if (sType === 'P') {
+      highlightClass = 'slot-recommend-p';
+      slotLabel = 'Practical Rec';
+    } else {
+      highlightClass = 'slot-recommend-t';
+      slotLabel = 'Theory Rec';
+    }
+  }
+
+  const mergedAssigned = foundAssigned;
 
   // When teachers are assigned, ensure Theory vs Practical coloring matches the session type
-  if (mergedAssigned.length > 0) {
+  if (mergedAssigned.length > 0 && !approvedCross) {
     const dayAllocations = {};
     const periodsList = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
     periodsList.forEach(p => {
-      const aT = (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][p]) || [];
-      const aP = (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][p]) || [];
-      const aM = Array.from(new Set([...aT, ...aP]));
-      if (aM.length > 0) dayAllocations[p] = aM;
+      const dayCodes = [];
+      candidateKeys.forEach(k => {
+        const aList = (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][p]) || [];
+        aList.forEach(c => { if (c && !dayCodes.includes(c)) dayCodes.push(c); });
+      });
+      if (dayCodes.length > 0) dayAllocations[p] = dayCodes;
     });
 
     const assignedSlotType = determineSlotType(currentCourse, activeCourseCode, day, period, mergedAssigned, dayAllocations);
@@ -1775,21 +1872,33 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   let pillsHtml = '';
   const locked = isTimetableLocked();
   mergedAssigned.forEach(facCode => {
-    const facObj = state.faculty.find(f => f.code === facCode);
-    const fullName = facObj ? facObj.name : facCode;
-    
+    const isCross = approvedCross && (approvedCross.assignedFacultyCode || '').toUpperCase() === facCode.toUpperCase();
+    const facObj = state.faculty.find(f => (f.code || '').toUpperCase() === facCode.toUpperCase());
+    const fullName = facObj ? facObj.name : (isCross ? approvedCross.assignedFacultyName : facCode);
+    const offeringDept = isCross ? (approvedCross.offeringDept || '') : ((facObj && facObj.department && facObj.department.toUpperCase() !== myDeptUpper) ? facObj.department : '');
+    const shortDept = offeringDept ? offeringDept.replace(/^Department\s+of\s+/i, '').trim() : '';
+
     let targetCode = activeCourseCode;
-    if (courseTCode && assignedT.includes(facCode)) targetCode = courseTCode;
-    else if (coursePCode && assignedP.includes(facCode)) targetCode = coursePCode;
+    if (courseTCode && state.allocations[courseTCode] && state.allocations[courseTCode][day] && state.allocations[courseTCode][day][period] && state.allocations[courseTCode][day][period].includes(facCode)) targetCode = courseTCode;
+    else if (coursePCode && state.allocations[coursePCode] && state.allocations[coursePCode][day] && state.allocations[coursePCode][day][period] && state.allocations[coursePCode][day][period].includes(facCode)) targetCode = coursePCode;
 
-    const crossIcon = locked ? '' : `<i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>`;
-
-    pillsHtml += `
-      <span class="fac-pill" title="Faculty Name: ${fullName}">
-        ${facCode}
-        ${crossIcon}
-      </span>
-    `;
+    if (isCross) {
+      pillsHtml += `
+        <span class="fac-pill fac-pill-cross" title="Faculty: ${fullName} (${offeringDept}) - Cross-Department Assigned" style="background: #e0f2fe; border: 1.5px solid #0284c7; color: #0369a1; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 4px;">
+          <span>${facCode}</span>
+          <span class="badge" style="background: #0284c7; color: #fff; font-size: 9px; padding: 1px 4px; border-radius: 3px;" title="${offeringDept}">${shortDept || 'Cross-Dept'}</span>
+          ${locked ? '' : `<i class="fa-solid fa-lock" style="font-size: 9px; opacity: 0.7; margin-left: 2px;" title="Cross-Department teaching: can only be removed by deleting request in Advanced Features"></i>`}
+        </span>
+      `;
+    } else {
+      const crossIcon = locked ? '' : `<i class="fa-solid fa-xmark" onclick="event.stopPropagation(); unassignFaculty('${targetCode}', '${day}', '${period}', '${facCode}')"></i>`;
+      pillsHtml += `
+        <span class="fac-pill" title="Faculty Name: ${fullName}">
+          ${facCode}
+          ${crossIcon}
+        </span>
+      `;
+    }
   });
 
   let classes = `slot-interactive ${highlightClass}`;
@@ -2173,6 +2282,13 @@ function renderFacultySelectList() {
     const isAssigned = mergedAssigned.includes(f.code);
     const unavailList = (state.teacherUnavailability && state.teacherUnavailability[f.code]) || [];
     const isUnavail = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(period)));
+    
+    // Check if faculty has an approved cross-department teaching commitment on this slot
+    const crossReq = (state.crossDepartmentRequests || []).find(r => 
+      r.status === 'APPROVED' && 
+      (r.assignedFacultyCode || '').toUpperCase() === (f.code || '').toUpperCase() &&
+      (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period))
+    );
 
     const tr = document.createElement('tr');
     
@@ -2187,6 +2303,8 @@ function renderFacultySelectList() {
     let actionBtn = '';
     if (isAssigned) {
       actionBtn = `<button class="btn btn-outline btn-xs btn-danger" onclick="unassignFacultyFromModal('${assignedCourseCode}', '${f.code}')"><i class="fa-solid fa-user-minus"></i> Remove</button>`;
+    } else if (crossReq) {
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member is teaching cross-department course ${crossReq.courseCode} in ${crossReq.requestingDept}"><i class="fa-solid fa-ban"></i> Cross-Dept Busy</button>`;
     } else if (isUnavail) {
       actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member marked this slot off as unavailable"><i class="fa-solid fa-ban"></i> Unavailable</button>`;
     } else {
@@ -2197,7 +2315,7 @@ function renderFacultySelectList() {
       <td style="text-align: center;"><span class="fac-pill">${f.code}</span></td>
       <td>
         <strong>${f.name}</strong>
-        ${isUnavail ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-calendar-xmark"></i> Blackout Slot</span>` : ''}
+        ${crossReq ? `<span class="badge" style="background: #fef3c7; color: #b45309; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-people-arrows"></i> Cross-Dept (${crossReq.courseCode} in ${crossReq.requestingDept})</span>` : (isUnavail ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-calendar-xmark"></i> Blackout Slot</span>` : '')}
       </td>
       <td style="text-align: center;">
         ${actionBtn}
@@ -2331,6 +2449,23 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
 window.unassignFacultyFromModal = function(courseCode, facultyCode) {
   if (!activeSlotContext) return;
   const { day, period } = activeSlotContext;
+  const myDept = ((state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
+
+  const isCross = (state.crossDepartmentRequests || []).some(r =>
+    r.status === 'APPROVED' &&
+    (r.assignedFacultyCode || '').toUpperCase() === (facultyCode || '').toUpperCase() &&
+    (r.requestingDept || '').trim().toUpperCase() === myDept &&
+    (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (day || '').toUpperCase() && String(s.period) === String(period))
+  );
+
+  if (isCross) {
+    showModalAlert(
+      'Cross-Department Assignment',
+      `Faculty member '${facultyCode}' is permanently assigned to this slot via Cross-Department Teaching.\n\nIt cannot be removed manually from the timetable. To remove this assignment, open Advanced Features > Cross-Dept Teaching > Outgoing Requests and click "Delete Request & Clear Allocation".`,
+      'info'
+    );
+    return;
+  }
   
   if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
@@ -2343,6 +2478,24 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
 };
 
 window.unassignFaculty = function(courseCode, day, period, facultyCode) {
+  const myDept = ((state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
+
+  const isCross = (state.crossDepartmentRequests || []).some(r =>
+    r.status === 'APPROVED' &&
+    (r.assignedFacultyCode || '').toUpperCase() === (facultyCode || '').toUpperCase() &&
+    (r.requestingDept || '').trim().toUpperCase() === myDept &&
+    (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (day || '').toUpperCase() && String(s.period) === String(period))
+  );
+
+  if (isCross) {
+    showModalAlert(
+      'Cross-Department Assignment',
+      `Faculty member '${facultyCode}' is permanently assigned to this slot via Cross-Department Teaching.\n\nIt cannot be removed manually from the timetable grid. To remove this assignment, open Advanced Features > Cross-Dept Teaching > Outgoing Requests and click "Delete Request & Clear Allocation".`,
+      'info'
+    );
+    return;
+  }
+
   if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
     state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
     syncAllocationsToSubjectMapping(courseCode);
@@ -3263,7 +3416,11 @@ function exportPrintTimetableToCSV() {
 
 function computeFacultyWeeklySchedules(deptName) {
   const targetDept = (deptName || (state.currentUser ? state.currentUser.departmentName : '') || '').trim().toUpperCase();
-  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toUpperCase() === targetDept);
+  const targetDeptNorm = targetDept.replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+  const deptFaculty = (state.faculty || []).filter(f => {
+    const fDeptNorm = (f.department || '').trim().toUpperCase().replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+    return fDeptNorm === targetDeptNorm;
+  });
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 
   const schedules = {};
@@ -3424,6 +3581,81 @@ function computeFacultyWeeklySchedules(deptName) {
     });
   });
 
+  // Include Approved Cross-Department Assignments into teachers' weekly schedules
+  const crossDeptReqs = (state.crossDepartmentRequests || []).filter(r => r.status === 'APPROVED' && r.assignedFacultyCode);
+  crossDeptReqs.forEach(r => {
+    const fc = (r.assignedFacultyCode || '').trim();
+    if (!fc) return;
+
+    let schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase());
+    if (!schedKey) {
+      const facObj = (state.faculty || []).find(f => (f.code || '').trim().toUpperCase() === fc.toUpperCase());
+      const fDeptNorm = (facObj && facObj.department ? facObj.department : '').trim().toUpperCase().replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+      if (facObj && (!targetDeptNorm || fDeptNorm === targetDeptNorm)) {
+        schedules[facObj.code] = {
+          info: facObj,
+          totalHours: 0,
+          theoryHours: 0,
+          practicalHours: 0,
+          slots: {}
+        };
+        weekdays.forEach(d => { schedules[facObj.code].slots[d] = {}; });
+        schedKey = facObj.code;
+      }
+    }
+
+    if (schedules[schedKey]) {
+      const courseObj = (state.courses || []).find(c => c.code === r.courseCode) || {
+        code: r.courseCode,
+        name: r.courseName || r.courseCode,
+        alias: r.courseCode,
+        semester: r.semester || '-',
+        category: 'CROSS-DEPT'
+      };
+
+      const cleanAlias = (courseObj.alias || r.courseName || r.courseCode).replace(/-(T|P)$/, '');
+      const reqDeptDisplay = r.requestingDept ? r.requestingDept.replace(/^DEPARTMENT\s+OF\s+/i, '').trim() : 'Cross-Dept';
+
+      (r.pinnedSlots || []).forEach(slot => {
+        const dayUpper = (slot.day || '').toUpperCase();
+        const period = String(slot.period || '').trim();
+        if (!dayUpper || !period) return;
+
+        const isPrac = (slot.type === 'P' || (!slot.type && r.courseType === 'P'));
+
+        if (!schedules[schedKey].slots[dayUpper]) {
+          schedules[schedKey].slots[dayUpper] = {};
+        }
+        if (!schedules[schedKey].slots[dayUpper][period]) {
+          schedules[schedKey].slots[dayUpper][period] = [];
+        }
+
+        const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === r.courseCode && x.isCrossDept);
+        if (!already) {
+          schedules[schedKey].slots[dayUpper][period].push({
+            courseCode: r.courseCode,
+            courseName: `${r.courseName || courseObj.name || r.courseCode} (${reqDeptDisplay})`,
+            courseAlias: `${cleanAlias} [${reqDeptDisplay}]`,
+            semester: r.semester || courseObj.semester,
+            category: `Cross-Dept (${reqDeptDisplay})`,
+            roomNo: courseObj.roomNo || '',
+            section: '',
+            coTeachers: [],
+            type: isPrac ? 'P' : 'T',
+            isCrossDept: true,
+            requestingDept: reqDeptDisplay
+          });
+          schedules[schedKey].totalHours++;
+          if (isPrac) {
+            schedules[schedKey].practicalHours++;
+          } else {
+            schedules[schedKey].theoryHours++;
+          }
+        }
+      });
+    }
+  });
+
   return schedules;
 }
 
@@ -3562,7 +3794,8 @@ function renderTeacherTimetables(containerElement, targetFacultyCode = 'ALL', di
 
 function populateTeacherTimetableDropdowns() {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
-  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toUpperCase() === deptName.trim().toUpperCase());
+  const deptNorm = (deptName || '').replace(/^Department\s+of\s+/i, '').trim().toUpperCase();
+  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').replace(/^Department\s+of\s+/i, '').trim().toUpperCase() === deptNorm);
 
   const modalSelect = document.getElementById('select-teacher-timetable-faculty');
   const tabSelect = document.getElementById('tab-select-teacher-faculty');
@@ -3585,7 +3818,15 @@ function populateTeacherTimetableDropdowns() {
   }
 }
 
-function openTeacherTimetableModal(selectedFacultyCode = 'ALL') {
+async function openTeacherTimetableModal(selectedFacultyCode = 'ALL') {
+  try {
+    const res = await authFetch(`${API_BASE}/cross-dept-requests`);
+    if (res.ok) {
+      const data = await res.json();
+      state.crossDepartmentRequests = data.requests || [];
+    }
+  } catch (e) {}
+
   populateTeacherTimetableDropdowns();
   
   const modalSelect = document.getElementById('select-teacher-timetable-faculty');
@@ -3603,7 +3844,15 @@ function openTeacherTimetableModal(selectedFacultyCode = 'ALL') {
   if (modal) modal.classList.remove('hidden');
 }
 
-function renderTeacherTimetablesTab() {
+async function renderTeacherTimetablesTab() {
+  try {
+    const res = await authFetch(`${API_BASE}/cross-dept-requests`);
+    if (res.ok) {
+      const data = await res.json();
+      state.crossDepartmentRequests = data.requests || [];
+    }
+  } catch (e) {}
+
   populateTeacherTimetableDropdowns();
   const tabSelect = document.getElementById('tab-select-teacher-faculty');
   const selectedFacultyCode = tabSelect ? tabSelect.value : 'ALL';
@@ -4436,6 +4685,9 @@ function bindAdvancedFeaturesModalEvents() {
   // Curriculum & Recommended Slots Controls
   bindCurriculumSlotAllocatorEvents();
 
+  // Cross-Department Teaching Controls
+  bindCrossDeptTeachingEvents();
+
   // Department Password Change Controls
   bindDeptChangePasswordEvents();
 }
@@ -4497,6 +4749,8 @@ function switchAdvancedFeaturesTab(paneId) {
     renderTeacherTimetablesTab();
   } else if (paneId === 'adv-pane-curriculum-slots') {
     renderCurriculumSlotAllocator();
+  } else if (paneId === 'adv-pane-cross-dept') {
+    renderCrossDeptTeachingTab();
   } else if (paneId === 'adv-pane-change-password') {
     initDeptChangePasswordPane();
   }
@@ -8020,6 +8274,17 @@ function bindCurriculumSlotAllocatorEvents() {
     });
   });
 
+  // Program Select Filter
+  const progSelect = document.getElementById('curriculum-program-select');
+  if (progSelect) {
+    progSelect.addEventListener('change', () => {
+      populateCurriculumSemesterDropdown();
+      populateCurriculumCourseDropdowns();
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+    });
+  }
+
   // Semester Select
   const semSelect = document.getElementById('curriculum-sem-select');
   if (semSelect) {
@@ -8112,13 +8377,32 @@ function initCurriculumSemesterData(force = false) {
 function getCurriculumDeptCourses(sem = null) {
   const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
   let list = (state.courses || []).filter(c => (c.department || '').toUpperCase() === deptName);
+  
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = progSelect ? progSelect.value : '';
+
   if (sem) {
-    const semClean = String(sem).replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
+    let targetSem = String(sem).trim();
+    let targetProg = '';
+    if (targetSem.includes('_')) {
+      const parts = targetSem.split('_');
+      targetSem = parts[0];
+      targetProg = parts[1];
+    } else if (activeProg) {
+      targetProg = activeProg;
+    }
+
+    const semClean = targetSem.replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
     list = list.filter(c => {
       const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-      return cSem === semClean;
+      const matchSem = (cSem === semClean);
+      const matchProg = !targetProg || ((c.programType || 'UG') === targetProg);
+      return matchSem && matchProg;
     });
+  } else if (activeProg) {
+    list = list.filter(c => (c.programType || 'UG') === activeProg);
   }
+
   return list;
 }
 
@@ -8272,29 +8556,43 @@ function populateCurriculumSemesterDropdown() {
   const semSelect = document.getElementById('curriculum-sem-select');
   if (!semSelect) return;
 
-  const deptCourses = getCurriculumDeptCourses();
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = progSelect ? progSelect.value : '';
+
+  // Get all department courses
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  let deptCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === deptName);
+  if (activeProg) {
+    deptCourses = deptCourses.filter(c => (c.programType || 'UG') === activeProg);
+  }
+
   const pairs = [];
   deptCourses.forEach(c => {
     const prog = c.programType || 'UG';
     const s = String(c.semester || '1').replace(/^Sem(ester)?\s*/i, '').trim();
-    if (!pairs.some(p => p.sem === s)) {
-      pairs.push({ sem: s, prog });
+    const key = activeProg ? s : `${s}_${prog}`;
+    if (!pairs.some(p => p.val === key)) {
+      pairs.push({ val: key, sem: s, prog });
     }
   });
 
-  pairs.sort((a, b) => (parseInt(a.sem || 0) - parseInt(b.sem || 0)));
+  // Sort by program then semester
+  pairs.sort((a, b) => {
+    if (a.prog !== b.prog) return a.prog.localeCompare(b.prog);
+    return (parseInt(a.sem || 0) - parseInt(b.sem || 0));
+  });
 
   const curVal = semSelect.value;
   semSelect.innerHTML = '';
   pairs.forEach(p => {
-    const progLabel = p.prog === 'PG' ? 'MSc' : 'BSc';
-    semSelect.innerHTML += `<option value="${p.sem}">Semester ${p.sem} (${progLabel})</option>`;
+    const progLabel = p.prog === 'PG' ? 'MSc / PG' : 'BSc / UG';
+    semSelect.innerHTML += `<option value="${p.val}">Semester ${p.sem} (${progLabel})</option>`;
   });
 
-  if (curVal && pairs.some(p => p.sem === curVal)) {
+  if (curVal && pairs.some(p => p.val === curVal)) {
     semSelect.value = curVal;
   } else if (pairs.length > 0) {
-    semSelect.value = pairs[0].sem;
+    semSelect.value = pairs[0].val;
   }
   curriculumSelectedSem = semSelect.value;
 }
@@ -9194,6 +9492,871 @@ function bindDeptChangePasswordEvents() {
     });
   }
 }
+
+// =============================================================
+// TAB 7: Cross-Department Teaching Controller & Interactive Handshake
+// =============================================================
+
+let crossDeptSelectedSlots = []; // array of { day: 'MONDAY', period: '2', type: 'T' | 'P' }
+let activeCrossDeptSubtab = 'incoming';
+let activeCrossSlotMode = 'T'; // 'T' or 'P'
+
+function bindCrossDeptTeachingEvents() {
+  // Sub-tab toggles (Incoming vs Outgoing)
+  document.querySelectorAll('.cross-dept-subtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const subtab = btn.getAttribute('data-subtab');
+      switchCrossDeptSubtab(subtab);
+    });
+  });
+
+  // Refresh Button
+  const btnRefresh = document.getElementById('btn-refresh-cross-dept');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      renderCrossDeptTeachingTab();
+    });
+  }
+
+  // Open New Request Modal
+  const btnOpenModal = document.getElementById('btn-open-new-cross-dept-request');
+  if (btnOpenModal) {
+    btnOpenModal.addEventListener('click', () => {
+      openNewCrossDeptRequestModal();
+    });
+  }
+
+  // Close New Request Modal
+  const btnCloseModal = document.getElementById('btn-close-new-cross-dept-modal');
+  const btnCancelModal = document.getElementById('btn-cancel-cross-req');
+  [btnCloseModal, btnCancelModal].forEach(b => {
+    if (b) {
+      b.addEventListener('click', () => {
+        const m = document.getElementById('modal-new-cross-dept-request');
+        if (m) m.classList.add('hidden');
+      });
+    }
+  });
+
+  // Course search input filtering
+  const courseSearchInput = document.getElementById('cross-req-course-search');
+  if (courseSearchInput) {
+    courseSearchInput.addEventListener('input', () => {
+      filterCrossDeptCourses(courseSearchInput.value);
+    });
+  }
+
+  // Course select in Request Modal -> sync hours and re-render slot picker
+  const courseSelect = document.getElementById('cross-req-course');
+  if (courseSelect) {
+    courseSelect.addEventListener('change', () => {
+      syncHoursFromSelectedCourse();
+    });
+  }
+
+  // Category select change -> toggle individual TH/PR boxes
+  const typeSelect = document.getElementById('cross-req-type');
+  if (typeSelect) {
+    typeSelect.addEventListener('change', () => {
+      handleCrossDeptCategoryChange();
+    });
+  }
+
+  // Theory / Practical hours inputs -> calculate total hours
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  [thInput, prInput].forEach(inp => {
+    if (inp) {
+      inp.addEventListener('input', () => {
+        recalcCrossDeptTotalHours();
+      });
+    }
+  });
+
+  // Slot Mode buttons (Theory vs Practical)
+  const btnModeT = document.getElementById('btn-cross-slot-mode-t');
+  const btnModeP = document.getElementById('btn-cross-slot-mode-p');
+  if (btnModeT && btnModeP) {
+    btnModeT.addEventListener('click', () => {
+      setCrossSlotMarkMode('T');
+    });
+    btnModeP.addEventListener('click', () => {
+      setCrossSlotMarkMode('P');
+    });
+  }
+
+  // Form submit for new cross-dept request
+  const formNewReq = document.getElementById('form-new-cross-dept-request');
+  if (formNewReq) {
+    formNewReq.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await submitNewCrossDeptRequest();
+    });
+  }
+
+  // Close Approve Modal
+  const btnCloseApprove = document.getElementById('btn-close-approve-cross-dept-modal');
+  const btnCancelApprove = document.getElementById('btn-cancel-approve-cross');
+  [btnCloseApprove, btnCancelApprove].forEach(b => {
+    if (b) {
+      b.addEventListener('click', () => {
+        const m = document.getElementById('modal-approve-cross-dept-request');
+        if (m) m.classList.add('hidden');
+      });
+    }
+  });
+
+  // Reject Button in Approve Modal
+  const btnReject = document.getElementById('btn-reject-cross-dept');
+  if (btnReject) {
+    btnReject.addEventListener('click', async () => {
+      const reqId = document.getElementById('approve-cross-req-id')?.value;
+      if (!reqId) return;
+      const reason = prompt('Please enter the reason for rejecting this teaching request (optional):') || 'Rejected by department';
+      await handleCrossDeptAction(reqId, 'REJECT', null, reason);
+    });
+  }
+
+  // Form submit for Approve
+  const formApprove = document.getElementById('form-approve-cross-dept');
+  if (formApprove) {
+    formApprove.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const reqId = document.getElementById('approve-cross-req-id')?.value;
+      const facCode = document.getElementById('approve-cross-faculty-select')?.value;
+      if (!reqId || !facCode) return;
+      await handleCrossDeptAction(reqId, 'APPROVE', facCode, null);
+    });
+  }
+}
+
+function setCrossSlotMarkMode(mode) {
+  activeCrossSlotMode = mode === 'P' ? 'P' : 'T';
+  const btnModeT = document.getElementById('btn-cross-slot-mode-t');
+  const btnModeP = document.getElementById('btn-cross-slot-mode-p');
+  if (btnModeT && btnModeP) {
+    if (activeCrossSlotMode === 'T') {
+      btnModeT.style.background = '#fef3c7';
+      btnModeT.style.color = '#b45309';
+      btnModeT.style.border = '1.5px solid #d97706';
+      btnModeT.style.fontWeight = '700';
+
+      btnModeP.style.background = '#ffffff';
+      btnModeP.style.color = '#475569';
+      btnModeP.style.border = '1.5px solid var(--border)';
+      btnModeP.style.fontWeight = '600';
+    } else {
+      btnModeP.style.background = '#d1fae5';
+      btnModeP.style.color = '#065f46';
+      btnModeP.style.border = '1.5px solid #059669';
+      btnModeP.style.fontWeight = '700';
+
+      btnModeT.style.background = '#ffffff';
+      btnModeT.style.color = '#475569';
+      btnModeT.style.border = '1.5px solid var(--border)';
+      btnModeT.style.fontWeight = '600';
+    }
+  }
+}
+
+function filterCrossDeptCourses(searchQuery) {
+  const courseSelect = document.getElementById('cross-req-course');
+  if (!courseSelect) return;
+  const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+  const myCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === myDept);
+  const q = (searchQuery || '').trim().toLowerCase();
+
+  const filtered = myCourses.filter(c => {
+    if (!q) return true;
+    const code = (c.code || '').toLowerCase();
+    const name = (c.name || '').toLowerCase();
+    const alias = (c.alias || '').toLowerCase();
+    return code.includes(q) || name.includes(q) || alias.includes(q);
+  });
+
+  courseSelect.innerHTML = '<option value="" disabled selected>Select Course from your Department</option>';
+  filtered.forEach(c => {
+    courseSelect.innerHTML += `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} - ${escapeHtml(c.name || c.code)} (Sem ${c.semester})</option>`;
+  });
+
+  if (filtered.length === 1) {
+    courseSelect.value = filtered[0].code;
+    syncHoursFromSelectedCourse();
+  }
+}
+
+function syncHoursFromSelectedCourse() {
+  const courseSelect = document.getElementById('cross-req-course');
+  const typeSelect = document.getElementById('cross-req-type');
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  if (!courseSelect) return;
+
+  const c = (state.courses || []).find(x => x.code === courseSelect.value);
+  if (!c) return;
+
+  const savedMap = (state.subjectTeacherMapping && state.currentUser && state.subjectTeacherMapping[state.currentUser.departmentName] && state.subjectTeacherMapping[state.currentUser.departmentName][c.code]) || {};
+
+  let th = (savedMap.theoryHours !== undefined) ? parseInt(savedMap.theoryHours, 10) : (c.theoryHours !== undefined ? parseInt(c.theoryHours, 10) : null);
+  let pr = (savedMap.practicalHours !== undefined) ? parseInt(savedMap.practicalHours, 10) : (c.practicalHours !== undefined ? parseInt(c.practicalHours, 10) : null);
+  const totalH = parseInt(savedMap.hours || c.hours, 10) || 4;
+
+  if (th === null && pr === null) {
+    const isP = c.courseType === 'P' || c.code.endsWith('-P');
+    if (isP) {
+      pr = totalH >= 2 ? totalH - (totalH % 2) : 2;
+      th = Math.max(0, totalH - pr);
+    } else {
+      th = totalH;
+      pr = 0;
+    }
+  } else {
+    if (th === null) th = Math.max(0, totalH - (pr || 0));
+    if (pr === null) pr = Math.max(0, totalH - (th || 0));
+  }
+
+  if (thInput) thInput.value = th;
+  if (prInput) prInput.value = pr;
+
+  if (typeSelect) {
+    if (pr > 0 && th > 0) typeSelect.value = 'BOTH';
+    else if (pr > 0) typeSelect.value = 'P';
+    else typeSelect.value = 'T';
+  }
+
+  handleCrossDeptCategoryChange();
+}
+
+function handleCrossDeptCategoryChange() {
+  const typeSelect = document.getElementById('cross-req-type');
+  const thBox = document.getElementById('cross-req-th-box');
+  const prBox = document.getElementById('cross-req-pr-box');
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  const cat = typeSelect ? typeSelect.value : 'T';
+
+  if (cat === 'T') {
+    if (thBox) thBox.style.display = 'block';
+    if (prBox) prBox.style.display = 'none';
+    if (prInput) prInput.value = 0;
+    if (thInput && parseInt(thInput.value, 10) <= 0) thInput.value = 2;
+    setCrossSlotMarkMode('T');
+  } else if (cat === 'P') {
+    if (thBox) thBox.style.display = 'none';
+    if (prBox) prBox.style.display = 'block';
+    if (thInput) thInput.value = 0;
+    if (prInput && parseInt(prInput.value, 10) <= 0) prInput.value = 2;
+    setCrossSlotMarkMode('P');
+  } else {
+    // BOTH (Theory + Practical)
+    if (thBox) thBox.style.display = 'block';
+    if (prBox) prBox.style.display = 'block';
+    if (thInput && parseInt(thInput.value, 10) <= 0) thInput.value = 2;
+    if (prInput && parseInt(prInput.value, 10) <= 0) prInput.value = 2;
+  }
+
+  recalcCrossDeptTotalHours();
+}
+
+function recalcCrossDeptTotalHours() {
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  const hoursInput = document.getElementById('cross-req-hours');
+  const totalDisplay = document.getElementById('cross-req-total-hours-display');
+
+  const th = Math.max(0, parseInt(thInput?.value, 10) || 0);
+  const pr = Math.max(0, parseInt(prInput?.value, 10) || 0);
+  const total = th + pr;
+
+  if (hoursInput) hoursInput.value = total;
+  if (totalDisplay) totalDisplay.textContent = `${total} hrs`;
+
+  crossDeptSelectedSlots = [];
+  updateCrossDeptSlotPickerCount();
+  renderCrossDeptSlotPicker();
+}
+
+function switchCrossDeptSubtab(subtab) {
+  activeCrossDeptSubtab = subtab;
+  const btnIn = document.getElementById('subtab-btn-incoming');
+  const btnOut = document.getElementById('subtab-btn-outgoing');
+  const secIn = document.getElementById('cross-dept-incoming-section');
+  const secOut = document.getElementById('cross-dept-outgoing-section');
+
+  if (subtab === 'incoming') {
+    if (btnIn) { btnIn.className = 'btn btn-sm btn-primary cross-dept-subtab'; }
+    if (btnOut) { btnOut.className = 'btn btn-sm btn-outline cross-dept-subtab'; }
+    if (secIn) secIn.classList.remove('hidden');
+    if (secOut) secOut.classList.add('hidden');
+  } else {
+    if (btnIn) { btnIn.className = 'btn btn-sm btn-outline cross-dept-subtab'; }
+    if (btnOut) { btnOut.className = 'btn btn-sm btn-primary cross-dept-subtab'; }
+    if (secIn) secIn.classList.add('hidden');
+    if (secOut) secOut.classList.remove('hidden');
+  }
+}
+
+async function renderCrossDeptTeachingTab() {
+  try {
+    const res = await authFetch('/api/cross-dept-requests');
+    const data = await res.json();
+    if (!data.success) {
+      console.error('Failed to load cross-department requests:', data.message);
+      return;
+    }
+
+    const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+    const requests = data.requests || [];
+    state.crossDepartmentRequests = requests;
+
+    const incoming = requests.filter(r => (r.offeringDept || '').toUpperCase() === myDept);
+    const outgoing = requests.filter(r => (r.requestingDept || '').toUpperCase() === myDept);
+
+    const countIn = document.getElementById('cross-dept-incoming-count');
+    const countOut = document.getElementById('cross-dept-outgoing-count');
+    if (countIn) countIn.textContent = incoming.length;
+    if (countOut) countOut.textContent = outgoing.length;
+
+    renderIncomingCrossDeptRequests(incoming);
+    renderOutgoingCrossDeptRequests(outgoing);
+  } catch (err) {
+    console.error('Error fetching cross-department requests:', err);
+  }
+}
+
+function renderIncomingCrossDeptRequests(requests) {
+  const container = document.getElementById('cross-dept-incoming-list');
+  if (!container) return;
+
+  if (requests.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 30px; text-align: center; color: var(--text-muted); background: #f8fafc; border-radius: 8px; border: 1.5px dashed var(--border);">
+        <i class="fa-solid fa-inbox" style="font-size: 28px; margin-bottom: 8px; color: #94a3b8;"></i>
+        <p style="margin: 0; font-size: 13px;">No incoming teaching requests from other departments.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = requests.map(req => {
+    const isPending = req.status === 'PENDING';
+    const isApproved = req.status === 'APPROVED';
+    const isRejected = req.status === 'REJECTED';
+
+    let statusBadge = '';
+    if (isPending) statusBadge = '<span class="badge" style="background: #fef3c7; color: #d97706; border: 1px solid #f59e0b;"><i class="fa-solid fa-clock"></i> Pending Review</span>';
+    else if (isApproved) statusBadge = '<span class="badge" style="background: #d1fae5; color: #065f46; border: 1px solid #10b981;"><i class="fa-solid fa-check"></i> Approved</span>';
+    else if (isRejected) statusBadge = '<span class="badge" style="background: #fee2e2; color: #991b1b; border: 1px solid #ef4444;"><i class="fa-solid fa-xmark"></i> Rejected</span>';
+
+    const slotsDesc = (req.pinnedSlots || []).map(s => {
+      const isPrac = s.type === 'P';
+      const badgeStyle = isPrac ? 'background: #d1fae5; color: #065f46; border: 1px solid #059669;' : 'background: #fef3c7; color: #b45309; border: 1px solid #d97706;';
+      return `<span class="badge" style="${badgeStyle} font-size: 10.5px; margin: 1px 2px;">${s.day.slice(0, 3)} P${s.period} (${isPrac ? 'PR' : 'TH'})</span>`;
+    }).join(' ');
+
+    const thH = req.theoryHours !== undefined ? req.theoryHours : (req.courseType === 'P' ? 0 : req.hours);
+    const prH = req.practicalHours !== undefined ? req.practicalHours : (req.courseType === 'P' ? req.hours : 0);
+    const hoursDesc = prH > 0 && thH > 0 ? `${req.hours} hrs (${thH} TH, ${prH} PR)` : `${req.hours} hrs (${req.courseType === 'P' ? 'Practical' : 'Theory'})`;
+
+    return `
+      <div class="card" style="padding: 14px 18px; border-radius: 8px; border: 1.5px solid var(--border); background: #ffffff;">
+        <div class="flex-row justify-between items-start flex-wrap gap-2 mb-2">
+          <div>
+            <div class="flex-row items-center gap-2">
+              <strong style="font-size: 14px; color: var(--text-main);">${escapeHtml(req.courseName)}</strong>
+              <span class="badge badge-info" style="font-size: 11px;">${escapeHtml(req.courseCode)}</span>
+              <span class="badge ${req.courseType === 'P' ? 'badge-success' : (req.courseType === 'BOTH' ? 'badge-info' : 'badge-warning')}" style="font-size: 10px;">${req.courseType === 'BOTH' ? 'Theory + Practical' : (req.courseType === 'P' ? 'Practical' : 'Theory')}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+              Requested by <strong>Department of ${escapeHtml(req.requestingDept)}</strong> • Semester ${escapeHtml(req.semester)} • <strong>${hoursDesc}</strong>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div style="background: #f8fafc; border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px;">
+          <i class="fa-solid fa-calendar-check text-warning" style="margin-right: 4px;"></i>
+          <strong>Required Timetable Slots:</strong> <span style="font-weight: 600; color: var(--text-main);">${slotsDesc}</span>
+        </div>
+
+        ${isApproved ? `
+          <div style="font-size: 12px; color: #065f46; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 6px 12px;">
+            <i class="fa-solid fa-user-check"></i> Assigned Faculty: <strong>${escapeHtml(req.assignedFacultyName)} (${escapeHtml(req.assignedFacultyCode)})</strong>. This teacher's timetable now connects to this cross-department teaching!
+          </div>
+        ` : ''}
+
+        ${isRejected ? `
+          <div style="font-size: 12px; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 12px;">
+            <i class="fa-solid fa-circle-exclamation"></i> Rejection Reason: ${escapeHtml(req.rejectionReason || 'None')}
+          </div>
+        ` : ''}
+
+        ${isPending ? `
+          <div class="flex-row justify-end gap-2 mt-2 pt-2" style="border-top: 1px solid var(--border);">
+            <button type="button" class="btn btn-primary btn-sm" onclick="openApproveCrossDeptModal('${req.id}')">
+              <i class="fa-solid fa-user-check"></i> Assign Teacher & Approve
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderOutgoingCrossDeptRequests(requests) {
+  const container = document.getElementById('cross-dept-outgoing-list');
+  if (!container) return;
+
+  if (requests.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 30px; text-align: center; color: var(--text-muted); background: #f8fafc; border-radius: 8px; border: 1.5px dashed var(--border);">
+        <i class="fa-solid fa-paper-plane" style="font-size: 28px; margin-bottom: 8px; color: #94a3b8;"></i>
+        <p style="margin: 0; font-size: 13px;">No outgoing teaching requests sent yet.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = requests.map(req => {
+    const isPending = req.status === 'PENDING';
+    const isApproved = req.status === 'APPROVED';
+    const isRejected = req.status === 'REJECTED';
+
+    let statusBadge = '';
+    if (isPending) statusBadge = '<span class="badge" style="background: #fef3c7; color: #d97706; border: 1px solid #f59e0b;"><i class="fa-solid fa-clock"></i> Awaiting Department Response</span>';
+    else if (isApproved) statusBadge = '<span class="badge" style="background: #d1fae5; color: #065f46; border: 1px solid #10b981;"><i class="fa-solid fa-check"></i> Approved & Scheduled</span>';
+    else if (isRejected) statusBadge = '<span class="badge" style="background: #fee2e2; color: #991b1b; border: 1px solid #ef4444;"><i class="fa-solid fa-xmark"></i> Rejected</span>';
+
+    const slotsDesc = (req.pinnedSlots || []).map(s => {
+      const isPrac = s.type === 'P';
+      const badgeStyle = isPrac ? 'background: #d1fae5; color: #065f46; border: 1px solid #059669;' : 'background: #fef3c7; color: #b45309; border: 1px solid #d97706;';
+      return `<span class="badge" style="${badgeStyle} font-size: 10.5px; margin: 1px 2px;">${s.day.slice(0, 3)} P${s.period} (${isPrac ? 'PR' : 'TH'})</span>`;
+    }).join(' ');
+
+    const thH = req.theoryHours !== undefined ? req.theoryHours : (req.courseType === 'P' ? 0 : req.hours);
+    const prH = req.practicalHours !== undefined ? req.practicalHours : (req.courseType === 'P' ? req.hours : 0);
+    const hoursDesc = prH > 0 && thH > 0 ? `${req.hours} hrs (${thH} TH, ${prH} PR)` : `${req.hours} hrs (${req.courseType === 'P' ? 'Practical' : 'Theory'})`;
+
+    return `
+      <div class="card" style="padding: 14px 18px; border-radius: 8px; border: 1.5px solid var(--border); background: #ffffff;">
+        <div class="flex-row justify-between items-start flex-wrap gap-2 mb-2">
+          <div>
+            <div class="flex-row items-center gap-2">
+              <strong style="font-size: 14px; color: var(--text-main);">${escapeHtml(req.courseName)}</strong>
+              <span class="badge badge-info" style="font-size: 11px;">${escapeHtml(req.courseCode)}</span>
+              <span class="badge ${req.courseType === 'P' ? 'badge-success' : (req.courseType === 'BOTH' ? 'badge-info' : 'badge-warning')}" style="font-size: 10px;">${req.courseType === 'BOTH' ? 'Theory + Practical' : (req.courseType === 'P' ? 'Practical' : 'Theory')}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+              Target Offering Department: <strong>Department of ${escapeHtml(req.offeringDept)}</strong> • Semester ${escapeHtml(req.semester)} • <strong>${hoursDesc}</strong>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div style="background: #f8fafc; border-radius: 6px; padding: 8px 12px; font-size: 12px;">
+          <i class="fa-solid fa-calendar-check text-warning" style="margin-right: 4px;"></i>
+          <strong>Pinned Compulsory Slots:</strong> <span style="font-weight: 600; color: var(--text-main);">${slotsDesc}</span>
+        </div>
+
+        ${isApproved ? `
+          <div style="margin-top: 8px; font-size: 12px; color: #065f46; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 6px 12px;">
+            <i class="fa-solid fa-circle-check"></i> Assigned Faculty: <strong>${escapeHtml(req.assignedFacultyName)} (${escapeHtml(req.assignedFacultyCode)})</strong> from Department of ${escapeHtml(req.offeringDept)}. This assignment is permanently placed into your course timetable!
+          </div>
+        ` : ''}
+
+        ${isRejected ? `
+          <div style="margin-top: 8px; font-size: 12px; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 12px;">
+            <i class="fa-solid fa-circle-exclamation"></i> Rejection Reason: ${escapeHtml(req.rejectionReason || 'Department unable to allocate faculty.')}
+          </div>
+        ` : ''}
+
+        <div class="flex-row justify-end gap-2 mt-2 pt-2" style="border-top: 1px solid var(--border);">
+          <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCrossDeptRequest('${req.id}', '${escapeHtml(req.courseCode)}', '${req.status}')">
+            <i class="fa-solid fa-trash-can"></i> ${isApproved ? 'Delete Request & Clear Allocation' : 'Cancel Request'}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openNewCrossDeptRequestModal() {
+  const modal = document.getElementById('modal-new-cross-dept-request');
+  const deptSelect = document.getElementById('cross-req-offering-dept');
+  const courseSelect = document.getElementById('cross-req-course');
+  const courseSearchInput = document.getElementById('cross-req-course-search');
+  const feedback = document.getElementById('cross-req-feedback');
+  if (!modal) return;
+
+  if (feedback) { feedback.className = 'mb-2 hidden'; feedback.textContent = ''; }
+  if (courseSearchInput) courseSearchInput.value = '';
+
+  const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+
+  // Populate offering departments (excluding own department)
+  if (deptSelect) {
+    deptSelect.innerHTML = '<option value="" disabled selected>Select Department (e.g. STATISTICS)</option>';
+    const depts = (state.departments || []).filter(d => (d.name || d).toUpperCase() !== myDept);
+    depts.forEach(d => {
+      const dName = (d.name || d).toUpperCase();
+      deptSelect.innerHTML += `<option value="${escapeHtml(dName)}">${escapeHtml(dName)}</option>`;
+    });
+  }
+
+  // Populate own department courses
+  if (courseSelect) {
+    courseSelect.innerHTML = '<option value="" disabled selected>Select Course from your Department</option>';
+    const myCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === myDept);
+    myCourses.forEach(c => {
+      courseSelect.innerHTML += `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} - ${escapeHtml(c.name || c.code)} (Sem ${c.semester})</option>`;
+    });
+  }
+
+  setCrossSlotMarkMode('T');
+  handleCrossDeptCategoryChange();
+  modal.classList.remove('hidden');
+}
+
+function renderCrossDeptSlotPicker() {
+  const container = document.getElementById('cross-req-slot-picker-grid');
+  if (!container) return;
+
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const periods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+
+  let html = `<table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: center;">`;
+  html += `<thead><tr><th style="padding: 4px; border: 1px solid var(--border); background: #e2e8f0;">Day</th>`;
+  periods.forEach(p => {
+    html += `<th style="padding: 4px; border: 1px solid var(--border); background: #e2e8f0;">${p === 'LB' ? 'LB' : `P${p}`}</th>`;
+  });
+  html += `</tr></thead><tbody>`;
+
+  weekdays.forEach(day => {
+    html += `<tr><td style="padding: 4px; border: 1px solid var(--border); font-weight: 700; background: #f1f5f9;">${day.slice(0, 3)}</td>`;
+    periods.forEach(p => {
+      if (p === 'LB') {
+        html += `<td style="padding: 4px; border: 1px solid var(--border); color: #94a3b8; font-weight: 600;">LB</td>`;
+        return;
+      }
+      const selSlot = crossDeptSelectedSlots.find(s => s.day === day && s.period === String(p));
+      const isSelected = !!selSlot;
+
+      let cellBg = '#ffffff';
+      let cellBorder = '1px solid var(--border)';
+      let icon = '<span style="color: #cbd5e1;">+</span>';
+
+      if (isSelected) {
+        if (selSlot.type === 'P') {
+          cellBg = '#d1fae5';
+          cellBorder = '2px solid #059669';
+          icon = '<span class="legend-box recommend-p" style="display:inline-block; margin:0;">P</span>';
+        } else {
+          cellBg = '#fef3c7';
+          cellBorder = '2px solid #d97706';
+          icon = '<span class="legend-box recommend-t" style="display:inline-block; margin:0;">T</span>';
+        }
+      }
+
+      html += `
+        <td style="padding: 5px 3px; border: ${cellBorder}; background: ${cellBg}; cursor: pointer; user-select: none;"
+            onclick="toggleCrossDeptSlotSelection('${day}', '${p}')">
+          ${icon}
+        </td>
+      `;
+    });
+    html += `</tr>`;
+  });
+
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+window.toggleCrossDeptSlotSelection = function(day, period) {
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  const thNeed = Math.max(0, parseInt(thInput?.value, 10) || 0);
+  const prNeed = Math.max(0, parseInt(prInput?.value, 10) || 0);
+
+  const idx = crossDeptSelectedSlots.findIndex(s => s.day === day && s.period === String(period));
+  if (idx !== -1) {
+    const existing = crossDeptSelectedSlots[idx];
+    if (existing.type === activeCrossSlotMode) {
+      crossDeptSelectedSlots.splice(idx, 1);
+    } else {
+      // Switching type from T to P or P to T: verify quota of new type
+      const targetCount = crossDeptSelectedSlots.filter(s => s.type === activeCrossSlotMode).length;
+      const targetNeed = activeCrossSlotMode === 'P' ? prNeed : thNeed;
+      if (targetCount >= targetNeed) {
+        showModalAlert('Quota Reached', `You have already selected all ${targetNeed} ${activeCrossSlotMode === 'P' ? 'Practical' : 'Theory'} hours.`, 'warning');
+        return;
+      }
+      existing.type = activeCrossSlotMode;
+    }
+  } else {
+    // Adding new slot: verify quota
+    const curCount = crossDeptSelectedSlots.filter(s => s.type === activeCrossSlotMode).length;
+    const curNeed = activeCrossSlotMode === 'P' ? prNeed : thNeed;
+    if (curCount >= curNeed) {
+      showModalAlert('Quota Reached', `You have already marked all ${curNeed} ${activeCrossSlotMode === 'P' ? 'Practical' : 'Theory'} hours. To mark more, increase the hours input or unmark another slot.`, 'warning');
+      return;
+    }
+    crossDeptSelectedSlots.push({ day, period: String(period), type: activeCrossSlotMode });
+  }
+
+  updateCrossDeptSlotPickerCount();
+  renderCrossDeptSlotPicker();
+};
+
+function updateCrossDeptSlotPickerCount() {
+  const badge = document.getElementById('cross-req-pinned-count');
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  const hoursInput = document.getElementById('cross-req-hours');
+
+  const thNeed = Math.max(0, parseInt(thInput?.value, 10) || 0);
+  const prNeed = Math.max(0, parseInt(prInput?.value, 10) || 0);
+  const totalNeed = thNeed + prNeed;
+
+  const thCount = crossDeptSelectedSlots.filter(s => s.type === 'T').length;
+  const prCount = crossDeptSelectedSlots.filter(s => s.type === 'P').length;
+  const totalCount = crossDeptSelectedSlots.length;
+
+  if (badge) {
+    if (prNeed > 0 && thNeed > 0) {
+      badge.textContent = `Selected: TH ${thCount}/${thNeed} | PR ${prCount}/${prNeed} (Total: ${totalCount}/${totalNeed} hrs)`;
+    } else if (prNeed > 0) {
+      badge.textContent = `Selected Practical: ${prCount} / ${prNeed} hrs`;
+    } else {
+      badge.textContent = `Selected Theory: ${thCount} / ${thNeed} hrs`;
+    }
+
+    if (thCount === thNeed && prCount === prNeed && totalCount === totalNeed && totalNeed > 0) {
+      badge.className = 'badge badge-success';
+    } else {
+      badge.className = 'badge badge-warning';
+    }
+  }
+}
+
+async function submitNewCrossDeptRequest() {
+  const offeringDept = document.getElementById('cross-req-offering-dept')?.value;
+  const courseCode = document.getElementById('cross-req-course')?.value;
+  const courseType = document.getElementById('cross-req-type')?.value;
+  const thHours = parseInt(document.getElementById('cross-req-th-hours')?.value, 10) || 0;
+  const prHours = parseInt(document.getElementById('cross-req-pr-hours')?.value, 10) || 0;
+  const totalHours = thHours + prHours;
+  const feedback = document.getElementById('cross-req-feedback');
+  const btnSubmit = document.getElementById('btn-submit-cross-req');
+
+  const courseObj = (state.courses || []).find(c => c.code === courseCode) || {};
+
+  if (!offeringDept || !courseCode || totalHours <= 0) {
+    if (feedback) {
+      feedback.className = 'alert alert-danger mb-2';
+      feedback.textContent = 'Please select the offering department, course, and enter valid hours.';
+    }
+    return;
+  }
+
+  const thCount = crossDeptSelectedSlots.filter(s => s.type === 'T').length;
+  const prCount = crossDeptSelectedSlots.filter(s => s.type === 'P').length;
+
+  if (thCount !== thHours || prCount !== prHours) {
+    if (feedback) {
+      feedback.className = 'alert alert-danger mb-2';
+      feedback.textContent = `Slot mismatch: Please select exactly ${thHours} Theory slots (currently: ${thCount}) and ${prHours} Practical slots (currently: ${prCount}).`;
+    }
+    return;
+  }
+
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
+  }
+
+  try {
+    const res = await authFetch('/api/cross-dept-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        offeringDept,
+        courseCode,
+        courseName: courseObj.name || courseCode,
+        semester: courseObj.semester || '1',
+        courseType,
+        hours: totalHours,
+        theoryHours: thHours,
+        practicalHours: prHours,
+        pinnedSlots: crossDeptSelectedSlots
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      const modal = document.getElementById('modal-new-cross-dept-request');
+      if (modal) modal.classList.add('hidden');
+      showModalAlert('Request Sent', `Your teaching request for ${courseObj.name || courseCode} has been sent to the Department of ${offeringDept}.`, 'success');
+      switchCrossDeptSubtab('outgoing');
+      await renderCrossDeptTeachingTab();
+    } else {
+      if (feedback) {
+        feedback.className = 'alert alert-danger mb-2';
+        feedback.textContent = data.message || 'Failed to submit request.';
+      }
+    }
+  } catch (err) {
+    console.error('Error submitting cross-dept request:', err);
+    if (feedback) {
+      feedback.className = 'alert alert-danger mb-2';
+      feedback.textContent = 'Network or server error.';
+    }
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Teaching Request';
+    }
+  }
+}
+
+window.openApproveCrossDeptModal = async function(reqId) {
+  try {
+    const res = await authFetch('/api/cross-dept-requests');
+    const data = await res.json();
+    const req = (data.requests || []).find(r => r.id === reqId);
+    if (!req) return;
+
+    const modal = document.getElementById('modal-approve-cross-dept-request');
+    const detailsContainer = document.getElementById('approve-cross-dept-details');
+    const facSelect = document.getElementById('approve-cross-faculty-select');
+    const hiddenId = document.getElementById('approve-cross-req-id');
+    const feedback = document.getElementById('approve-cross-feedback');
+
+    if (hiddenId) hiddenId.value = req.id;
+    if (feedback) { feedback.className = 'mb-2 hidden'; feedback.textContent = ''; }
+
+    const slotsDesc = (req.pinnedSlots || []).map(s => {
+      const isPrac = s.type === 'P';
+      const badgeStyle = isPrac ? 'background: #d1fae5; color: #065f46; border: 1px solid #059669;' : 'background: #fef3c7; color: #b45309; border: 1px solid #d97706;';
+      return `<span class="badge" style="${badgeStyle} font-size: 11px; margin: 1px 3px;">${s.day.slice(0, 3)} P${s.period} (${isPrac ? 'PR' : 'TH'})</span>`;
+    }).join(' ');
+
+    const thH = req.theoryHours !== undefined ? req.theoryHours : (req.courseType === 'P' ? 0 : req.hours);
+    const prH = req.practicalHours !== undefined ? req.practicalHours : (req.courseType === 'P' ? req.hours : 0);
+    const hoursDesc = prH > 0 && thH > 0 ? `${req.hours} hrs (${thH} TH, ${prH} PR)` : `${req.hours} hrs (${req.courseType === 'P' ? 'Practical' : 'Theory'})`;
+
+    if (detailsContainer) {
+      detailsContainer.innerHTML = `
+        <div style="margin-bottom: 6px;">
+          <strong>Requesting Department:</strong> Department of ${escapeHtml(req.requestingDept)}
+        </div>
+        <div style="margin-bottom: 6px;">
+          <strong>Course to Teach:</strong> ${escapeHtml(req.courseName)} (${escapeHtml(req.courseCode)})
+        </div>
+        <div style="margin-bottom: 6px;">
+          <strong>Teaching Type & Hours:</strong> ${hoursDesc}
+        </div>
+        <div>
+          <strong>Required Timetable Slots:</strong> <div style="margin-top: 4px;">${slotsDesc}</div>
+        </div>
+      `;
+    }
+
+    // Populate faculty dropdown with own department faculty
+    const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+    if (facSelect) {
+      facSelect.innerHTML = '<option value="" disabled selected>Select Teacher to Assign</option>';
+      const myFaculty = (state.faculty || []).filter(f => (f.department || '').toUpperCase() === myDept);
+      myFaculty.forEach(f => {
+        facSelect.innerHTML += `<option value="${escapeHtml(f.code)}">${escapeHtml(f.name)} (${escapeHtml(f.code)})</option>`;
+      });
+    }
+
+    if (modal) modal.classList.remove('hidden');
+  } catch (err) {
+    console.error('Error opening approve modal:', err);
+  }
+};
+
+async function handleCrossDeptAction(reqId, action, facultyCode = null, rejectionReason = null) {
+  const feedback = document.getElementById('approve-cross-feedback');
+  const btnApprove = document.getElementById('btn-confirm-approve-cross');
+
+  if (btnApprove) {
+    btnApprove.disabled = true;
+    btnApprove.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+  }
+
+  try {
+    const res = await authFetch(`/api/cross-dept-requests/${reqId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, facultyCode, rejectionReason })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      const modal = document.getElementById('modal-approve-cross-dept-request');
+      if (modal) modal.classList.add('hidden');
+      showModalAlert(
+        action === 'APPROVE' ? 'Approved & Scheduled' : 'Request Rejected', 
+        data.message, 
+        action === 'APPROVE' ? 'success' : 'info'
+      );
+      // Refresh global state so timetable and teacher schedule reflect newly auto-placed assignment
+      await fetchGlobalData();
+      await renderCrossDeptTeachingTab();
+      renderAllocationMatrix();
+      syncPrintViewsIfActive();
+    } else {
+      if (feedback) {
+        feedback.className = 'alert alert-danger mb-2';
+        feedback.textContent = data.message || 'Operation failed.';
+      }
+    }
+  } catch (err) {
+    console.error('Error handling cross-dept action:', err);
+    if (feedback) {
+      feedback.className = 'alert alert-danger mb-2';
+      feedback.textContent = 'Network or server error.';
+    }
+  } finally {
+    if (btnApprove) {
+      btnApprove.disabled = false;
+      btnApprove.innerHTML = '<i class="fa-solid fa-check"></i> Assign Teacher & Approve';
+    }
+  }
+}
+
+window.deleteCrossDeptRequest = function(reqId, courseCode, status) {
+  const isApproved = status === 'APPROVED';
+  const title = isApproved ? 'Delete Cross-Department Request?' : 'Cancel Cross-Department Request?';
+  const desc = isApproved
+    ? `Are you sure you want to delete this cross-department teaching request for ${courseCode}?\n\nThis will permanently remove the allocated teaching slots from your timetable, release the assigned teacher's schedule, and restore their availability in the offering department.`
+    : `Are you sure you want to cancel this pending cross-department teaching request for ${courseCode}?`;
+
+  showModalConfirm(title, desc, async () => {
+    try {
+      const res = await authFetch(`/api/cross-dept-requests/${reqId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        showModalAlert('Request Deleted', data.message, 'success');
+        await fetchGlobalData();
+        await renderCrossDeptTeachingTab();
+        renderAllocationMatrix();
+        updateDeptLiveWorkloadTracker();
+        syncPrintViewsIfActive();
+      } else {
+        showModalAlert('Delete Failed', data.message || 'Failed to delete request.', 'danger');
+      }
+    } catch (err) {
+      console.error('Error deleting cross-dept request:', err);
+      showModalAlert('Error', 'Network or server error while deleting request.', 'danger');
+    }
+  });
+};
+
 
 
 

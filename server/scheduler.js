@@ -428,6 +428,19 @@ export function generateDepartmentSchedule({
     });
   });
 
+  // Also include all approved cross-department assignments in external faculty usage
+  (db.crossDepartmentRequests || []).forEach(r => {
+    if (r.status === 'APPROVED' && r.assignedFacultyCode) {
+      (r.pinnedSlots || []).forEach(slot => {
+        const day = (slot.day || '').toUpperCase();
+        const period = String(slot.period);
+        if (externalFacultyUsage[day] && externalFacultyUsage[day][period]) {
+          externalFacultyUsage[day][period].add(r.assignedFacultyCode);
+        }
+      });
+    }
+  });
+
   // 3. Resolve course-to-faculty bindings
   const resolvedFacultyBindings = {};
   let facultyWorkloadIndex = 0;
@@ -987,13 +1000,24 @@ export function generateDepartmentSchedule({
   // Helper: check teacher unwanted/blackout slot
   function isTeacherUnavailable(facCode, day, period) {
     const list = teacherUnavail[facCode] || [];
-    if (!Array.isArray(list)) return false;
-    return list.some(item => {
+    if (Array.isArray(list) && list.some(item => {
       if (!item || !item.day) return false;
       if (item.day.toUpperCase() !== day.toUpperCase()) return false;
       if (item.period === 'all') return true;
       return String(item.period) === String(period);
-    });
+    })) {
+      return true;
+    }
+
+    // Check approved cross-department teaching commitments for this faculty
+    const isCrossAssigned = (db.crossDepartmentRequests || []).some(r => 
+      r.status === 'APPROVED' && 
+      (r.assignedFacultyCode || '').toUpperCase() === (facCode || '').toUpperCase() &&
+      (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (day || '').toUpperCase() && String(s.period) === String(period))
+    );
+    if (isCrossAssigned) return true;
+
+    return false;
   }
 
   function getTeacherPeriodsOnDay(allocState, day, facultyCode) {
