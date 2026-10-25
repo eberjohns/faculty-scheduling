@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { readDb, writeDb } from './db.js';
+import { readDb, writeDb } from '../server/db.js';
 
 console.log('=== Running Comprehensive Manual Assignment Rule Tests ===\n');
 
@@ -169,3 +169,4 @@ console.log('Department Locked Status Check: PASSED (Draft is editable; Submitte
 console.log('\n======================================================');
 console.log('ALL MANUAL ASSIGNMENT RULES WORKING IN PERFECT ORDER!');
 console.log('======================================================');
+

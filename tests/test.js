@@ -2,7 +2,7 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { readDb, writeDb } from './db.js';
+import { readDb, writeDb } from '../server/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -105,3 +105,4 @@ assert.strictEqual(clashes[0].facultyCode, "JP", "Clash faculty code should be J
 console.log("✓ Test Case 3: Allocation Clash Engine Passed");
 
 console.log("\nALL TESTS PASSED SUCCESSFULLY! Setup and database rules verified.");
+

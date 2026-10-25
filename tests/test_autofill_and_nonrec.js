@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { initDb, readDb } from './db.js';
+import { initDb, readDb } from '../server/db.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -173,3 +173,4 @@ console.log('✓ Non-recommended courses never trigger auto-fill and assign only
 console.log('\n================================================================');
 console.log('ALL AUTO-FILL & NON-RECOMMENDED COURSE TESTS PASSED WITH 100% SUCCESS!');
 console.log('================================================================');
+

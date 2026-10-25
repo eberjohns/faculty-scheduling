@@ -111,7 +111,7 @@ async function runAudit() {
     console.log('Admin authorized operation: SUCCESS');
 
     // Test Department BOLA/IDOR: CSE attempting to submit for ECE
-    const { generateToken } = await import('./security.js');
+    const { generateToken } = await import('../server/security.js');
     const cseToken = generateToken({ role: 'department', departmentName: 'CSE' });
     const idorRes = await fetch(`${BASE_URL}/api/submissions/status`, {
       method: 'POST',
@@ -154,3 +154,4 @@ runAudit().catch(err => {
   serverProc.kill('SIGKILL');
   process.exit(1);
 });
+

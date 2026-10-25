@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { readDb } from './db.js';
+import { readDb } from '../server/db.js';
 
 const db = readDb();
 
@@ -57,3 +57,4 @@ console.log('✓ All faculty availability and free period calculations verified 
 console.log('=============================================');
 console.log('ALL FREE FACULTY CALCULATION TESTS PASSED!');
 console.log('=============================================');
+

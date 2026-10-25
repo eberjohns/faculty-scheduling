@@ -9,7 +9,7 @@ import {
   verifyToken,
   sanitizeString,
   sanitizeExcelRows
-} from './security.js';
+} from '../server/security.js';
 
 console.log('=== Running Security Module & RBAC Audit Tests ===\n');
 
@@ -102,3 +102,4 @@ console.log('Sanitization against Prototype Pollution & Null Bytes: PASSED');
 console.log('\n========================================');
 console.log('ALL SECURITY VERIFICATION TESTS PASSED!');
 console.log('========================================\n');
+

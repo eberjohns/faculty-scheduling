@@ -1,4 +1,4 @@
-import { generateDepartmentSchedule } from './scheduler.js';
+import { generateDepartmentSchedule } from '../server/scheduler.js';
 
 // Mock DB data
 const mockDb = {
@@ -519,5 +519,6 @@ if (blockResult.success && blockResult.allocations["MTH101"]) {
 }
 
 console.log("Course MTH101 Blocked on Monday P1 & P2 Respected:", (!placedInBlockedSlots && blockResult.success) ? "PASSED (0 slots placed in blocked periods)" : "FAILED");
+
 
 

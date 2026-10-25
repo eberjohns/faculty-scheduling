@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "nodemon server/server.js"
+    "dev": "nodemon server/server.js",
+    "test": "node tests/test_security.js && node tests/test_scheduler.js && node tests/test_manual_assignment_rules.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
