@@ -2171,6 +2171,83 @@ async function renderAdminTeacherTimetables(containerElement, deptName, targetFa
     });
   });
 
+  // Include Approved Cross-Department Assignments in faculty schedules
+  let crossDeptReqs = state.crossDepartmentRequests || [];
+  if (!crossDeptReqs.length) {
+    try {
+      const cdRes = await fetch(`${API_BASE}/cross-dept-requests`, { headers: { 'Authorization': sessionStorage.getItem('token') || '' } });
+      if (cdRes.ok) {
+        const cdData = await cdRes.json();
+        crossDeptReqs = cdData.requests || [];
+        state.crossDepartmentRequests = crossDeptReqs;
+      }
+    } catch (e) {}
+  }
+
+  const deptUpperNorm = deptUpper.replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+  (crossDeptReqs || []).filter(r => r.status === 'APPROVED' && r.assignedFacultyCode).forEach(r => {
+    const fc = (r.assignedFacultyCode || '').trim();
+    if (!fc) return;
+
+    let schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase());
+    if (!schedKey) {
+      const facObj = (state.faculty || []).find(f => (f.code || '').trim().toUpperCase() === fc.toUpperCase());
+      const fDeptNorm = (facObj && facObj.department ? facObj.department : '').trim().toUpperCase().replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+      if (facObj && (!deptUpperNorm || fDeptNorm === deptUpperNorm)) {
+        schedules[facObj.code] = {
+          info: facObj,
+          totalHours: 0,
+          theoryHours: 0,
+          practicalHours: 0,
+          slots: {}
+        };
+        weekdays.forEach(d => { schedules[facObj.code].slots[d] = {}; });
+        schedKey = facObj.code;
+      }
+    }
+
+    if (schedules[schedKey]) {
+      const courseObj = (state.courses || []).find(c => c.code === r.courseCode) || {
+        code: r.courseCode,
+        name: r.courseName || r.courseCode,
+        alias: r.courseCode,
+        semester: r.semester || '-'
+      };
+      const cleanAlias = (courseObj.alias || r.courseName || r.courseCode).replace(/-(T|P)$/, '');
+      const reqDeptDisplay = r.requestingDept ? r.requestingDept.replace(/^DEPARTMENT\s+OF\s+/i, '').trim() : 'Cross-Dept';
+
+      (r.pinnedSlots || []).forEach(slot => {
+        const dayUpper = (slot.day || '').toUpperCase();
+        const period = String(slot.period || '').trim();
+        if (!dayUpper || !period) return;
+        const isPrac = (slot.type === 'P' || (!slot.type && r.courseType === 'P'));
+
+        if (!schedules[schedKey].slots[dayUpper]) schedules[schedKey].slots[dayUpper] = {};
+        if (!schedules[schedKey].slots[dayUpper][period]) schedules[schedKey].slots[dayUpper][period] = [];
+
+        const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === r.courseCode && x.isCrossDept);
+        if (!already) {
+          schedules[schedKey].slots[dayUpper][period].push({
+            courseCode: r.courseCode,
+            courseName: `${r.courseName || courseObj.name || r.courseCode} (${reqDeptDisplay})`,
+            courseAlias: `${cleanAlias} [${reqDeptDisplay}]`,
+            semester: r.semester || courseObj.semester,
+            category: `Cross-Dept (${reqDeptDisplay})`,
+            roomNo: courseObj.roomNo || '',
+            section: '',
+            coTeachers: [],
+            type: isPrac ? 'P' : 'T',
+            isCrossDept: true,
+            requestingDept: reqDeptDisplay
+          });
+          schedules[schedKey].totalHours++;
+          if (isPrac) schedules[schedKey].practicalHours++;
+          else schedules[schedKey].theoryHours++;
+        }
+      });
+    }
+  });
+
   const facultyList = targetFacultyCode === 'ALL'
     ? Object.values(schedules)
     : [schedules[targetFacultyCode]].filter(Boolean);

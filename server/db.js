@@ -115,10 +115,12 @@ function parseDbData(rawData) {
       fundingTypes:  { "1": "Aided", "2": "Self Finance" },
       yearSemMap:    {}
     },
-    periods: rawData.periods || ["1", "2", "3", "LB", "4", "5", "6"]
+    periods: rawData.periods || ["1", "2", "3", "LB", "4", "5", "6"],
+    crossDepartmentRequests: rawData.crossDepartmentRequests || []
   };
 
   // Ensure default structures are present
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
   if (!db.teacherUnavailability) db.teacherUnavailability = {};
   if (!db.subjectTeacherMapping) db.subjectTeacherMapping = {};
   if (!db.commonBatches) db.commonBatches = [];
@@ -280,7 +282,8 @@ export function writeDb(data) {
     subjectTeacherMapping: data.subjectTeacherMapping || {},
     commonBatches: data.commonBatches || [],
     batchConfig: data.batchConfig,
-    periods: data.periods
+    periods: data.periods,
+    crossDepartmentRequests: data.crossDepartmentRequests || []
   };
 
   if (isPostgres) {
