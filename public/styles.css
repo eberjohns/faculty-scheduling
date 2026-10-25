@@ -648,27 +648,35 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* High Contrast Slot Categories */
-.slot-recommend-t {
+.slot-recommend-t,
+.slot-recommend-t.slot-has-assignments {
   background-color: var(--warning-light) !important;
   border-left: 5px solid var(--warning) !important;
   color: var(--warning-dark) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
-.slot-recommend-p {
+.slot-recommend-p,
+.slot-recommend-p.slot-has-assignments {
   background-color: var(--success-light) !important;
   border-left: 5px solid var(--success) !important;
   color: var(--success-dark) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 .slot-recommend-m {
   background-color: #f3e8ff !important; /* Soft lavender/purple */
   border-left: 5px solid #a855f7 !important;
   color: #6b21a8 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 .slot-recommend-m.slot-active,
 .slot-recommend-m.slot-has-assignments {
   opacity: 1 !important;
-  background-color: var(--surface) !important;
-  border: 2px solid var(--primary) !important;
-  color: var(--text-main) !important;
+  background-color: #f3e8ff !important;
+  border-left: 5px solid #a855f7 !important;
+  color: #6b21a8 !important;
 }
 .slot-recommend-none {
   background-color: #e2e8f0 !important;
@@ -1096,8 +1104,40 @@ h1, h2, h3, h4, h5, h6 {
   }
   .print-table th, .print-table td,
   .teacher-grid-table th, .teacher-grid-table td {
-    border: 1px solid #000000 !important;
+    border: 1px solid #cbd5e1 !important;
     color: #000000 !important;
+  }
+  .print-table td.print-recommend-t,
+  .teacher-grid-table td.teacher-slot-th,
+  .slot-recommend-t {
+    background-color: var(--warning-light) !important;
+    color: var(--warning-dark) !important;
+    border-left: 5px solid var(--warning) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .print-table td.print-recommend-p,
+  .teacher-grid-table td.teacher-slot-pr,
+  .slot-recommend-p {
+    background-color: var(--success-light) !important;
+    color: var(--success-dark) !important;
+    border-left: 5px solid var(--success) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .teacher-stat-badge.teacher-stat-th {
+    background: var(--warning-light) !important;
+    color: var(--warning-dark) !important;
+    border: 1px solid var(--warning) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .teacher-stat-badge.teacher-stat-pr {
+    background: var(--success-light) !important;
+    color: var(--success-dark) !important;
+    border: 1px solid var(--success) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   .no-print, .no-print * {
     display: none !important;
@@ -1317,16 +1357,16 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 11px;
 }
 .teacher-grid-table td.teacher-slot-th {
-  background-color: #fffbeb !important;
-  color: #78350f !important;
-  border-left: 4px solid #f59e0b !important;
+  background-color: var(--warning-light) !important;
+  color: var(--warning-dark) !important;
+  border-left: 4px solid var(--warning) !important;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 .teacher-grid-table td.teacher-slot-pr {
-  background-color: #f0fdf4 !important;
-  color: #14532d !important;
-  border-left: 4px solid #10b981 !important;
+  background-color: var(--success-light) !important;
+  color: var(--success-dark) !important;
+  border-left: 4px solid var(--success) !important;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -1353,6 +1393,18 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.teacher-slot-th .teacher-slot-type-badge {
+  color: var(--warning-dark);
+  background: rgba(217, 119, 6, 0.18);
+  border: 0.5px solid rgba(217, 119, 6, 0.3);
+}
+.teacher-slot-pr .teacher-slot-type-badge {
+  color: var(--success-dark);
+  background: rgba(5, 150, 105, 0.18);
+  border: 0.5px solid rgba(5, 150, 105, 0.3);
 }
 
 /* ==========================================================================

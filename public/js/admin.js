@@ -13,7 +13,7 @@ window.fetch = async function(url, options = {}) {
     if (!options.headers) {
       options.headers = {};
     }
-    const token = sessionStorage.getItem('adminToken') || 'admin-token';
+    const token = sessionStorage.getItem('adminToken') || '';
     if (token) {
       if (options.headers instanceof Headers) {
         options.headers.set('Authorization', token);
@@ -378,7 +378,7 @@ function bindCustomModals() {
   const btnExportMajorMappings = document.getElementById('btn-export-major-mappings');
   if (btnExportMajorMappings) {
     btnExportMajorMappings.addEventListener('click', () => {
-      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      const adminToken = sessionStorage.getItem('adminToken') || '';
       window.location.href = `${API_BASE}/admin/export/major-mappings?token=${encodeURIComponent(adminToken)}`;
     });
   }
@@ -533,7 +533,7 @@ async function initAdmin() {
   const btnExportStrictExcel = document.getElementById('btn-export-strict-excel');
   if (btnExportStrictExcel) {
     btnExportStrictExcel.addEventListener('click', () => {
-      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      const adminToken = sessionStorage.getItem('adminToken') || '';
       window.location.href = `${API_BASE}/admin/export/strict-timetable?token=${encodeURIComponent(adminToken)}`;
     });
   }
@@ -559,7 +559,7 @@ async function initAdmin() {
       }
       
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         const res = await fetch(`${API_BASE}/admin/change-password`, {
           method: 'POST',
           headers: { 
@@ -692,7 +692,7 @@ function switchView(viewName) {
 
 async function fetchGlobalData() {
   try {
-    const token = sessionStorage.getItem('adminToken') || 'admin-token';
+    const token = sessionStorage.getItem('adminToken') || '';
     const [configRes, deptsRes, coursesRes, facultyRes, batchDeptsRes, batchCfgRes, groupRes, allBatchesRes, allocationsRes, subjectMappingRes] = await Promise.all([
       fetch(`${API_BASE}/config`),
       fetch(`${API_BASE}/admin/departments`, { headers: { 'Authorization': token } }),
@@ -769,7 +769,7 @@ function bindAuthEvents() {
       
       state.currentUser = { role: 'admin' };
       sessionStorage.setItem('adminUser', JSON.stringify(state.currentUser));
-      sessionStorage.setItem('adminToken', result.token || 'admin-token');
+      sessionStorage.setItem('adminToken', result.token);
       document.getElementById('header-user-info').classList.remove('hidden');
       
       await fetchGlobalData();
@@ -844,6 +844,8 @@ async function showTab(tabId) {
     populateExportPreviewDropdown();
   } else if (tabId === 'tab-admin-workload') {
     renderWorkloadSummary();
+  } else if (tabId === 'tab-admin-free-faculty') {
+    renderFreeFacultySection();
   }
 }
 
@@ -1187,7 +1189,7 @@ function bindImportEvents() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const type = btn.getAttribute('data-type');
-      const adminToken = sessionStorage.getItem('adminToken') || 'admin-token';
+      const adminToken = sessionStorage.getItem('adminToken') || '';
       window.location.href = `${API_BASE}/admin/template/${type}?token=${encodeURIComponent(adminToken)}`;
     });
   });
@@ -1552,7 +1554,8 @@ function bindPrintEvents() {
     buildPrintTimetableHtml(document.getElementById('print-mode-select').value);
   });
   
-  document.getElementById('btn-trigger-print').addEventListener('click', () => {
+  document.getElementById('btn-trigger-print').addEventListener('click', async () => {
+    await buildPrintTimetableHtml(document.getElementById('print-mode-select')?.value || 'medium');
     window.print();
   });
   
@@ -1581,8 +1584,9 @@ function openTimetablePrintModal(deptName) {
 }
 
 async function buildPrintTimetableHtml(displayMode) {
-  const periods = state.config.periods;
+  const periods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
   const table = document.getElementById('print-grid-table');
+  if (!table) return;
   const thead = table.querySelector('thead');
   const tbody = table.querySelector('tbody');
   
@@ -1590,14 +1594,20 @@ async function buildPrintTimetableHtml(displayMode) {
     <tr>
       <th style="width: 80px;">Day</th>
       <th style="width: 100px; text-align: left;">Class/Semester</th>
-      ${periods.map(p => `<th>${p}</th>`).join('')}
+      ${periods.map(p => `<th>${String(p).toUpperCase() === 'LB' ? 'Lunch Break' : p}</th>`).join('')}
     </tr>
   `;
 
   try {
-    const res = await fetch(`${API_BASE}/allocations?department=${activePrintDept}`);
+    const res = await fetch(`${API_BASE}/allocations?department=${encodeURIComponent(activePrintDept)}`);
     const allocs = await res.json();
-    const deptCourses = state.courses.filter(c => c.department === activePrintDept);
+    const deptUpper = (activePrintDept || '').trim().toUpperCase();
+    const deptCourses = (state.courses || []).filter(c => {
+      const cDept = (c.department || '').trim().toUpperCase();
+      if (cDept === deptUpper) return true;
+      const cBase = (c.code || '').replace(/-(T|P)$/, '');
+      return allocs[c.code] || allocs[cBase] || allocs[`${cBase}-T`] || allocs[`${cBase}-P`];
+    });
     renderPrintGridRows(deptCourses, allocs, periods, displayMode, tbody);
   } catch (err) {
     console.error(err);
@@ -1614,7 +1624,7 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
-  const semLabel = state.config.semesterLabels[course.semester] || `${course.semester} Sem`;
+  const semLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[course.semester]) || `${course.semester} Sem`;
   const catStr = formatCategory(course.category);
   
   if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
@@ -1622,11 +1632,163 @@ function getTimetableRowCategory(course) {
   }
   
   const isPg = course.code.toUpperCase().includes('MSC') || 
-               course.pathway.toUpperCase().includes('MSC') || 
-               course.pathway.toUpperCase().includes('POST GRADUATE') ||
+               (course.pathway && course.pathway.toUpperCase().includes('MSC')) || 
+               (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
                course.programType === 'PG';
   const progLabel = isPg ? 'MSC' : 'BSC';
   return `${semLabel} ${progLabel} ${catStr}`;
+}
+
+// Universal Slot Type Resolver: determines if an assigned or recommended slot is Theory ('T'), Practical ('P'), or MDC ('M')
+function determineSlotType(course, cCode, day, period, facList = [], dayAllocations = {}, deptMapping = null) {
+  const codeStr = String(cCode || (course && course.code) || '').trim();
+  
+  // 1. Explicit suffix in course key always takes precedence
+  if (codeStr.endsWith('-P') || codeStr.includes('-P_') || codeStr.includes('_P-') || codeStr.includes('-P(')) return 'P';
+  if (codeStr.endsWith('-T') || codeStr.includes('-T_') || codeStr.includes('_T-') || codeStr.includes('-T(')) return 'T';
+  
+  // 2. Multidisciplinary / Minor category check
+  if ((course && course.courseType === 'M') || (course && course.category === 'MDC')) return 'M';
+
+  // 3. Curriculum Recommendation check (if set for this slot in course)
+  if (course && course.recommendations && course.recommendations[day]) {
+    const rec = course.recommendations[day][period];
+    if (rec === 'P') return 'P';
+    if (rec === 'T') return 'T';
+    if (rec === 'B') return 'B';
+  }
+
+  // 4. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
+  const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
+  const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
+
+  if (thHours !== null && prHours !== null) {
+    if (prHours === 0 && thHours > 0) return 'T';
+    if (thHours === 0 && prHours > 0) return 'P';
+  } else if (course && course.courseType === 'T') {
+    return 'T';
+  }
+
+  // 5. Composite / Hybrid courses (courses with both Theory and Practical hours)
+  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
+
+  // 5a. If multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
+  if (assignedList.length > 1) {
+    return 'P';
+  }
+
+  // 5b. Check consecutive periods with the same faculty on the same day (labs are 2+ periods)
+  if (dayAllocations && typeof dayAllocations === 'object') {
+    const pNum = parseInt(String(period).replace(/\D+/g, ''), 10);
+    if (!isNaN(pNum)) {
+      const prevPeriod = String(pNum - 1);
+      const nextPeriod = String(pNum + 1);
+      const prevList = Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
+      const nextList = Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
+      
+      const sharesFacultyPrev = assignedList.length > 0 && assignedList.some(f => prevList.includes(f));
+      const sharesFacultyNext = assignedList.length > 0 && assignedList.some(f => nextList.includes(f));
+      
+      if (sharesFacultyPrev || sharesFacultyNext) {
+        return 'P';
+      }
+    }
+  }
+
+  // 5c. Check Subject-Teacher Mapping if available
+  const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const courseMap = deptMapping || 
+    (typeof state !== 'undefined' && state.subjectTeacherMapping && (
+      (course && course.department && state.subjectTeacherMapping[course.department.toUpperCase()] && state.subjectTeacherMapping[course.department.toUpperCase()][baseCode]) ||
+      (typeof activePrintDept !== 'undefined' && activePrintDept && state.subjectTeacherMapping[activePrintDept.toUpperCase()] && state.subjectTeacherMapping[activePrintDept.toUpperCase()][baseCode]) ||
+      (typeof adminActiveTeacherDept !== 'undefined' && adminActiveTeacherDept && state.subjectTeacherMapping[adminActiveTeacherDept.toUpperCase()] && state.subjectTeacherMapping[adminActiveTeacherDept.toUpperCase()][baseCode])
+    ));
+
+  if (courseMap && assignedList.length > 0) {
+    const isOnlyPractical = assignedList.every(f => 
+      (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
+    );
+    if (isOnlyPractical) return 'P';
+
+    const isOnlyTheory = assignedList.every(f => 
+      (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
+    );
+    if (isOnlyTheory) return 'T';
+  }
+
+  // 5d. Standalone single-period slot with 1 teacher for a hybrid course
+  // In college schedules, 1-period isolated sessions are Theory lectures
+  if (thHours && thHours > 0) {
+    return 'T';
+  }
+
+  return (course && course.courseType === 'P') ? 'P' : 'T';
+}
+window.determineSlotType = determineSlotType;
+
+// Probes all possible allocation keys (exact, -T, -P, baseCode, class variants _C1-T, _C1-P)
+function getCourseSlotAllocations(course, day, period, allocations) {
+  if (!allocations || !course) return { codes: [], type: (course && course.courseType) || 'T' };
+  
+  const cCode = course.code || '';
+  const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const classMatch = cCode.match(/(_C|_G)(\d+)/);
+  const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
+
+  const foundCodes = [];
+  let detectedType = course.courseType || (cCode.endsWith('-P') ? 'P' : 'T');
+
+  const keysToCheck = [];
+  if (classNum) {
+    keysToCheck.push({ key: `${baseCode}_C${classNum}-T`, type: 'T' });
+    keysToCheck.push({ key: `${baseCode}_C${classNum}-P`, type: 'P' });
+    keysToCheck.push({ key: `${baseCode}_C${classNum}`, type: detectedType });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}-T`, type: 'T' });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}-P`, type: 'P' });
+    keysToCheck.push({ key: `${baseCode}_G${classNum}`, type: detectedType });
+  }
+  keysToCheck.push({ key: cCode, type: cCode.endsWith('-P') ? 'P' : (cCode.endsWith('-T') ? 'T' : detectedType) });
+  keysToCheck.push({ key: `${cCode}-T`, type: 'T' });
+  keysToCheck.push({ key: `${cCode}-P`, type: 'P' });
+  keysToCheck.push({ key: `${baseCode}-T`, type: 'T' });
+  keysToCheck.push({ key: `${baseCode}-P`, type: 'P' });
+  keysToCheck.push({ key: baseCode, type: detectedType });
+
+  const seenKeys = new Set();
+  keysToCheck.forEach(({ key, type }) => {
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+
+    if (allocations[key] && allocations[key][day] && allocations[key][day][period]) {
+      const list = allocations[key][day][period];
+      if (Array.isArray(list) && list.length > 0) {
+        list.forEach(fc => {
+          const cleanFc = (fc || '').trim();
+          if (cleanFc && !foundCodes.includes(cleanFc)) {
+            foundCodes.push(cleanFc);
+          }
+        });
+      }
+    }
+  });
+
+  if (foundCodes.length > 0) {
+    const dayAllocations = {};
+    const periodsList = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+    periodsList.forEach(p => {
+      keysToCheck.forEach(({ key }) => {
+        if (allocations[key] && allocations[key][day] && allocations[key][day][p]) {
+          const l = allocations[key][day][p];
+          if (Array.isArray(l) && l.length > 0) {
+            dayAllocations[p] = Array.from(new Set([...(dayAllocations[p] || []), ...l]));
+          }
+        }
+      });
+    });
+    detectedType = determineSlotType(course, cCode, day, period, foundCodes, dayAllocations);
+  }
+
+  return { codes: foundCodes, type: detectedType };
 }
 
 function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) {
@@ -1679,10 +1841,26 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
       catCourses.forEach(course => {
         const coursePeriods = [];
+        const slotDataMap = {};
+
         periods.forEach(p => {
-          if (p.toUpperCase() === 'LB') return;
-          const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-          if (assigned.length > 0) coursePeriods.push(p);
+          if (String(p).toUpperCase() === 'LB') return;
+          const { codes: assigned, type: detectedType } = getCourseSlotAllocations(course, day, p, allocations);
+          if (assigned.length > 0) {
+            coursePeriods.push(p);
+            const isPractical = detectedType === 'P';
+            const printClass = detectedType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
+            const tooltip = assigned.map(code => {
+              const facObj = (state.faculty || []).find(f => f.code === code);
+              return facObj ? facObj.name : code;
+            }).join(' / ');
+
+            slotDataMap[p] = {
+              html: formatAllocationCell(course, day, p, allocations, displayMode, detectedType),
+              classes: printClass,
+              tooltip: tooltip
+            };
+          }
         });
 
         if (coursePeriods.length === 0) return;
@@ -1692,19 +1870,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const hasClash = coursePeriods.some(p => !!subRows[r][p]);
           if (!hasClash) {
             coursePeriods.forEach(p => {
-              const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
-              const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
-              const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-              const tooltip = assigned.map(code => {
-                const facObj = state.faculty.find(f => f.code === code);
-                return facObj ? facObj.name : code;
-              }).join(' / ');
-              
-              subRows[r][p] = {
-                html: formatAllocationCell(course, day, p, allocations, displayMode),
-                classes: printClass,
-                tooltip: tooltip
-              };
+              subRows[r][p] = slotDataMap[p];
             });
             placed = true;
             break;
@@ -1714,19 +1880,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
         if (!placed) {
           const newRow = {};
           coursePeriods.forEach(p => {
-            const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][p]) === 'P';
-            const printClass = course.courseType === 'M' ? 'print-recommend-m' : (isPractical ? 'print-recommend-p' : 'print-recommend-t');
-            const assigned = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][p]) || [];
-            const tooltip = assigned.map(code => {
-              const facObj = state.faculty.find(f => f.code === code);
-              return facObj ? facObj.name : code;
-            }).join(' / ');
-
-            newRow[p] = {
-              html: formatAllocationCell(course, day, p, allocations, displayMode),
-              classes: printClass,
-              tooltip: tooltip
-            };
+            newRow[p] = slotDataMap[p];
           });
           subRows.push(newRow);
         }
@@ -1746,7 +1900,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
           const tdDay = document.createElement('td');
           tdDay.rowSpan = weekdayTotalRows;
           tdDay.className = 'day-cell';
-          tdDay.textContent = weekdayShort[day];
+          tdDay.textContent = weekdayShort[day] || day;
           tr.appendChild(tdDay);
         }
 
@@ -1760,7 +1914,7 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
 
         periods.forEach(p => {
           const td = document.createElement('td');
-          if (p.toUpperCase() === 'LB') {
+          if (String(p).toUpperCase() === 'LB') {
             td.className = 'break-cell';
             td.textContent = 'LB';
           } else {
@@ -1785,14 +1939,14 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
   });
 }
 
-function formatAllocationCell(course, day, period, allocations, mode) {
-  const assignedCodes = (allocations[course.code] && allocations[course.code][day] && allocations[course.code][day][period]) || [];
+function formatAllocationCell(course, day, period, allocations, mode, detectedType = null) {
+  const { codes: assignedCodes, type: allocType } = getCourseSlotAllocations(course, day, period, allocations);
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const alias = (course.alias || course.name || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
   const groupSuffix = classNum ? ` (C${classNum})` : '';
-  const isPractical = course.code.endsWith('-P') || (course.recommendations[day] && course.recommendations[day][period]) === 'P';
+  const isPractical = (detectedType || allocType) === 'P';
 
   let suffix = '';
   if (mode === 'full') {
@@ -1809,10 +1963,10 @@ function formatAllocationCell(course, day, period, allocations, mode) {
     return `${assignedCodes.join('/')} - ${alias}${groupSuffix}${suffix}`;
   } else {
     const facNames = assignedCodes.map(code => {
-      const facObj = state.faculty.find(f => f.code === code);
+      const facObj = (state.faculty || []).find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
-    const cleanName = course.name.replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
+    const cleanName = (course.name || course.code).replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
     return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${groupSuffix}${suffix}</div>`;
   }
 }
@@ -1881,7 +2035,10 @@ function bindAdminTeacherTimetableEvents() {
 
   const btnPrint = document.getElementById('btn-trigger-teacher-print');
   if (btnPrint) {
-    btnPrint.onclick = () => {
+    btnPrint.onclick = async () => {
+      const mode = selectMode ? selectMode.value : 'medium';
+      const facCode = selectFac ? selectFac.value : 'ALL';
+      if (printArea) await renderAdminTeacherTimetables(printArea, adminActiveTeacherDept, facCode, mode);
       window.print();
     };
   }
@@ -1909,8 +2066,9 @@ async function fetchDeptAllocations(deptName) {
 
 async function renderAdminTeacherTimetables(containerElement, deptName, targetFacultyCode = 'ALL', displayMode = 'medium') {
   if (!containerElement) return;
-  const deptFaculty = state.faculty.filter(f => f.department === deptName);
-  const periods = state.config.periods || ["1", "2", "3", "LB", "4", "5", "6"];
+  const deptUpper = (deptName || '').trim().toUpperCase();
+  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toUpperCase() === deptUpper);
+  const periods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
   const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 
   const deptAlloc = await fetchDeptAllocations(deptName);
@@ -1929,42 +2087,165 @@ async function renderAdminTeacherTimetables(containerElement, deptName, targetFa
     });
   });
 
-  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
-    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/_C\d+-(T|P)$/, '').replace(/_C\d+$/, '').replace(/_G\d+$/, '');
-    const course = state.courses.find(c => c.code === cCode) || 
-                   state.courses.find(c => c.code === baseCode) || 
-                   { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
-
-    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
-
-    Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
-      const dayUpper = day.toUpperCase();
-      Object.entries(periodObj || {}).forEach(([period, facList]) => {
+  // Also initialize any faculty cross-allocated in this department's timetable
+  Object.values(deptAlloc).forEach(dayObj => {
+    Object.values(dayObj || {}).forEach(periodObj => {
+      Object.values(periodObj || {}).forEach(facList => {
         if (Array.isArray(facList)) {
           facList.forEach(facCode => {
-            if (schedules[facCode]) {
-              if (!schedules[facCode].slots[dayUpper]) {
-                schedules[facCode].slots[dayUpper] = {};
-              }
-              if (!schedules[facCode].slots[dayUpper][period]) {
-                schedules[facCode].slots[dayUpper][period] = [];
-              }
-              schedules[facCode].slots[dayUpper][period].push({
-                courseCode: cCode,
-                courseName: course.name,
-                courseAlias: course.alias || course.name,
-                semester: course.semester,
-                category: course.category,
-                type: isPrac ? 'P' : 'T'
+            const fcNorm = (facCode || '').trim();
+            if (fcNorm && !schedules[fcNorm]) {
+              const facObj = (state.faculty || []).find(f => (f.code || '').trim().toUpperCase() === fcNorm.toUpperCase()) || {
+                code: fcNorm,
+                name: fcNorm,
+                department: deptName,
+                designation: 'Faculty Member'
+              };
+              schedules[fcNorm] = {
+                info: facObj,
+                totalHours: 0,
+                theoryHours: 0,
+                practicalHours: 0,
+                slots: {}
+              };
+              weekdays.forEach(d => {
+                schedules[fcNorm].slots[d] = {};
               });
-              schedules[facCode].totalHours++;
-              if (isPrac) schedules[facCode].practicalHours++;
-              else schedules[facCode].theoryHours++;
             }
           });
         }
       });
     });
+  });
+
+  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
+    const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+    const course = (state.courses || []).find(c => c.code === cCode) || 
+                   (state.courses || []).find(c => c.code === baseCode) || 
+                   { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
+
+    const classMatch = cCode.match(/(_C|_G)(\d+)/);
+    const classSuffix = classMatch ? ` (C${classMatch[2]})` : '';
+    const cleanAlias = (course.alias || course.name || cCode).replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+    const dispAlias = cleanAlias + classSuffix;
+
+    Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+      const dayUpper = day.toUpperCase();
+      Object.entries(periodObj || {}).forEach(([period, facList]) => {
+        if (Array.isArray(facList) && facList.length > 0) {
+          const slotType = determineSlotType(course, cCode, dayUpper, period, facList, periodObj);
+          const isPrac = (slotType === 'P');
+
+          facList.forEach(facCode => {
+            const fc = (facCode || '').trim();
+            const schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase()) || fc;
+            if (schedules[schedKey]) {
+              if (!schedules[schedKey].slots[dayUpper]) {
+                schedules[schedKey].slots[dayUpper] = {};
+              }
+              if (!schedules[schedKey].slots[dayUpper][period]) {
+                schedules[schedKey].slots[dayUpper][period] = [];
+              }
+              const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === cCode);
+              if (!already) {
+                const coTeachers = facList.filter(f => f.trim().toUpperCase() !== fc.toUpperCase());
+                schedules[schedKey].slots[dayUpper][period].push({
+                  courseCode: cCode,
+                  courseName: course.name || cCode,
+                  courseAlias: dispAlias,
+                  semester: course.semester,
+                  category: course.category,
+                  roomNo: course.roomNo || '',
+                  section: classSuffix ? classSuffix.trim() : '',
+                  coTeachers: coTeachers,
+                  type: isPrac ? 'P' : 'T'
+                });
+                schedules[schedKey].totalHours++;
+                if (isPrac) schedules[schedKey].practicalHours++;
+                else schedules[schedKey].theoryHours++;
+              }
+            }
+          });
+        }
+      });
+    });
+  });
+
+  // Include Approved Cross-Department Assignments in faculty schedules
+  let crossDeptReqs = state.crossDepartmentRequests || [];
+  if (!crossDeptReqs.length) {
+    try {
+      const cdRes = await fetch(`${API_BASE}/cross-dept-requests`, { headers: { 'Authorization': sessionStorage.getItem('token') || '' } });
+      if (cdRes.ok) {
+        const cdData = await cdRes.json();
+        crossDeptReqs = cdData.requests || [];
+        state.crossDepartmentRequests = crossDeptReqs;
+      }
+    } catch (e) {}
+  }
+
+  const deptUpperNorm = deptUpper.replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+  (crossDeptReqs || []).filter(r => r.status === 'APPROVED' && r.assignedFacultyCode).forEach(r => {
+    const fc = (r.assignedFacultyCode || '').trim();
+    if (!fc) return;
+
+    let schedKey = Object.keys(schedules).find(k => k.toUpperCase() === fc.toUpperCase());
+    if (!schedKey) {
+      const facObj = (state.faculty || []).find(f => (f.code || '').trim().toUpperCase() === fc.toUpperCase());
+      const fDeptNorm = (facObj && facObj.department ? facObj.department : '').trim().toUpperCase().replace(/^DEPARTMENT\s+OF\s+/i, '').trim();
+      if (facObj && (!deptUpperNorm || fDeptNorm === deptUpperNorm)) {
+        schedules[facObj.code] = {
+          info: facObj,
+          totalHours: 0,
+          theoryHours: 0,
+          practicalHours: 0,
+          slots: {}
+        };
+        weekdays.forEach(d => { schedules[facObj.code].slots[d] = {}; });
+        schedKey = facObj.code;
+      }
+    }
+
+    if (schedules[schedKey]) {
+      const courseObj = (state.courses || []).find(c => c.code === r.courseCode) || {
+        code: r.courseCode,
+        name: r.courseName || r.courseCode,
+        alias: r.courseCode,
+        semester: r.semester || '-'
+      };
+      const cleanAlias = (courseObj.alias || r.courseName || r.courseCode).replace(/-(T|P)$/, '');
+      const reqDeptDisplay = r.requestingDept ? r.requestingDept.replace(/^DEPARTMENT\s+OF\s+/i, '').trim() : 'Cross-Dept';
+
+      (r.pinnedSlots || []).forEach(slot => {
+        const dayUpper = (slot.day || '').toUpperCase();
+        const period = String(slot.period || '').trim();
+        if (!dayUpper || !period) return;
+        const isPrac = (slot.type === 'P' || (!slot.type && r.courseType === 'P'));
+
+        if (!schedules[schedKey].slots[dayUpper]) schedules[schedKey].slots[dayUpper] = {};
+        if (!schedules[schedKey].slots[dayUpper][period]) schedules[schedKey].slots[dayUpper][period] = [];
+
+        const already = schedules[schedKey].slots[dayUpper][period].some(x => x.courseCode === r.courseCode && x.isCrossDept);
+        if (!already) {
+          schedules[schedKey].slots[dayUpper][period].push({
+            courseCode: r.courseCode,
+            courseName: `${r.courseName || courseObj.name || r.courseCode} (${reqDeptDisplay})`,
+            courseAlias: `${cleanAlias} [${reqDeptDisplay}]`,
+            semester: r.semester || courseObj.semester,
+            category: `Cross-Dept (${reqDeptDisplay})`,
+            roomNo: courseObj.roomNo || '',
+            section: '',
+            coTeachers: [],
+            type: isPrac ? 'P' : 'T',
+            isCrossDept: true,
+            requestingDept: reqDeptDisplay
+          });
+          schedules[schedKey].totalHours++;
+          if (isPrac) schedules[schedKey].practicalHours++;
+          else schedules[schedKey].theoryHours++;
+        }
+      });
+    }
   });
 
   const facultyList = targetFacultyCode === 'ALL'
@@ -2011,14 +2292,22 @@ async function renderAdminTeacherTimetables(containerElement, deptName, targetFa
             else dispText = `${item.courseAlias || item.courseCode}`;
 
             const semLabel = item.semester && item.semester !== '-' ? `Sem ${item.semester}` : '';
+            const coTeacherHtml = (item.coTeachers && item.coTeachers.length > 0)
+              ? `<div class="teacher-slot-coteacher" style="font-size: 10px; color: #166534; font-weight: 700; margin-top: 2px;"><i class="fa-solid fa-users" style="font-size: 9px;"></i> with ${item.coTeachers.join(', ')}</div>`
+              : '';
+            const roomHtml = item.roomNo
+              ? `<span class="teacher-slot-room" style="font-size: 10px; opacity: 0.85; font-weight: 600;">[Rm: ${item.roomNo}]</span>`
+              : '';
 
             return `
               <div class="teacher-slot-inner">
                 <span class="teacher-slot-course" title="${item.courseName} (${item.courseCode})">${dispText}</span>
-                <div style="display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 2px;">
+                <div style="display: flex; gap: 4px; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 2px;">
                   ${semLabel ? `<span class="teacher-slot-sem-pill">${semLabel}</span>` : ''}
+                  ${roomHtml}
                   <span class="teacher-slot-type-badge">${typeLabel}</span>
                 </div>
+                ${coTeacherHtml}
               </div>
             `;
           }).join('<div style="border-top: 1px dashed rgba(0,0,0,0.15); margin: 3px 0;"></div>');
@@ -2956,7 +3245,7 @@ let localGlobalLocks = [];
 
 async function loadGlobalLocks() {
   try {
-    const token = sessionStorage.getItem('adminToken') || 'admin-token';
+    const token = sessionStorage.getItem('adminToken') || '';
     const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
       headers: { 'Authorization': token }
     });
@@ -3105,7 +3394,7 @@ function renderGlobalLocksGrid() {
       renderGlobalLocksGrid();
 
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3401,7 +3690,7 @@ function bindGlobalLocksEvents() {
       renderGlobalLocksGrid();
 
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3436,7 +3725,7 @@ function bindGlobalLocksEvents() {
       renderGlobalLocksGrid();
 
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3555,7 +3844,7 @@ function bindGlobalLocksEvents() {
 
       // Immediately persist to server so department view sees it instantly
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3603,7 +3892,7 @@ function bindGlobalLocksEvents() {
 
       // Immediately persist to server so slot is unlocked across all departments
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3626,7 +3915,7 @@ function bindGlobalLocksEvents() {
   if (btnSave) {
     btnSave.addEventListener('click', async () => {
       try {
-        const token = sessionStorage.getItem('adminToken') || 'admin-token';
+        const token = sessionStorage.getItem('adminToken') || '';
         const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -3666,7 +3955,7 @@ function bindGlobalLocksEvents() {
 
         // Immediately persist to server so all department slots are unlocked
         try {
-          const token = sessionStorage.getItem('adminToken') || 'admin-token';
+          const token = sessionStorage.getItem('adminToken') || '';
           const res = await fetch(`${API_BASE}/admin/global-locked-periods`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': token },
@@ -4103,4 +4392,692 @@ window.openAdminCommonSubjectDetail = function(subjectCode) {
     });
   });
 };
+
+// ==========================================================================
+// FREE FACULTY / STAFF ROOM ROSTER & AVAILABILITY MATRIX
+// ==========================================================================
+const freeFacultyState = {
+  initialized: false,
+  data: null,
+  filters: {
+    day: 'MONDAY',
+    period: '1',
+    dept: 'ALL',
+    program: 'ALL',
+    sem: 'ALL',
+    sort: 'name-asc',
+    search: '',
+    viewMode: 'roster'
+  }
+};
+
+async function renderFreeFacultySection(forceReload = false) {
+  initFreeFacultyControls();
+
+  if (!freeFacultyState.data || forceReload) {
+    const rosterTbody = document.querySelector('#table-free-faculty-roster tbody');
+    const matrixTbody = document.querySelector('#table-free-faculty-matrix tbody');
+    if (rosterTbody) {
+      rosterTbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted"><i class="fa-solid fa-spinner fa-spin text-primary"></i> Checking all faculty schedules across departments...</td></tr>`;
+    }
+    if (matrixTbody) {
+      matrixTbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted"><i class="fa-solid fa-spinner fa-spin text-primary"></i> Compiling weekly timetable matrix...</td></tr>`;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/admin/free-faculty`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      freeFacultyState.data = await res.json();
+      populateFreeFacultyDepartments();
+    } catch (err) {
+      console.error('Failed to load free faculty data:', err);
+      if (rosterTbody) {
+        rosterTbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger"><i class="fa-solid fa-triangle-exclamation"></i> Error loading faculty availability: ${escapeHtml(err.message)}</td></tr>`;
+      }
+      return;
+    }
+  }
+
+  applyFreeFacultyFilters();
+}
+
+function initFreeFacultyControls() {
+  if (freeFacultyState.initialized) return;
+  freeFacultyState.initialized = true;
+
+  // Intelligently default to today's weekday if Monday to Friday
+  const weekdayNames = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+  const currentDayIndex = new Date().getDay();
+  if (currentDayIndex >= 1 && currentDayIndex <= 5) {
+    freeFacultyState.filters.day = weekdayNames[currentDayIndex];
+  }
+
+  // Update day pill UI to reflect default day
+  const dayPills = document.querySelectorAll('#free-fac-day-pills .day-pill');
+  dayPills.forEach(pill => {
+    const d = pill.getAttribute('data-day');
+    if (d === freeFacultyState.filters.day) {
+      pill.classList.add('active', 'btn-primary');
+      pill.classList.remove('btn-outline');
+    } else {
+      pill.classList.remove('active', 'btn-primary');
+      pill.classList.add('btn-outline');
+    }
+
+    pill.addEventListener('click', () => {
+      dayPills.forEach(p => {
+        p.classList.remove('active', 'btn-primary');
+        p.classList.add('btn-outline');
+      });
+      pill.classList.add('active', 'btn-primary');
+      pill.classList.remove('btn-outline');
+      freeFacultyState.filters.day = pill.getAttribute('data-day');
+      applyFreeFacultyFilters();
+    });
+  });
+
+  // Period pills
+  const periodPills = document.querySelectorAll('#free-fac-period-pills .period-pill');
+  periodPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      periodPills.forEach(p => {
+        p.classList.remove('active', 'btn-primary');
+        p.classList.add('btn-outline');
+      });
+      pill.classList.add('active', 'btn-primary');
+      pill.classList.remove('btn-outline');
+      freeFacultyState.filters.period = pill.getAttribute('data-period');
+      applyFreeFacultyFilters();
+    });
+  });
+
+  // View mode toggles
+  const btnRoster = document.getElementById('btn-view-mode-roster');
+  const btnMatrix = document.getElementById('btn-view-mode-matrix');
+  const viewRoster = document.getElementById('view-free-faculty-roster');
+  const viewMatrix = document.getElementById('view-free-faculty-matrix');
+
+  if (btnRoster && btnMatrix) {
+    btnRoster.addEventListener('click', () => {
+      freeFacultyState.filters.viewMode = 'roster';
+      btnRoster.classList.add('btn-primary');
+      btnRoster.classList.remove('btn-outline');
+      btnMatrix.classList.remove('btn-primary');
+      btnMatrix.classList.add('btn-outline');
+      if (viewRoster) viewRoster.classList.remove('hidden');
+      if (viewMatrix) viewMatrix.classList.add('hidden');
+      applyFreeFacultyFilters();
+    });
+
+    btnMatrix.addEventListener('click', () => {
+      freeFacultyState.filters.viewMode = 'matrix';
+      btnMatrix.classList.add('btn-primary');
+      btnMatrix.classList.remove('btn-outline');
+      btnRoster.classList.remove('btn-primary');
+      btnRoster.classList.add('btn-outline');
+      if (viewMatrix) viewMatrix.classList.remove('hidden');
+      if (viewRoster) viewRoster.classList.add('hidden');
+      applyFreeFacultyFilters();
+    });
+  }
+
+  // Dropdown filter events
+  const selDept = document.getElementById('select-free-dept');
+  if (selDept) {
+    selDept.addEventListener('change', (e) => {
+      freeFacultyState.filters.dept = e.target.value;
+      applyFreeFacultyFilters();
+    });
+  }
+
+  const selProgram = document.getElementById('select-free-program');
+  if (selProgram) {
+    selProgram.addEventListener('change', (e) => {
+      freeFacultyState.filters.program = e.target.value;
+      applyFreeFacultyFilters();
+    });
+  }
+
+  const selSem = document.getElementById('select-free-sem');
+  if (selSem) {
+    selSem.addEventListener('change', (e) => {
+      freeFacultyState.filters.sem = e.target.value;
+      applyFreeFacultyFilters();
+    });
+  }
+
+  const selSort = document.getElementById('select-free-sort');
+  if (selSort) {
+    selSort.addEventListener('change', (e) => {
+      freeFacultyState.filters.sort = e.target.value;
+      applyFreeFacultyFilters();
+    });
+  }
+
+  // Quick search input
+  const inputSearch = document.getElementById('input-free-search');
+  if (inputSearch) {
+    inputSearch.addEventListener('input', (e) => {
+      freeFacultyState.filters.search = e.target.value.trim().toLowerCase();
+      applyFreeFacultyFilters();
+    });
+  }
+
+  // Refresh button
+  const btnRefresh = document.getElementById('btn-refresh-free-faculty');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      renderFreeFacultySection(true);
+    });
+  }
+
+  // CSV Export button
+  const btnExportCsv = document.getElementById('btn-export-free-faculty-csv');
+  if (btnExportCsv) {
+    btnExportCsv.addEventListener('click', () => {
+      exportFreeFacultyCSV();
+    });
+  }
+
+  // Print button
+  const btnPrint = document.getElementById('btn-print-free-faculty');
+  if (btnPrint) {
+    btnPrint.addEventListener('click', () => {
+      printFreeFacultyRoster();
+    });
+  }
+}
+
+function populateFreeFacultyDepartments() {
+  const selDept = document.getElementById('select-free-dept');
+  if (!selDept || !freeFacultyState.data) return;
+
+  const currentVal = selDept.value;
+  const departments = freeFacultyState.data.departments || [];
+
+  selDept.innerHTML = `<option value="ALL">All Departments (${departments.length})</option>`;
+  departments.forEach(dept => {
+    const opt = document.createElement('option');
+    opt.value = dept;
+    opt.textContent = dept;
+    selDept.appendChild(opt);
+  });
+
+  if (departments.includes(currentVal)) {
+    selDept.value = currentVal;
+  }
+}
+
+function applyFreeFacultyFilters() {
+  if (!freeFacultyState.data || !freeFacultyState.data.faculty) return;
+
+  const { day, period, dept, program, sem, sort, search, viewMode } = freeFacultyState.filters;
+  const allFaculty = freeFacultyState.data.faculty;
+
+  // 1. Compute Slot info label for metrics ribbon
+  const dayDisplay = day === 'ALL' ? 'All Weekdays' : day.charAt(0) + day.slice(1).toLowerCase();
+  const periodDisplay = period === 'ALL' ? 'All Periods' : `Period ${period}`;
+  const slotText = (day === 'ALL' && period === 'ALL')
+    ? 'All Days & Periods'
+    : (day === 'ALL' ? `Every Day, ${periodDisplay}` : (period === 'ALL' ? `${dayDisplay}, All Periods` : `${dayDisplay}, ${periodDisplay}`));
+
+  const statSlotInfo = document.getElementById('stat-slot-info');
+  const statSlotSubinfo = document.getElementById('stat-slot-subinfo');
+  if (statSlotInfo) statSlotInfo.textContent = `${day === 'ALL' ? 'All' : day.slice(0,3)} ${period === 'ALL' ? 'All' : 'P' + period}`;
+  if (statSlotSubinfo) statSlotSubinfo.textContent = slotText;
+
+  // 2. Base filter matching department, program, semester, search
+  let filtered = allFaculty.filter(fac => {
+    // Department filter
+    if (dept !== 'ALL' && fac.department !== dept) return false;
+
+    // Program (UG / PG) filter
+    if (program !== 'ALL') {
+      const hasProg = fac.programs && fac.programs.some(p => p.toUpperCase() === program.toUpperCase());
+      if (!hasProg) return false;
+    }
+
+    // Semester filter
+    if (sem !== 'ALL') {
+      const semStr = String(sem);
+      const teachesSem = fac.semesters && fac.semesters.some(s => String(s) === semStr);
+      if (!teachesSem) return false;
+    }
+
+    // Search filter
+    if (search) {
+      const q = search.toLowerCase();
+      const match = (fac.name && fac.name.toLowerCase().includes(q)) ||
+                    (fac.code && fac.code.toLowerCase().includes(q)) ||
+                    (fac.department && fac.department.toLowerCase().includes(q)) ||
+                    (fac.staffId && fac.staffId.toLowerCase().includes(q)) ||
+                    (fac.designation && fac.designation.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+
+    return true;
+  });
+
+  // 3. Calculate slot availability metrics among filtered faculty
+  let freeInSlotCount = 0;
+  let busyInSlotCount = 0;
+
+  filtered.forEach(fac => {
+    if (day !== 'ALL' && period !== 'ALL') {
+      const slotSched = fac.weeklySchedule?.[day]?.[period];
+      fac._isFreeInActiveSlot = Boolean(slotSched && slotSched.free);
+      if (fac._isFreeInActiveSlot) {
+        freeInSlotCount++;
+      } else {
+        busyInSlotCount++;
+      }
+    } else if (day !== 'ALL') {
+      const freePeriodsToday = fac.freeSlotsByDay?.[day] || [];
+      fac._freeTodayCount = freePeriodsToday.length;
+      fac._isFreeInActiveSlot = freePeriodsToday.length > 0;
+      if (fac._isFreeInActiveSlot) freeInSlotCount++;
+      else busyInSlotCount++;
+    } else if (period !== 'ALL') {
+      let freeDaysForPeriod = 0;
+      ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"].forEach(d => {
+        if (fac.weeklySchedule?.[d]?.[period]?.free) freeDaysForPeriod++;
+      });
+      fac._freeDaysForPeriod = freeDaysForPeriod;
+      fac._isFreeInActiveSlot = freeDaysForPeriod > 0;
+      if (fac._isFreeInActiveSlot) freeInSlotCount++;
+      else busyInSlotCount++;
+    } else {
+      fac._isFreeInActiveSlot = fac.totalFree > 0;
+      if (fac._isFreeInActiveSlot) freeInSlotCount++;
+      else busyInSlotCount++;
+    }
+  });
+
+  // Update top metric cards
+  const statFreeCount = document.getElementById('stat-free-count');
+  const statBusyCount = document.getElementById('stat-busy-count');
+  const statTotalFaculty = document.getElementById('stat-total-faculty');
+  if (statFreeCount) statFreeCount.textContent = freeInSlotCount;
+  if (statBusyCount) statBusyCount.textContent = busyInSlotCount;
+  if (statTotalFaculty) statTotalFaculty.textContent = filtered.length;
+
+  // 4. In Staff Room Roster View, show faculty who are free (resting in staff room)
+  let rosterList = filtered;
+  if (viewMode === 'roster') {
+    if (day !== 'ALL' && period !== 'ALL') {
+      rosterList = filtered.filter(f => f._isFreeInActiveSlot);
+    } else if (day !== 'ALL') {
+      rosterList = filtered.filter(f => (f._freeTodayCount || 0) > 0);
+    } else if (period !== 'ALL') {
+      rosterList = filtered.filter(f => (f._freeDaysForPeriod || 0) > 0);
+    }
+  }
+
+  // 5. Apply sorting
+  const sortFn = (a, b) => {
+    if (sort === 'name-asc') return (a.name || '').localeCompare(b.name || '');
+    if (sort === 'name-desc') return (b.name || '').localeCompare(a.name || '');
+    if (sort === 'code-asc') return (a.code || '').localeCompare(b.code || '');
+    if (sort === 'dept-asc') return (a.department || '').localeCompare(b.department || '') || (a.name || '').localeCompare(b.name || '');
+    if (sort === 'free-desc') return (b.totalFree || 0) - (a.totalFree || 0);
+    if (sort === 'free-asc') return (a.totalFree || 0) - (b.totalFree || 0);
+    return 0;
+  };
+
+  rosterList.sort(sortFn);
+  filtered.sort(sortFn);
+
+  // 6. Render view
+  if (viewMode === 'roster') {
+    renderFreeFacultyRoster(rosterList, slotText);
+  } else {
+    renderFreeFacultyMatrix(filtered);
+  }
+}
+
+function renderFreeFacultyRoster(rosterList, slotText) {
+  const tbody = document.querySelector('#table-free-faculty-roster tbody');
+  const titleEl = document.getElementById('roster-table-title');
+  const badgeCount = document.getElementById('badge-free-roster-count');
+  const { day, period } = freeFacultyState.filters;
+
+  if (titleEl) {
+    titleEl.innerHTML = `<i class="fa-solid fa-mug-hot text-success"></i> Available Faculty in Staff Room &mdash; <span style="font-weight: 500; color: var(--text-muted); font-size: 13px;">${escapeHtml(slotText)}</span>`;
+  }
+  if (badgeCount) {
+    badgeCount.textContent = `${rosterList.length} Faculty Available`;
+  }
+
+  if (!tbody) return;
+
+  if (rosterList.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center py-5">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-muted);">
+            <i class="fa-solid fa-chalkboard-user" style="font-size: 32px; color: #94a3b8;"></i>
+            <strong style="font-size: 14px; color: var(--text-main);">No Faculty Free in Staff Room</strong>
+            <p style="font-size: 12px; margin: 0; max-width: 420px;">All matching teachers currently have assigned teaching classes during this period, or no teachers match the current filters.</p>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const effectiveDay = day === 'ALL' ? 'MONDAY' : day;
+
+  tbody.innerHTML = rosterList.map(fac => {
+    // Generate Day's Period badges
+    const daySched = fac.weeklySchedule?.[effectiveDay] || {};
+    const teachingPeriods = freeFacultyState.data.periods || ["1", "2", "3", "4", "5", "6"];
+    
+    const periodPillsHtml = teachingPeriods.map(p => {
+      const isFree = daySched[p] && daySched[p].free;
+      const isCurrentSlot = (p === period && (day === 'ALL' || day === effectiveDay));
+      if (isFree) {
+        const bg = isCurrentSlot ? '#16a34a' : '#dcfce7';
+        const color = isCurrentSlot ? '#ffffff' : '#15803d';
+        const border = isCurrentSlot ? '1px solid #15803d' : '1px solid #86efac';
+        return `<span class="badge" style="background:${bg}; color:${color}; border:${border}; font-weight:700; margin-right:3px; padding:3px 7px; font-size:11px;" title="Period ${p}: Free in Staff Room">P${p}${isCurrentSlot ? ' ✓' : ''}</span>`;
+      } else {
+        const assign = daySched[p] || {};
+        return `<span class="badge" style="background:#f1f5f9; color:#94a3b8; border: 1px solid #e2e8f0; font-weight:500; margin-right:3px; padding:3px 7px; font-size:11px;" title="Period ${p}: Teaching ${escapeHtml(assign.courseAlias || assign.courseCode || '')}">P${p}</span>`;
+      }
+    }).join('');
+
+    const programsHtml = (fac.programs || []).map(pr => `<span class="badge" style="background: ${pr === 'PG' ? '#fef3c7' : '#e0f2fe'}; color: ${pr === 'PG' ? '#92400e' : '#0369a1'}; font-size: 10px; font-weight: 600;">${pr}</span>`).join(' ');
+    const semText = (fac.semesters && fac.semesters.length > 0) ? `Sem ${fac.semesters.join(', ')}` : 'Sem -';
+
+    return `
+      <tr>
+        <td style="font-family: monospace; font-size: 12px; color: var(--text-muted);">${escapeHtml(fac.staffId || '-')}</td>
+        <td><span class="badge" style="background: #ede9fe; color: #5b21b6; font-weight: 700; font-size: 12px; letter-spacing: 0.5px;">${escapeHtml(fac.code)}</span></td>
+        <td>
+          <div style="line-height: 1.3;">
+            <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(fac.name)}</strong>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(fac.designation || 'Faculty Member')}</div>
+          </div>
+        </td>
+        <td>
+          <span class="badge badge-info" style="font-size: 11px;">${escapeHtml(fac.department)}</span>
+        </td>
+        <td>
+          <span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; font-weight: 700; padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;">
+            <i class="fa-solid fa-mug-hot"></i> Free in Staff Room
+          </span>
+        </td>
+        <td>
+          <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 2px;">
+            ${periodPillsHtml}
+          </div>
+        </td>
+        <td>
+          <div style="display: flex; align-items: baseline; gap: 4px;">
+            <strong style="color: #16a34a; font-size: 14px;">${fac.totalFree} hrs</strong>
+            <span style="font-size: 11px; color: var(--text-muted);">/ ${fac.maxPeriods} hrs</span>
+          </div>
+          <div style="background: #e2e8f0; height: 4px; border-radius: 2px; width: 85px; margin-top: 4px; overflow: hidden;">
+            <div style="background: #16a34a; height: 100%; width: ${Math.round((fac.totalFree / (fac.maxPeriods || 30)) * 100)}%;"></div>
+          </div>
+        </td>
+        <td>
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <div>
+              <strong style="color: var(--primary); font-size: 13px;">${fac.totalBusy} hrs</strong>
+              <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">${semText}</span>
+            </div>
+            <div>${programsHtml}</div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderFreeFacultyMatrix(facultyList) {
+  const table = document.getElementById('table-free-faculty-matrix');
+  if (!table) return;
+
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  const { day, period } = freeFacultyState.filters;
+  const weekdays = freeFacultyState.data.weekdays || ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const teachingPeriods = freeFacultyState.data.periods || ["1", "2", "3", "4", "5", "6"];
+
+  if (day !== 'ALL') {
+    // Single Day Matrix: Columns: Staff ID, Code, Name, Dept, P1..P6, Total Free Today
+    thead.innerHTML = `
+      <tr style="background: #f8fafc;">
+        <th style="width: 80px;">Staff ID</th>
+        <th style="width: 80px;">Code</th>
+        <th>Faculty Name</th>
+        <th>Department</th>
+        ${teachingPeriods.map(p => `
+          <th class="text-center" style="width: 100px; ${p === period ? 'background: rgba(37, 99, 235, 0.08); border-bottom: 2px solid var(--primary);' : ''}">
+            Period ${p}
+          </th>
+        `).join('')}
+        <th class="text-center" style="width: 110px;">Day Free</th>
+      </tr>
+    `;
+
+    if (facultyList.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${4 + teachingPeriods.length + 1}" class="text-center py-4 text-muted">No faculty matching selected filters</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = facultyList.map(fac => {
+      const daySched = fac.weeklySchedule?.[day] || {};
+      const freeSlots = fac.freeSlotsByDay?.[day] || [];
+
+      const periodsHtml = teachingPeriods.map(p => {
+        const slot = daySched[p];
+        const isFree = slot && slot.free;
+        const isTargetSlot = (p === period);
+
+        if (isFree) {
+          return `
+            <td class="text-center" style="${isTargetSlot ? 'background: #f0fdf4; border: 1.5px solid #86efac;' : 'background: #f8fafc;'}">
+              <span class="badge" style="background: #dcfce7; color: #166534; border: 1px solid #86efac; font-weight: 600; padding: 4px 8px; font-size: 11px;">
+                <i class="fa-solid fa-mug-hot"></i> Free
+              </span>
+            </td>
+          `;
+        } else {
+          const assign = slot || {};
+          const title = `${assign.courseName || assign.courseCode} (${assign.department}) Sem ${assign.semester}`;
+          return `
+            <td class="text-center" style="${isTargetSlot ? 'background: #eff6ff; border: 1.5px solid #93c5fd;' : ''}">
+              <span class="badge" style="background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; font-weight: 600; padding: 4px 8px; font-size: 11px; max-width: 90px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; display: inline-block;" title="${escapeHtml(title)}">
+                <i class="fa-solid fa-chalkboard-user"></i> ${escapeHtml(assign.courseAlias || assign.courseCode || 'Busy')}
+              </span>
+            </td>
+          `;
+        }
+      }).join('');
+
+      return `
+        <tr>
+          <td style="font-family: monospace; font-size: 11px; color: var(--text-muted);">${escapeHtml(fac.staffId || '-')}</td>
+          <td><span class="badge" style="background: #e2e8f0; color: #334155; font-weight: 700;">${escapeHtml(fac.code)}</span></td>
+          <td>
+            <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(fac.name)}</strong>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(fac.designation)}</div>
+          </td>
+          <td><span class="badge badge-info" style="font-size: 11px;">${escapeHtml(fac.department)}</span></td>
+          ${periodsHtml}
+          <td class="text-center">
+            <strong style="color: #16a34a; font-size: 13px;">${freeSlots.length} / ${teachingPeriods.length}</strong>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  } else {
+    // All Days Matrix: Columns: Staff ID, Code, Name, Dept, Mon, Tue, Wed, Thu, Fri, Total Free Week
+    thead.innerHTML = `
+      <tr style="background: #f8fafc;">
+        <th style="width: 80px;">Staff ID</th>
+        <th style="width: 80px;">Code</th>
+        <th>Faculty Name</th>
+        <th>Department</th>
+        ${weekdays.map(d => `<th class="text-center" style="min-width: 140px;">${d.charAt(0) + d.slice(1,3).toLowerCase()}</th>`).join('')}
+        <th class="text-center" style="width: 110px;">Weekly Free</th>
+      </tr>
+    `;
+
+    if (facultyList.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${4 + weekdays.length + 1}" class="text-center py-4 text-muted">No faculty matching selected filters</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = facultyList.map(fac => {
+      const daysHtml = weekdays.map(d => {
+        const freeSlots = fac.freeSlotsByDay?.[d] || [];
+        const busySlots = fac.busySlotsByDay?.[d] || [];
+
+        const freeBadges = freeSlots.length > 0
+          ? freeSlots.map(p => `<span class="badge" style="background: #dcfce7; color: #166534; font-size: 10px; padding: 2px 5px; margin: 1px;">P${p}</span>`).join('')
+          : '<span class="text-muted" style="font-size: 11px;">None</span>';
+
+        return `
+          <td style="font-size: 11px;">
+            <div style="display: flex; flex-direction: column; gap: 3px;">
+              <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                <span style="color: #166534; font-weight: 700; font-size: 10px;">Free:</span>
+                ${freeBadges}
+              </div>
+              <div style="font-size: 10px; color: var(--text-muted);">
+                Teaching: ${busySlots.length} period${busySlots.length === 1 ? '' : 's'}
+              </div>
+            </div>
+          </td>
+        `;
+      }).join('');
+
+      return `
+        <tr>
+          <td style="font-family: monospace; font-size: 11px; color: var(--text-muted);">${escapeHtml(fac.staffId || '-')}</td>
+          <td><span class="badge" style="background: #e2e8f0; color: #334155; font-weight: 700;">${escapeHtml(fac.code)}</span></td>
+          <td>
+            <strong style="color: var(--text-main); font-size: 13px;">${escapeHtml(fac.name)}</strong>
+            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(fac.designation)}</div>
+          </td>
+          <td><span class="badge badge-info" style="font-size: 11px;">${escapeHtml(fac.department)}</span></td>
+          ${daysHtml}
+          <td class="text-center">
+            <strong style="color: #16a34a; font-size: 13px;">${fac.totalFree} hrs</strong>
+            <div style="font-size: 10px; color: var(--text-muted);">/ ${fac.maxPeriods} hrs</div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
+function exportFreeFacultyCSV() {
+  const { day, period, dept, program, sem, viewMode } = freeFacultyState.filters;
+  const table = viewMode === 'roster'
+    ? document.getElementById('table-free-faculty-roster')
+    : document.getElementById('table-free-faculty-matrix');
+
+  if (!table) return;
+
+  const rows = [];
+  const ths = table.querySelectorAll('thead th');
+  rows.push(Array.from(ths).map(th => `"${th.textContent.replace(/[\n\r]+/g, ' ').trim()}"`).join(','));
+
+  const trs = table.querySelectorAll('tbody tr');
+  trs.forEach(tr => {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length === 0) return;
+    const rowValues = Array.from(tds).map(td => `"${td.textContent.replace(/[\n\r]+/g, ' ').replace(/\s+/g, ' ').trim()}"`);
+    rows.push(rowValues.join(','));
+  });
+
+  const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(rows.join("\n"));
+  const link = document.createElement("a");
+  const fileName = `Free_Faculty_${viewMode}_${day}_P${period}_${dept}_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.setAttribute("href", csvContent);
+  link.setAttribute("download", fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function printFreeFacultyRoster() {
+  const { day, period, dept, program, sem, viewMode } = freeFacultyState.filters;
+  const table = viewMode === 'roster'
+    ? document.getElementById('table-free-faculty-roster')
+    : document.getElementById('table-free-faculty-matrix');
+
+  if (!table) return;
+
+  const dayDisplay = day === 'ALL' ? 'All Weekdays' : day.charAt(0) + day.slice(1).toLowerCase();
+  const periodDisplay = period === 'ALL' ? 'All Periods' : `Period ${period}`;
+  const slotText = (day === 'ALL' && period === 'ALL')
+    ? 'All Days & Periods'
+    : (day === 'ALL' ? `Every Day, ${periodDisplay}` : (period === 'ALL' ? `${dayDisplay}, All Periods` : `${dayDisplay}, ${periodDisplay}`));
+
+  const printWindow = window.open('', '_blank', 'width=1100,height=750');
+  if (!printWindow) {
+    window.print();
+    return;
+  }
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Free Faculty Staff Room Roster - ${slotText}</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 20px; color: #1e293b; }
+        .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }
+        .header h1 { margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .header h2 { margin: 4px 0 0; font-size: 15px; color: #2563eb; }
+        .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; background: #f8fafc; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; }
+        .meta-item strong { display: block; color: #64748b; font-size: 10px; text-transform: uppercase; margin-bottom: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+        th { background: #f1f5f9; font-weight: 700; color: #334155; }
+        .text-center { text-align: center; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 10px; }
+        .footer { margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
+        @media print {
+          @page { size: landscape; margin: 12mm; }
+          body { margin: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Central Faculty Timetable System</h1>
+        <h2>Staff Room Availability Roster & Free Faculty Report</h2>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item"><strong>Inspected Slot</strong><span>${escapeHtml(slotText)}</span></div>
+        <div class="meta-item"><strong>Department Filter</strong><span>${escapeHtml(dept)}</span></div>
+        <div class="meta-item"><strong>Program & Semester</strong><span>${escapeHtml(program)} / Sem ${escapeHtml(sem)}</span></div>
+        <div class="meta-item"><strong>Generated On</strong><span>${new Date().toLocaleString()}</span></div>
+      </div>
+      ${table.outerHTML}
+      <div class="footer">
+        <span>Verified by Central Administration</span>
+        <span>Faculty Scheduling System &bull; Staff Room Availability Report</span>
+      </div>
+      <script>
+        window.onload = function() {
+          window.print();
+        };
+      <\/script>
+    </body>
+    </html>
+  `;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
 

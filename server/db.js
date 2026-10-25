@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import pg from 'pg';
+import { createNormalizedTables } from './schema.js';
+import { migrateDataToNormalizedTables } from './migrate_normalized.js';
 
 const { Pool } = pg;
 
@@ -113,10 +115,12 @@ function parseDbData(rawData) {
       fundingTypes:  { "1": "Aided", "2": "Self Finance" },
       yearSemMap:    {}
     },
-    periods: rawData.periods || ["1", "2", "3", "LB", "4", "5", "6"]
+    periods: rawData.periods || ["1", "2", "3", "LB", "4", "5", "6"],
+    crossDepartmentRequests: rawData.crossDepartmentRequests || []
   };
 
   // Ensure default structures are present
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
   if (!db.teacherUnavailability) db.teacherUnavailability = {};
   if (!db.subjectTeacherMapping) db.subjectTeacherMapping = {};
   if (!db.commonBatches) db.commonBatches = [];
@@ -219,6 +223,13 @@ function initDbSync() {
   });
   dbInstance = parseDbData(rawData);
 
+  createNormalizedTables(sqliteDb);
+  const checkNormalized = sqliteDb.prepare('SELECT count(*) as count FROM courses').get();
+  if (checkNormalized.count === 0) {
+    migrateDataToNormalizedTables(sqliteDb);
+    console.log("[Database] Automatically initialized and migrated normalized relational tables.");
+  }
+
   if (dbInstance && dbInstance.__needsDbSave) {
     delete dbInstance.__needsDbSave;
     writeDb(dbInstance);
@@ -271,7 +282,8 @@ export function writeDb(data) {
     subjectTeacherMapping: data.subjectTeacherMapping || {},
     commonBatches: data.commonBatches || [],
     batchConfig: data.batchConfig,
-    periods: data.periods
+    periods: data.periods,
+    crossDepartmentRequests: data.crossDepartmentRequests || []
   };
 
   if (isPostgres) {
@@ -287,6 +299,7 @@ export function writeDb(data) {
         Object.entries(dbData).forEach(([key, val]) => {
           stmt.run(key, JSON.stringify(val));
         });
+        migrateDataToNormalizedTables(sqliteDb);
       });
       saveTransaction(payload);
       return true;

@@ -34,10 +34,24 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'"
+  );
   next();
 });
 
-// Enable CORS and parsing of JSON bodies with payload limits
+// Block sensitive file extension probes and dotfiles immediately with 403 Forbidden
+const FORBIDDEN_PROBE_REGEX = /(\/\.|\.(sql|bak|dump|db|sqlite|sqlite3|tar\.gz|key|log|env)($|\?))/i;
+app.use((req, res, next) => {
+  if (FORBIDDEN_PROBE_REGEX.test(req.path)) {
+    return res.status(403).json({ error: 'Access forbidden.' });
+  }
+  next();
+});
 app.use(cors({
   origin: true,
   credentials: true
@@ -53,8 +67,9 @@ app.use('/api', apiLimiter, (req, res, next) => {
   next();
 });
 
-// Serve static frontend files with no-cache to ensure browsers always receive latest updates
+// Serve static frontend files with no-cache and deny dotfiles (e.g. .env, .git)
 app.use(express.static(path.join(__dirname, '../public'), {
+  dotfiles: 'deny',
   etag: false,
   maxAge: 0,
   setHeaders: (res, filePath) => {
@@ -80,11 +95,19 @@ app.head(['/', '/health', '/api/health', '/ping'], (req, res) => {
   res.status(200).end();
 });
 
-// Configure Multer for in-memory uploads with size limits to prevent memory exhaustion DoS
+// Configure Multer for in-memory uploads with size limits and file extension validation
 const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB limit
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.xlsx', '.xls', '.csv'];
+    if (!allowedExts.includes(ext)) {
+      return cb(new Error('Invalid file type. Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed.'));
+    }
+    cb(null, true);
+  }
 });
 
 // Helper to generate unique initials code for faculty
@@ -177,13 +200,17 @@ function findAllocationClashes(allocations) {
         for (const fac of Object.keys(usage[weekday][period])) {
           const coursesSet = usage[weekday][period][fac];
           if (coursesSet.size > 1) {
-            clashes.push({
-              department: dept,
-              weekday,
-              period,
-              facultyCode: fac,
-              courses: Array.from(coursesSet)
-            });
+            // Check if they are actually different courses or just split variants of the same course
+            const uniqueBases = new Set(Array.from(coursesSet).map(c => c.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')));
+            if (uniqueBases.size > 1) {
+              clashes.push({
+                department: dept,
+                weekday,
+                period,
+                facultyCode: fac,
+                courses: Array.from(coursesSet)
+              });
+            }
           }
         }
       }
@@ -223,7 +250,7 @@ function requireDepartment(req, res, next) {
     return res.status(401).json({ success: false, message: 'Unauthorized: Department access required.' });
   }
 
-  const reqDept = (req.body.departmentName || req.query.department || '').toUpperCase().trim();
+  const reqDept = (req.body.departmentName || req.body.department || req.query.department || '').toUpperCase().trim();
   const tokenDept = (auth.departmentName || '').toUpperCase().trim();
 
   // Admins can manage any department; departments can only manage their own
@@ -592,7 +619,7 @@ app.get('/api/courses', requireUser, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/courses/alias', requireUser, (req, res) => {
+app.post('/api/courses/alias', requireDepartment, (req, res) => {
   const { code, alias, name, departmentName } = req.body;
   if (!code) return res.status(400).json({ success: false, message: 'Course code is required' });
   
@@ -618,7 +645,7 @@ app.post('/api/courses/alias', requireUser, (req, res) => {
   res.json({ success: true, message: 'Course details updated.' });
 });
 
-app.post('/api/courses/alias/batch', requireUser, (req, res) => {
+app.post('/api/courses/alias/batch', requireDepartment, (req, res) => {
   const { courses, departmentName } = req.body;
   if (!Array.isArray(courses)) {
     return res.status(400).json({ success: false, message: 'Courses must be an array.' });
@@ -652,7 +679,7 @@ app.post('/api/courses/alias/batch', requireUser, (req, res) => {
 });
 
 // Class Configuration Endpoint
-app.post('/api/courses/class-config', requireUser, (req, res) => {
+app.post('/api/courses/class-config', requireDepartment, (req, res) => {
   const { courseCode, classes, batches, departmentName } = req.body;
   if (!courseCode || classes === undefined || !Array.isArray(batches) || !departmentName) {
     return res.status(400).json({ success: false, message: 'Missing parameters.' });
@@ -676,15 +703,6 @@ app.post('/api/courses/class-config', requireUser, (req, res) => {
 
   if (course.department.toUpperCase() !== deptUpper) {
     return res.status(403).json({ success: false, message: 'Unauthorized to edit this course.' });
-  }
-
-  // Token ownership check
-  const token = req.headers['authorization'] || req.query.token;
-  if (token !== 'admin-token') {
-    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
-    if (deptUpper !== tokenDept) {
-      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
-    }
   }
 
   const targetClassesCount = parseInt(classes) || 1;
@@ -721,7 +739,7 @@ app.post('/api/courses/class-config', requireUser, (req, res) => {
 // -------------------------------------------------------------
 // Curriculum & Recommended Slots Allocation Endpoint
 // -------------------------------------------------------------
-app.post('/api/curriculum-slots', requireUser, (req, res) => {
+app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
   const { departmentName, semester, courseRecommendations, semesterBlocks } = req.body;
   if (!departmentName) {
     return res.status(400).json({ success: false, message: 'Department name is required.' });
@@ -792,7 +810,7 @@ app.post('/api/curriculum-slots', requireUser, (req, res) => {
 // -------------------------------------------------------------
 // Reset Curriculum & Recommended Slots to Master Baseline
 // -------------------------------------------------------------
-app.post('/api/curriculum-slots/reset', requireUser, (req, res) => {
+app.post('/api/curriculum-slots/reset', requireDepartment, (req, res) => {
   const { departmentName, semester, courseFilter } = req.body;
   if (!departmentName) {
     return res.status(400).json({ success: false, message: 'Department name is required.' });
@@ -858,7 +876,7 @@ app.get('/api/faculty', requireUser, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/faculty/code', requireUser, (req, res) => {
+app.post('/api/faculty/code', requireDepartment, (req, res) => {
   const { staffId, code, departmentName } = req.body;
   if (!staffId || !code) return res.status(400).json({ success: false, message: 'Staff ID and code are required' });
   
@@ -908,7 +926,7 @@ app.post('/api/faculty/code', requireUser, (req, res) => {
   res.json({ success: true, message: 'Faculty code updated.' });
 });
 
-app.post('/api/faculty/code/batch', requireUser, (req, res) => {
+app.post('/api/faculty/code/batch', requireDepartment, (req, res) => {
   const { faculty, departmentName } = req.body;
   if (!Array.isArray(faculty)) {
     return res.status(400).json({ success: false, message: 'Faculty must be an array.' });
@@ -1873,6 +1891,8 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
 
   // Check Teacher Unavailability / Blackout Slots
   const teacherUnavail = db.teacherUnavailability || {};
+  const approvedCrossReqs = (db.crossDepartmentRequests || []).filter(r => r.status === 'APPROVED');
+
   for (const fac of facultyCodes) {
     const unavail = teacherUnavail[fac] || [];
     const isUnavail = unavail.some(u => {
@@ -1889,6 +1909,22 @@ app.post('/api/allocations/validate', requireUser, (req, res) => {
         clashingCourseCode: 'TEACHER-UNAVAILABLE',
         clashingCourseName: `Faculty ${facInfo.name} has marked ${weekday} Period ${period} as an unavailable / off period.`,
         department: departmentName
+      });
+    }
+
+    // Check Cross-Department approved teaching commitments
+    const crossReq = approvedCrossReqs.find(r => 
+      (r.assignedFacultyCode || '').toUpperCase() === (fac || '').toUpperCase() &&
+      (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === weekday.toUpperCase() && String(s.period) === String(period))
+    );
+    if (crossReq) {
+      const facInfo = (db.faculty || []).find(f => f.code === fac) || { name: fac };
+      conflicts.push({
+        facultyCode: fac,
+        facultyName: facInfo.name,
+        clashingCourseCode: crossReq.courseCode,
+        clashingCourseName: `Cross-Department Teaching (${crossReq.courseName || crossReq.courseCode}) in ${crossReq.requestingDept}`,
+        department: crossReq.requestingDept
       });
     }
   }
@@ -1942,7 +1978,7 @@ app.get('/api/department/teacher-unavailability', requireUser, (req, res) => {
   res.json(db.teacherUnavailability || {});
 });
 
-app.post('/api/department/teacher-unavailability', requireUser, (req, res) => {
+app.post('/api/department/teacher-unavailability', requireDepartment, (req, res) => {
   const { facultyCode, unavailableSlots, departmentName } = req.body;
   if (!facultyCode || !Array.isArray(unavailableSlots)) {
     return res.status(400).json({ success: false, message: 'facultyCode and unavailableSlots array are required.' });
@@ -2061,11 +2097,36 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
   const targetBases = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '')));
   let clearedCount = 0;
 
+  // Preserve approved cross-department course allocations permanently so Clear Timetable doesn't wipe them
+  const approvedCrossDeptReqs = (db.crossDepartmentRequests || []).filter(
+    r => r.status === 'APPROVED' && (r.requestingDept || '').toUpperCase() === deptUpper
+  );
+
   Object.keys(deptAlloc).forEach(cCode => {
     const base = cCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
     if (targetBases.has(base) || targetBases.has(cCode)) {
-      delete deptAlloc[cCode];
-      clearedCount++;
+      const crossForCourse = approvedCrossDeptReqs.filter(r => {
+        const rBase = r.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const rClass = (r.courseCode.match(/(_G|_C)(\d+)/) || [])[2];
+        const cClass = (cCode.match(/(_G|_C)(\d+)/) || [])[2];
+        return r.courseCode === cCode || (rBase === base && (!rClass || !cClass || rClass === cClass));
+      });
+      if (crossForCourse.length > 0) {
+        // Retain cross-department assigned slots permanently
+        const preserved = {};
+        crossForCourse.forEach(r => {
+          (r.pinnedSlots || []).forEach(slot => {
+            const day = (slot.day || '').toUpperCase();
+            const p = String(slot.period);
+            if (!preserved[day]) preserved[day] = {};
+            preserved[day][p] = [r.assignedFacultyCode];
+          });
+        });
+        deptAlloc[cCode] = preserved;
+      } else {
+        delete deptAlloc[cCode];
+        clearedCount++;
+      }
     }
   });
 
@@ -2102,6 +2163,7 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
       pinnedSlots: pinnedSlots || {},
       maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
       practicalBlockSize: parseInt(practicalBlockSize) || 2,
+      allowRelaxedFallback: true,
       forceRelaxed: !!req.body.forceRelaxed
     });
 
@@ -2130,6 +2192,34 @@ app.post('/api/allocations', requireDepartment, (req, res) => {
       message: `This department's timetable is locked because it is currently ${submission.status}.`
     });
   }
+
+  // Preserve approved cross-department assignments so department save/autosave cannot overwrite or lose them
+  const approvedCross = (db.crossDepartmentRequests || []).filter(
+    r => r.status === 'APPROVED' && (r.requestingDept || '').toUpperCase() === deptUpper && r.assignedFacultyCode
+  );
+  approvedCross.forEach(r => {
+    const targetCodes = [
+      r.courseCode,
+      `${r.courseCode}-T`,
+      `${r.courseCode}-P`
+    ];
+    targetCodes.forEach(tc => {
+      if (tc === r.courseCode || allocations[tc]) {
+        if (!allocations[tc]) allocations[tc] = {};
+        (r.pinnedSlots || []).forEach(slot => {
+          const sType = slot.type || r.courseType || 'T';
+          if (tc.endsWith('-T') && sType === 'P') return;
+          if (tc.endsWith('-P') && sType !== 'P') return;
+          const day = (slot.day || '').toUpperCase();
+          const period = String(slot.period);
+          if (!allocations[tc][day]) allocations[tc][day] = {};
+          const list = allocations[tc][day][period] || [];
+          if (!list.includes(r.assignedFacultyCode)) list.push(r.assignedFacultyCode);
+          allocations[tc][day][period] = list;
+        });
+      }
+    });
+  });
 
   // Dry run clash validation
   const testAllocations = JSON.parse(JSON.stringify(db.allocations));
@@ -2411,22 +2501,10 @@ app.get('/api/submissions', requireUser, (req, res) => {
   res.json(db.submissions);
 });
 
-app.post('/api/submissions/status', requireUser, (req, res) => {
+app.post('/api/submissions/status', requireDepartment, (req, res) => {
   const { departmentName, status, comments } = req.body;
   if (!departmentName || !status) {
     return res.status(400).json({ success: false, message: 'Department name and status are required' });
-  }
-
-  // Authorize request: Either admin-token, or dept-token matching the departmentName
-  const token = req.headers['authorization'] || req.query.token;
-  if (token !== 'admin-token') {
-    if (!token.startsWith('dept-token-')) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });
-    }
-    const tokenDept = token.substring('dept-token-'.length).toUpperCase();
-    if (departmentName.toUpperCase() !== tokenDept) {
-      return res.status(403).json({ success: false, message: 'Forbidden: You do not have access to this department.' });
-    }
   }
 
   const db = readDb();
@@ -2497,6 +2575,570 @@ app.get('/api/reports/workload', requireUser, (req, res) => {
   });
   
   res.json(summary);
+});
+
+// -------------------------------------------------------------
+// Cross-Department Teaching Endpoints
+// -------------------------------------------------------------
+
+// GET all requests involving the caller's department (or all for admin)
+app.get('/api/cross-dept-requests', requireUser, (req, res) => {
+  const db = readDb();
+  const callerDept = (req.departmentName || (req.user && req.user.departmentName) || '').toUpperCase();
+  const isAdmin = req.user && req.user.role === 'admin';
+  const allReqs = db.crossDepartmentRequests || [];
+
+  if (isAdmin) {
+    return res.json({ success: true, requests: allReqs });
+  }
+
+  // Filter requests where department is either requesting or offering
+  const filtered = allReqs.filter(r => 
+    (r.requestingDept || '').toUpperCase() === callerDept ||
+    (r.offeringDept || '').toUpperCase() === callerDept
+  );
+
+  res.json({ success: true, requests: filtered });
+});
+
+// POST create a new cross-department request
+app.post('/api/cross-dept-requests', requireDepartment, (req, res) => {
+  const requestingDept = (req.departmentName || req.body.requestingDept || '').trim().toUpperCase();
+  const { offeringDept, courseCode, courseName, semester, courseType, hours, theoryHours, practicalHours, pinnedSlots } = req.body;
+
+  if (!requestingDept || !offeringDept || !courseCode || !hours || !Array.isArray(pinnedSlots)) {
+    return res.status(400).json({ success: false, message: 'All fields including offering department, course, hours, and pinned slots are required.' });
+  }
+
+  if (requestingDept === offeringDept.trim().toUpperCase()) {
+    return res.status(400).json({ success: false, message: 'Requesting department and offering department cannot be the same.' });
+  }
+
+  const numHours = parseInt(hours, 10);
+  if (isNaN(numHours) || numHours <= 0) {
+    return res.status(400).json({ success: false, message: 'Hours must be a positive integer.' });
+  }
+
+  if (pinnedSlots.length !== numHours) {
+    return res.status(400).json({ 
+      success: false, 
+      message: `You must select exactly ${numHours} recommended period slots matching the requested hours (currently selected: ${pinnedSlots.length}).` 
+    });
+  }
+
+  const thNeed = parseInt(theoryHours, 10) || 0;
+  const prNeed = parseInt(practicalHours, 10) || 0;
+
+  const db = readDb();
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
+
+  const newRequest = {
+    id: `cdr_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    requestingDept,
+    offeringDept: offeringDept.trim().toUpperCase(),
+    courseCode: courseCode.trim(),
+    courseName: (courseName || courseCode).trim(),
+    semester: String(semester || '1').trim(),
+    courseType: courseType || (prNeed > 0 && thNeed > 0 ? 'BOTH' : (prNeed > 0 ? 'P' : 'T')),
+    hours: numHours,
+    theoryHours: thNeed,
+    practicalHours: prNeed,
+    pinnedSlots, // array of { day: 'MONDAY', period: '2', type: 'T' | 'P' }
+    status: 'PENDING',
+    assignedFacultyCode: null,
+    assignedFacultyName: null,
+    rejectionReason: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  db.crossDepartmentRequests.push(newRequest);
+  writeDb(db);
+
+  res.json({ success: true, message: 'Cross-department teaching request submitted successfully.', request: newRequest });
+});
+
+// PUT handle approve or reject by offering department
+app.put('/api/cross-dept-requests/:id', requireDepartment, (req, res) => {
+  const reqId = req.params.id;
+  const callerDept = (req.departmentName || '').trim().toUpperCase();
+  const { action, facultyCode, rejectionReason } = req.body; // action: 'APPROVE' or 'REJECT'
+
+  const db = readDb();
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
+  const request = db.crossDepartmentRequests.find(r => r.id === reqId);
+
+  if (!request) {
+    return res.status(404).json({ success: false, message: 'Request not found.' });
+  }
+
+  if (request.offeringDept.toUpperCase() !== callerDept) {
+    return res.status(403).json({ success: false, message: 'Only the requested offering department can approve or reject this request.' });
+  }
+
+  if (request.status !== 'PENDING') {
+    return res.status(400).json({ success: false, message: `Request is already ${request.status}.` });
+  }
+
+  if (action === 'REJECT') {
+    request.status = 'REJECTED';
+    request.rejectionReason = rejectionReason || 'Rejected by department';
+    request.updatedAt = new Date().toISOString();
+    writeDb(db);
+    return res.json({ success: true, message: 'Request rejected.', request });
+  }
+
+  if (action === 'APPROVE') {
+    if (!facultyCode) {
+      return res.status(400).json({ success: false, message: 'You must select a faculty member to assign.' });
+    }
+
+    const fac = (db.faculty || []).find(f => (f.code || '').trim().toUpperCase() === facultyCode.trim().toUpperCase());
+    if (!fac) {
+      return res.status(400).json({ success: false, message: `Faculty with code '${facultyCode}' not found.` });
+    }
+
+    // Clash validation for assigned faculty on requested pinned slots
+    const clashingSlots = [];
+    const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    
+    // Check against existing allocations across all departments
+    (request.pinnedSlots || []).forEach(slot => {
+      const day = (slot.day || '').toUpperCase();
+      const period = String(slot.period);
+
+      for (const [dept, deptAlloc] of Object.entries(db.allocations || {})) {
+        for (const [cCode, courseDays] of Object.entries(deptAlloc || {})) {
+          const assigned = (courseDays[day] && courseDays[day][period]) || [];
+          if (assigned.includes(fac.code)) {
+            clashingSlots.push({ day, period, course: cCode, dept });
+          }
+        }
+      }
+
+      // Check blackout periods
+      const unavail = (db.teacherUnavailability && db.teacherUnavailability[fac.code]) || [];
+      const isUnavail = unavail.some(u => (u.day || '').toUpperCase() === day && String(u.period) === period);
+      if (isUnavail) {
+        clashingSlots.push({ day, period, course: 'Teacher Blackout / Unavailable', dept: callerDept });
+      }
+
+      // Check other approved cross-department assignments for this teacher
+      (db.crossDepartmentRequests || []).forEach(otherReq => {
+        if (otherReq.id !== request.id && otherReq.status === 'APPROVED' && (otherReq.assignedFacultyCode || '').toUpperCase() === fac.code.toUpperCase()) {
+          (otherReq.pinnedSlots || []).forEach(s => {
+            if ((s.day || '').toUpperCase() === day && String(s.period) === period) {
+              clashingSlots.push({ day, period, course: `Cross-Dept: ${otherReq.courseCode} (${otherReq.requestingDept})`, dept: otherReq.requestingDept });
+            }
+          });
+        }
+      });
+    });
+
+    if (clashingSlots.length > 0) {
+      const clashDesc = clashingSlots.map(c => `${c.day} Period ${c.period} (${c.course} in ${c.dept})`).join(', ');
+      return res.status(409).json({ 
+        success: false, 
+        message: `Teacher ${fac.name} (${fac.code}) has scheduling clash on requested slots: ${clashDesc}` 
+      });
+    }
+
+    // Update request state
+    request.status = 'APPROVED';
+    request.assignedFacultyCode = fac.code;
+    request.assignedFacultyName = fac.name;
+    request.updatedAt = new Date().toISOString();
+
+    // Auto-place assignment into requesting department's timetable allocations
+    const reqDept = request.requestingDept;
+    if (!db.allocations[reqDept]) db.allocations[reqDept] = {};
+
+    const cleanBase = request.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const classNum = (request.courseCode.match(/(_G|_C)(\d+)/) || [])[2];
+    const targetKeys = Array.from(new Set([
+      request.courseCode,
+      `${request.courseCode}-T`,
+      `${request.courseCode}-P`,
+      classNum ? `${cleanBase}_C${classNum}` : null,
+      classNum ? `${cleanBase}_C${classNum}-T` : null,
+      classNum ? `${cleanBase}_C${classNum}-P` : null
+    ].filter(Boolean)));
+
+    request.pinnedSlots.forEach(slot => {
+      const day = slot.day.toUpperCase();
+      const period = String(slot.period);
+      const sType = slot.type || request.courseType || 'T';
+
+      targetKeys.forEach(tKey => {
+        if (tKey.endsWith('-T') && sType === 'P') return;
+        if (tKey.endsWith('-P') && sType !== 'P') return;
+
+        if (!db.allocations[reqDept][tKey]) {
+          db.allocations[reqDept][tKey] = {};
+        }
+        if (!db.allocations[reqDept][tKey][day]) {
+          db.allocations[reqDept][tKey][day] = {};
+        }
+        const existing = db.allocations[reqDept][tKey][day][period] || [];
+        if (!existing.includes(fac.code)) {
+          existing.push(fac.code);
+        }
+        db.allocations[reqDept][tKey][day][period] = existing;
+      });
+    });
+
+    // Also update course recommendations and teacher mapping so slot type & hours are recognized
+    const matchingCourses = (db.courses || []).filter(c => 
+      c.code === request.courseCode || 
+      c.code.replace(/-(T|P)$/, '') === request.courseCode ||
+      (cleanBase && c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cleanBase && (!classNum || c.code.includes(`_C${classNum}`)))
+    );
+
+    matchingCourses.forEach(courseObj => {
+      if (!courseObj.recommendations) courseObj.recommendations = {};
+      request.pinnedSlots.forEach(slot => {
+        const day = slot.day.toUpperCase();
+        const period = String(slot.period);
+        const sType = slot.type || request.courseType || 'T';
+        if (!courseObj.recommendations[day]) courseObj.recommendations[day] = {};
+        courseObj.recommendations[day][period] = sType;
+      });
+
+      // Update teachers & workload hours on the course
+      if (!Array.isArray(courseObj.teachers)) courseObj.teachers = [];
+      if (!courseObj.teachers.includes(fac.code)) courseObj.teachers.push(fac.code);
+
+      if (!courseObj.teacherHours) courseObj.teacherHours = {};
+      courseObj.teacherHours[fac.code] = request.hours || request.pinnedSlots.length;
+
+      const hasPrac = request.pinnedSlots.some(s => (s.type || request.courseType || 'T') === 'P');
+      const hasTheory = request.pinnedSlots.some(s => (s.type || request.courseType || 'T') !== 'P');
+
+      if (hasPrac) {
+        if (!Array.isArray(courseObj.practicalTeachers)) courseObj.practicalTeachers = [];
+        if (!courseObj.practicalTeachers.includes(fac.code)) courseObj.practicalTeachers.push(fac.code);
+      }
+
+      if (hasTheory) {
+        if (!Array.isArray(courseObj.theoryTeachers)) courseObj.theoryTeachers = [];
+        if (!courseObj.theoryTeachers.includes(fac.code)) courseObj.theoryTeachers.push(fac.code);
+        if (!courseObj.theoryTeacherHours) courseObj.theoryTeacherHours = {};
+        courseObj.theoryTeacherHours[fac.code] = request.theoryHours || request.pinnedSlots.filter(s => (s.type || request.courseType || 'T') !== 'P').length;
+      }
+    });
+
+    // Sync to teacherUnavailability so teacher is marked unavailable for other classes during these slots
+    if (!db.teacherUnavailability) db.teacherUnavailability = {};
+    if (!db.teacherUnavailability[fac.code]) db.teacherUnavailability[fac.code] = [];
+    request.pinnedSlots.forEach(slot => {
+      const day = slot.day.toUpperCase();
+      const period = String(slot.period);
+      const exists = db.teacherUnavailability[fac.code].some(u => (u.day || '').toUpperCase() === day && String(u.period) === period);
+      if (!exists) {
+        db.teacherUnavailability[fac.code].push({
+          day,
+          period,
+          reason: `Cross-Dept: ${request.courseCode} (${reqDept})`
+        });
+      }
+    });
+
+    writeDb(db);
+
+    return res.json({ 
+      success: true, 
+      message: `Request approved! ${fac.name} (${fac.code}) has been assigned and scheduled into ${reqDept}'s timetable.`, 
+      request 
+    });
+  }
+
+  res.status(400).json({ success: false, message: 'Invalid action. Must be APPROVE or REJECT.' });
+});
+
+// DELETE cancel/delete a cross-department request (by sender/requesting department or admin)
+app.delete('/api/cross-dept-requests/:id', requireDepartment, (req, res) => {
+  const reqId = req.params.id;
+  const callerDept = (req.departmentName || '').trim().toUpperCase();
+  const isAdmin = req.user && req.user.role === 'admin';
+
+  const db = readDb();
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
+  const reqIndex = db.crossDepartmentRequests.findIndex(r => r.id === reqId);
+
+  if (reqIndex === -1) {
+    return res.status(404).json({ success: false, message: 'Request not found.' });
+  }
+
+  const request = db.crossDepartmentRequests[reqIndex];
+
+  // Only the requesting department (sender) or admin can delete the request
+  if (!isAdmin && request.requestingDept.toUpperCase() !== callerDept) {
+    return res.status(403).json({ success: false, message: 'Only the requesting department that created this request can delete it.' });
+  }
+
+  // 1. If approved, remove allocated details from requesting department's allocations
+  const reqDept = request.requestingDept;
+  if (request.status === 'APPROVED' && db.allocations[reqDept]) {
+    const cleanBase = request.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const classNum = (request.courseCode.match(/(_G|_C)(\d+)/) || [])[2];
+    const candidateKeys = Object.keys(db.allocations[reqDept]).filter(k => {
+      const kBase = k.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const kClass = (k.match(/(_G|_C)(\d+)/) || [])[2];
+      return k === request.courseCode || (kBase === cleanBase && (!classNum || !kClass || classNum === kClass));
+    });
+
+    candidateKeys.forEach(cKey => {
+      const courseAlloc = db.allocations[reqDept][cKey];
+      if (!courseAlloc) return;
+      (request.pinnedSlots || []).forEach(slot => {
+        const day = (slot.day || '').toUpperCase();
+        const period = String(slot.period);
+        if (courseAlloc[day] && courseAlloc[day][period]) {
+          if (request.assignedFacultyCode) {
+            courseAlloc[day][period] = courseAlloc[day][period].filter(f => f.toUpperCase() !== request.assignedFacultyCode.toUpperCase());
+          } else {
+            courseAlloc[day][period] = [];
+          }
+          if (courseAlloc[day][period].length === 0) {
+            delete courseAlloc[day][period];
+          }
+        }
+        if (courseAlloc[day] && Object.keys(courseAlloc[day]).length === 0) {
+          delete courseAlloc[day];
+        }
+      });
+
+      if (Object.keys(courseAlloc).length === 0) {
+        delete db.allocations[reqDept][cKey];
+      }
+    });
+
+    // Also remove from course teacher lists in db.courses
+    if (request.assignedFacultyCode) {
+      const facCode = request.assignedFacultyCode;
+      const matchingCourses = (db.courses || []).filter(c => 
+        c.code === request.courseCode || 
+        c.code.replace(/-(T|P)$/, '') === request.courseCode ||
+        (cleanBase && c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cleanBase && (!classNum || c.code.includes(`_C${classNum}`)))
+      );
+      matchingCourses.forEach(c => {
+        if (Array.isArray(c.teachers)) c.teachers = c.teachers.filter(f => f !== facCode);
+        if (Array.isArray(c.practicalTeachers)) c.practicalTeachers = c.practicalTeachers.filter(f => f !== facCode);
+        if (Array.isArray(c.theoryTeachers)) c.theoryTeachers = c.theoryTeachers.filter(f => f !== facCode);
+        if (c.teacherHours && c.teacherHours[facCode]) delete c.teacherHours[facCode];
+        if (c.theoryTeacherHours && c.theoryTeacherHours[facCode]) delete c.theoryTeacherHours[facCode];
+      });
+    }
+  }
+
+  // 2. If approved, restore teacher availability (remove the blackout slots from teacherUnavailability)
+  if (request.assignedFacultyCode && db.teacherUnavailability && db.teacherUnavailability[request.assignedFacultyCode]) {
+    const facCode = request.assignedFacultyCode;
+    db.teacherUnavailability[facCode] = db.teacherUnavailability[facCode].filter(u => {
+      const isMatchingReason = u.reason && (u.reason.includes(request.courseCode) || u.reason.includes(request.id));
+      const isMatchingSlot = (request.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (u.day || '').toUpperCase() && String(s.period) === String(u.period));
+      return !(isMatchingSlot && (isMatchingReason || (u.reason && u.reason.startsWith('Cross-Dept'))));
+    });
+  }
+
+  // 3. Remove request from crossDepartmentRequests array
+  db.crossDepartmentRequests.splice(reqIndex, 1);
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: 'Cross-department teaching request deleted successfully. Timetable allocations have been cleared and teacher availability has been restored.'
+  });
+});
+
+// Free Faculty / Staff Room Roster endpoint
+app.get('/api/admin/free-faculty', requireUser, (req, res) => {
+  const db = readDb();
+  const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+  const rawPeriods = db.periods || (db.config && db.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+  const teachingPeriods = rawPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+
+  // Teacher allocation lookup
+  const teacherAssignments = {};
+  const teacherSemesters = {};
+  const teacherPrograms = {};
+
+  (db.faculty || []).forEach(f => {
+    const fcUpper = (f.code || '').trim().toUpperCase();
+    teacherAssignments[fcUpper] = {};
+    teacherSemesters[fcUpper] = new Set();
+    teacherPrograms[fcUpper] = new Set();
+    weekdays.forEach(d => {
+      teacherAssignments[fcUpper][d] = {};
+    });
+  });
+
+  const allCourses = db.courses || [];
+  const allocationsByDept = db.allocations || {};
+
+  Object.entries(allocationsByDept).forEach(([deptName, deptAlloc]) => {
+    Object.entries(deptAlloc || {}).forEach(([cCode, dayObj]) => {
+      const base = cCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const course = allCourses.find(c => c.code === cCode) ||
+                     allCourses.find(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === base) ||
+                     { code: cCode, name: cCode, alias: cCode, semester: '-', department: deptName };
+      
+      const isPg = (course.code || '').toUpperCase().includes('MSC') ||
+                   (course.pathway && course.pathway.toUpperCase().includes('MSC')) ||
+                   (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
+                   course.programType === 'PG';
+      const progType = isPg ? 'PG' : 'UG';
+      const semClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+
+      Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
+        const dayUpper = day.toUpperCase();
+        if (!weekdays.includes(dayUpper)) return;
+
+        Object.entries(periodObj || {}).forEach(([period, facList]) => {
+          if (!Array.isArray(facList)) return;
+          const pStr = String(period).trim();
+          if (pStr.toUpperCase() === 'LB') return;
+
+          facList.forEach(facCode => {
+            const fcUpper = (facCode || '').trim().toUpperCase();
+            if (!teacherAssignments[fcUpper]) {
+              teacherAssignments[fcUpper] = {};
+              teacherSemesters[fcUpper] = new Set();
+              teacherPrograms[fcUpper] = new Set();
+              weekdays.forEach(d => {
+                teacherAssignments[fcUpper][d] = {};
+              });
+            }
+            teacherAssignments[fcUpper][dayUpper][pStr] = {
+              busy: true,
+              courseCode: cCode,
+              courseName: course.name || cCode,
+              courseAlias: course.alias || course.name || cCode,
+              semester: semClean,
+              programType: progType,
+              department: course.department || deptName
+            };
+            if (semClean && semClean !== '-') teacherSemesters[fcUpper].add(semClean);
+            teacherPrograms[fcUpper].add(progType);
+          });
+        });
+      });
+    });
+  });
+
+  // Also include Common Batches
+  const commonBatches = db.commonBatches || [];
+  const globalLocks = (db.config && db.config.globalLockedPeriods) || [];
+  commonBatches.forEach(b => {
+    const bSubj = (b.subjectCode || '').trim().toUpperCase();
+    const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+    const matchingLocks = globalLocks.filter(l => {
+      const lUpper = (l.label || '').trim().toUpperCase();
+      const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      return (lUpper === bSubj || lUpper.includes(bSubj) || bSubj.includes(lUpper)) &&
+             (!lSem || lSem === 'all' || lSem.toLowerCase() === bSem.toLowerCase());
+    });
+
+    const teacherCodes = Array.isArray(b.teachers) && b.teachers.length > 0
+      ? b.teachers
+      : (b.teacherCode ? b.teacherCode.split(',').map(s => s.trim()) : []);
+
+    matchingLocks.forEach(l => {
+      const dayUpper = (l.day || '').toUpperCase();
+      const pStr = String(l.period || '').trim();
+      if (!weekdays.includes(dayUpper) || pStr.toUpperCase() === 'LB') return;
+
+      teacherCodes.forEach(tCode => {
+        const fcUpper = (tCode || '').trim().toUpperCase();
+        if (!teacherAssignments[fcUpper]) {
+          teacherAssignments[fcUpper] = {};
+          teacherSemesters[fcUpper] = new Set();
+          teacherPrograms[fcUpper] = new Set();
+          weekdays.forEach(d => {
+            teacherAssignments[fcUpper][d] = {};
+          });
+        }
+        teacherAssignments[fcUpper][dayUpper][pStr] = {
+          busy: true,
+          courseCode: b.courseCode || b.subjectCode,
+          courseName: b.batchName || b.subjectCode,
+          courseAlias: `${b.batchName} (${b.subjectCode})`,
+          semester: bSem,
+          programType: 'UG',
+          department: 'Common Batches'
+        };
+        if (bSem) teacherSemesters[fcUpper].add(bSem);
+        teacherPrograms[fcUpper].add('UG');
+      });
+    });
+  });
+
+  // Calculate detailed summary per faculty
+  const facultySummary = (db.faculty || []).map(fac => {
+    const fcUpper = (fac.code || '').trim().toUpperCase();
+    const sched = teacherAssignments[fcUpper] || {};
+    let totalBusy = 0;
+    const weeklySchedule = {};
+    const freeSlotsByDay = {};
+    const busySlotsByDay = {};
+
+    weekdays.forEach(d => {
+      weeklySchedule[d] = {};
+      freeSlotsByDay[d] = [];
+      busySlotsByDay[d] = [];
+      const daySched = sched[d] || {};
+
+      teachingPeriods.forEach(p => {
+        const assignment = daySched[p];
+        if (assignment && assignment.busy) {
+          totalBusy++;
+          weeklySchedule[d][p] = { free: false, ...assignment };
+          busySlotsByDay[d].push(p);
+        } else {
+          weeklySchedule[d][p] = { free: true };
+          freeSlotsByDay[d].push(p);
+        }
+      });
+    });
+
+    const maxPeriods = weekdays.length * teachingPeriods.length;
+    const totalFree = maxPeriods - totalBusy;
+    const programsList = Array.from(teacherPrograms[fcUpper] || []);
+    if (programsList.length === 0) {
+      const deptUpper = (fac.department || '').toUpperCase();
+      programsList.push(deptUpper.includes('MSC') || deptUpper.includes('POST GRADUATE') ? 'PG' : 'UG');
+    }
+
+    const semestersList = Array.from(teacherSemesters[fcUpper] || []).sort((a,b) => parseInt(a||0) - parseInt(b||0));
+
+    return {
+      staffId: fac.staffId || '-',
+      name: fac.name || fac.code,
+      code: fac.code,
+      department: fac.department || 'General',
+      designation: fac.designation || 'Faculty Member',
+      email: fac.email || '',
+      phone: fac.phone || '',
+      totalBusy,
+      totalFree,
+      maxPeriods,
+      programs: programsList,
+      semesters: semestersList,
+      freeSlotsByDay,
+      busySlotsByDay,
+      weeklySchedule
+    };
+  });
+
+  const depts = Array.from(new Set((db.faculty || []).map(f => f.department).filter(Boolean))).sort();
+
+  res.json({
+    faculty: facultySummary,
+    periods: teachingPeriods,
+    weekdays,
+    departments: depts,
+    totalFaculty: facultySummary.length
+  });
 });
 
 // Clear database endpoint
@@ -2983,8 +3625,14 @@ app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req
   }
 });
 
-// Fallback to serve index.html for undefined requests
+// Fallback to serve index.html for client-side SPA navigation routes
 app.get('*', (req, res) => {
+  const reqPath = req.path;
+  // If requesting an API endpoint, dotfile, non-existent static asset file, or scanner probe paths, return 404
+  const isScannerProbe = /^\/(phpmyadmin|actuator|_status|api-docs|swagger|wp-admin|console)/i.test(reqPath);
+  if (reqPath.startsWith('/api/') || reqPath.startsWith('/.') || path.extname(reqPath) || isScannerProbe) {
+    return res.status(404).json({ error: 'Endpoint or resource not found.' });
+  }
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
