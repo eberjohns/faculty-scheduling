@@ -1310,13 +1310,16 @@ function renderAllocationMatrix() {
     baseCourseCodes.forEach(baseCode => {
       const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches, classes } = getMergedCourseInfo(baseCode, deptCourses);
       
-      const count = classes > 1 ? classes : 1;
+      const classNumMatch = baseCode.match(/(_G|_C)(\d+)$/);
+      const explicitClassNum = classNumMatch ? parseInt(classNumMatch[2], 10) : null;
+      const isAlreadyClassVariant = explicitClassNum !== null;
+      const count = (!isAlreadyClassVariant && classes > 1) ? classes : 1;
+
       for (let cl = 1; cl <= count; cl++) {
-        const isCloned = classes > 1;
+        const isCloned = !isAlreadyClassVariant && classes > 1;
         const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
-        const rowBatchesWeek = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
-        const classNumMatch = baseCode.match(/(_G|_C)(\d+)/);
-        const inferredClass = isCloned ? cl : (classNumMatch ? parseInt(classNumMatch[2]) : (group && group > 0 ? group : null));
+        const inferredClass = isCloned ? cl : (explicitClassNum || (group && group > 0 ? group : null));
+        const rowBatchesWeek = getCourseClassBatches(activeCourseRef, inferredClass);
         const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         const cleanAlias = (dispAlias || cleanBaseCode).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         const rowAlias = inferredClass ? `${cleanAlias} (C${inferredClass})` : cleanAlias;
@@ -1352,7 +1355,7 @@ function renderAllocationMatrix() {
               return;
             }
 
-            const cellHtml = renderCellSlot(baseCode, courseT, courseP, day, p, isCloned ? cl : null);
+            const cellHtml = renderCellSlot(baseCode, courseT, courseP, day, p, isCloned ? cl : (isAlreadyClassVariant ? explicitClassNum : null));
             td.className = cellHtml.classes;
             td.innerHTML = cellHtml.html;
             tr.appendChild(td);
@@ -1391,13 +1394,16 @@ function renderAllocationMatrix() {
     baseCourseCodes.forEach(baseCode => {
       const { courseT, courseP, dispName, dispAlias, sem, cat, group, mappedBatches, classes } = getMergedCourseInfo(baseCode, deptCourses);
       
-      const count = classes > 1 ? classes : 1;
+      const classNumMatch = baseCode.match(/(_G|_C)(\d+)$/);
+      const explicitClassNum = classNumMatch ? parseInt(classNumMatch[2], 10) : null;
+      const isAlreadyClassVariant = explicitClassNum !== null;
+      const count = (!isAlreadyClassVariant && classes > 1) ? classes : 1;
+
       for (let cl = 1; cl <= count; cl++) {
-        const isCloned = classes > 1;
+        const isCloned = !isAlreadyClassVariant && classes > 1;
         const activeCourseRef = courseT || courseP || { code: baseCode, semester: sem, classes, group, programType: (courseT || courseP || {}).programType };
-        const rowBatches = getCourseClassBatches(activeCourseRef, isCloned ? cl : null);
-        const classNumMatch = baseCode.match(/(_G|_C)(\d+)/);
-        const inferredClass = isCloned ? cl : (classNumMatch ? parseInt(classNumMatch[2]) : (group && group > 0 ? group : null));
+        const inferredClass = isCloned ? cl : (explicitClassNum || (group && group > 0 ? group : null));
+        const rowBatches = getCourseClassBatches(activeCourseRef, inferredClass);
         const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         const cleanAlias = (dispAlias || cleanBaseCode).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
         const rowAlias = inferredClass ? `${cleanAlias} (C${inferredClass})` : cleanAlias;
@@ -1438,7 +1444,7 @@ function renderAllocationMatrix() {
             return;
           }
 
-          const cellHtml = renderCellSlot(baseCode, courseT, courseP, state.selectedDay, p, isCloned ? cl : null);
+          const cellHtml = renderCellSlot(baseCode, courseT, courseP, state.selectedDay, p, isCloned ? cl : (isAlreadyClassVariant ? explicitClassNum : null));
           td.className = cellHtml.classes;
           td.innerHTML = cellHtml.html;
           tr.appendChild(td);
@@ -1737,58 +1743,80 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   
   // Calculate keys for lookup based on class index if provided
   const cleanBaseCode = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-  const effClass = classIndex || (baseCode.match(/(_G|_C)(\d+)/) || [])[2] || (currentCourse && (currentCourse.class || currentCourse.group)) || null;
+  const classNumFromCode = (baseCode.match(/(_G|_C)(\d+)$/) || [])[2];
+  const effClass = classIndex || classNumFromCode || (currentCourse && (currentCourse.class || currentCourse.group)) || null;
 
   let courseTCode = courseT ? courseT.code : '';
   let coursePCode = courseP ? courseP.code : '';
   if (classIndex) {
     courseTCode = courseT ? `${cleanBaseCode}_C${classIndex}-T` : '';
     coursePCode = courseP ? `${cleanBaseCode}_C${classIndex}-P` : '';
+  } else if (effClass) {
+    if (!courseTCode || !courseTCode.includes(`_C${effClass}`)) {
+      courseTCode = courseT ? `${cleanBaseCode}_C${effClass}-T` : '';
+    }
+    if (!coursePCode || !coursePCode.includes(`_C${effClass}`)) {
+      coursePCode = courseP ? `${cleanBaseCode}_C${effClass}-P` : '';
+    }
   }
   
-  let activeCourseCode = courseTCode || coursePCode || (effClass ? `${cleanBaseCode}_C${effClass}` : baseCode);
+  const classDefaultCode = effClass ? `${cleanBaseCode}_C${effClass}` : baseCode;
+  let activeCourseCode = courseTCode || coursePCode || classDefaultCode;
 
   if (recT === 'B' || recP === 'B') {
     highlightClass = 'slot-recommend-blocked';
     slotLabel = 'Blocked';
-    activeCourseCode = courseTCode || coursePCode || baseCode;
+    activeCourseCode = courseTCode || coursePCode || classDefaultCode;
   } else if (isM) {
     highlightClass = 'slot-recommend-m';
     slotLabel = '';
   } else if (recT === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = courseTCode || baseCode;
+    activeCourseCode = courseTCode || classDefaultCode;
   } else if (recP === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = coursePCode || baseCode;
+    activeCourseCode = coursePCode || classDefaultCode;
   } else if (recT === 'P') {
     highlightClass = 'slot-recommend-p';
     slotLabel = 'Practical Rec';
-    activeCourseCode = courseTCode || baseCode;
+    activeCourseCode = courseTCode || classDefaultCode;
   } else if (recP === 'T') {
     highlightClass = 'slot-recommend-t';
     slotLabel = 'Theory Rec';
-    activeCourseCode = coursePCode || baseCode;
+    activeCourseCode = coursePCode || classDefaultCode;
   } else {
-    activeCourseCode = courseTCode || coursePCode || baseCode;
+    activeCourseCode = courseTCode || coursePCode || classDefaultCode;
     highlightClass = courseSemNum >= 5 ? '' : 'slot-recommend-none';
   }
 
-  // Load active assigned codes across all candidate keys for this course/class/slot
-  const candidateKeys = [
-    activeCourseCode,
-    courseTCode,
-    coursePCode,
-    baseCode,
-    effClass ? `${cleanBaseCode}_C${effClass}` : null,
-    effClass ? `${cleanBaseCode}_C${effClass}-T` : null,
-    effClass ? `${cleanBaseCode}_C${effClass}-P` : null,
-    `${baseCode}-T`,
-    `${baseCode}-P`,
-    cleanBaseCode
-  ].filter(Boolean);
+  // Load active assigned codes across candidate keys for this course/class/slot
+  let candidateKeys = [];
+  if (effClass) {
+    candidateKeys = [
+      activeCourseCode,
+      courseTCode,
+      coursePCode,
+      `${cleanBaseCode}_C${effClass}`,
+      `${cleanBaseCode}_C${effClass}-T`,
+      `${cleanBaseCode}_C${effClass}-P`,
+      `${cleanBaseCode}_G${effClass}`,
+      `${cleanBaseCode}_G${effClass}-T`,
+      `${cleanBaseCode}_G${effClass}-P`,
+      baseCode
+    ].filter(Boolean);
+  } else {
+    candidateKeys = [
+      activeCourseCode,
+      courseTCode,
+      coursePCode,
+      baseCode,
+      `${baseCode}-T`,
+      `${baseCode}-P`,
+      cleanBaseCode
+    ].filter(Boolean);
+  }
 
   const foundAssigned = [];
   const seenAssigned = new Set();
@@ -2467,8 +2495,23 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
     return;
   }
   
-  if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
-    state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
+  const keysToTry = [
+    courseCode,
+    `${courseCode}-T`,
+    `${courseCode}-P`,
+    courseCode.replace(/-(T|P)$/, '')
+  ];
+  let changed = false;
+  keysToTry.forEach(k => {
+    if (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][period]) {
+      if (state.allocations[k][day][period].includes(facultyCode)) {
+        state.allocations[k][day][period] = state.allocations[k][day][period].filter(code => code !== facultyCode);
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) {
     syncAllocationsToSubjectMapping(courseCode);
     renderFacultySelectList(); // refresh list in modal
     renderAllocationMatrix(); // refresh grid
@@ -2496,8 +2539,23 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
     return;
   }
 
-  if (state.allocations[courseCode] && state.allocations[courseCode][day] && state.allocations[courseCode][day][period]) {
-    state.allocations[courseCode][day][period] = state.allocations[courseCode][day][period].filter(code => code !== facultyCode);
+  const keysToTry = [
+    courseCode,
+    `${courseCode}-T`,
+    `${courseCode}-P`,
+    courseCode.replace(/-(T|P)$/, '')
+  ];
+  let changed = false;
+  keysToTry.forEach(k => {
+    if (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][period]) {
+      if (state.allocations[k][day][period].includes(facultyCode)) {
+        state.allocations[k][day][period] = state.allocations[k][day][period].filter(code => code !== facultyCode);
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) {
     syncAllocationsToSubjectMapping(courseCode);
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();

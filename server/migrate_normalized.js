@@ -81,16 +81,16 @@ export function migrateDataToNormalizedTables(sqliteDb) {
 
     // 2. Migrate FACULTY
     const insertFaculty = sqliteDb.prepare(`
-      INSERT INTO faculty (code, name, department_id, designation, max_weekly_hours, is_active)
-      VALUES (?, ?, ?, ?, ?, 1)
-      ON CONFLICT(code) DO UPDATE SET
+      INSERT INTO faculty (staff_id, code, name, department_id, designation, max_weekly_hours, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT(staff_id, department_id) DO UPDATE SET
+        code = excluded.code,
         name = excluded.name,
-        department_id = excluded.department_id,
         designation = excluded.designation,
         max_weekly_hours = excluded.max_weekly_hours
     `);
     const facList = raw.faculty || [];
-    const facultyIdMap = {}; // code -> id
+    const facultyIdMap = {}; // code / compound key -> id
 
     facList.forEach(f => {
       const dName = (f.department || '').toUpperCase().trim();
@@ -103,21 +103,27 @@ export function migrateDataToNormalizedTables(sqliteDb) {
         dId = dRow ? dRow.id : null;
         if (dId) deptIdMap[dName] = dId;
       }
-      insertFaculty.run(f.code.trim(), f.name.trim(), dId, f.designation || 'Faculty', f.maxHours || 20);
+      const staffIdVal = (f.staffId || f.code || '').trim();
+      insertFaculty.run(staffIdVal, f.code.trim(), f.name.trim(), dId, f.designation || 'Faculty', f.maxHours || 20);
     });
 
-    sqliteDb.prepare('SELECT id, code FROM faculty').all().forEach(f => {
-      facultyIdMap[f.code.trim().toUpperCase()] = f.id;
+    sqliteDb.prepare('SELECT id, staff_id, code, department_id FROM faculty').all().forEach(f => {
+      if (f.code) {
+        facultyIdMap[f.code.trim().toUpperCase()] = f.id;
+        facultyIdMap[`${f.code.trim().toUpperCase()}_${f.department_id}`] = f.id;
+      }
+      if (f.staff_id) {
+        facultyIdMap[`${f.staff_id.trim().toUpperCase()}_${f.department_id}`] = f.id;
+      }
     });
 
     // 3. Migrate COURSES & RECOMMENDATIONS
     const insertCourse = sqliteDb.prepare(`
-      INSERT INTO courses (code, name, alias, department_id, semester, program_type, course_type, category, pathway, hours, theory_hours, practical_hours)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(code) DO UPDATE SET
+      INSERT INTO courses (code, name, alias, department_id, semester, class, program_type, course_type, category, pathway, hours, theory_hours, practical_hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(code, class, department_id) DO UPDATE SET
         name = excluded.name,
         alias = excluded.alias,
-        department_id = excluded.department_id,
         semester = excluded.semester,
         program_type = excluded.program_type,
         course_type = excluded.course_type,
@@ -135,7 +141,7 @@ export function migrateDataToNormalizedTables(sqliteDb) {
     `);
 
     const courseList = raw.courses || [];
-    const courseIdMap = {}; // code -> id
+    const courseIdMap = {}; // code / compound key -> id
 
     courseList.forEach(c => {
       const dName = (c.department || '').toUpperCase().trim();
@@ -148,6 +154,7 @@ export function migrateDataToNormalizedTables(sqliteDb) {
         if (dId) deptIdMap[dName] = dId;
       }
       const cCode = c.code.trim();
+      const cClass = parseInt(c.class !== undefined ? c.class : (c.group || 0), 10) || 0;
       const sem = String(c.semester || '1').trim();
       const prog = (c.programType || 'UG').toUpperCase().trim();
       const cType = (c.courseType || 'T').toUpperCase().trim();
@@ -157,11 +164,13 @@ export function migrateDataToNormalizedTables(sqliteDb) {
       const th = parseInt(c.theoryHours !== undefined ? c.theoryHours : h) || 0;
       const pr = parseInt(c.practicalHours !== undefined ? c.practicalHours : 0) || 0;
 
-      insertCourse.run(cCode, c.name.trim(), c.alias || '', dId, sem, prog, cType, cat, pathw, h, th, pr);
+      insertCourse.run(cCode, c.name.trim(), c.alias || '', dId, sem, cClass, prog, cType, cat, pathw, h, th, pr);
     });
 
-    sqliteDb.prepare('SELECT id, code FROM courses').all().forEach(c => {
+    sqliteDb.prepare('SELECT id, code, class, department_id FROM courses').all().forEach(c => {
       courseIdMap[c.code.trim().toUpperCase()] = c.id;
+      courseIdMap[`${c.code.trim().toUpperCase()}_${c.department_id}`] = c.id;
+      courseIdMap[`${c.code.trim().toUpperCase()}_${c.class || 0}_${c.department_id}`] = c.id;
     });
 
     // Populate recommendations

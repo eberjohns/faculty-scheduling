@@ -7,6 +7,28 @@ const __dirname = path.dirname(__filename);
 const DB_PATH = path.join(__dirname, 'data', 'timetable.db');
 
 export function createNormalizedTables(db) {
+  // Check if schema upgrade is needed for compound keys
+  try {
+    const courseCols = db.prepare("PRAGMA table_info(courses)").all();
+    const hasClassCol = courseCols.some(c => c.name === 'class');
+    const facultyCols = db.prepare("PRAGMA table_info(faculty)").all();
+    const hasStaffIdCol = facultyCols.some(c => c.name === 'staff_id');
+
+    if ((courseCols.length > 0 && !hasClassCol) || (facultyCols.length > 0 && !hasStaffIdCol)) {
+      db.exec(`
+        DROP TABLE IF EXISTS allocation_faculty;
+        DROP TABLE IF EXISTS timetable_allocations;
+        DROP TABLE IF EXISTS curriculum_recommendations;
+        DROP TABLE IF EXISTS course_faculty_mappings;
+        DROP TABLE IF EXISTS teacher_unavailability;
+        DROP TABLE IF EXISTS courses;
+        DROP TABLE IF EXISTS faculty;
+      `);
+    }
+  } catch (e) {
+    // Tables may not exist yet, continue
+  }
+
   db.exec(`
     -- 1. DEPARTMENTS
     CREATE TABLE IF NOT EXISTS departments (
@@ -18,27 +40,30 @@ export function createNormalizedTables(db) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- 2. FACULTY
+    -- 2. FACULTY (Primary key combination: staff_id + department_id)
     CREATE TABLE IF NOT EXISTS faculty (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      code TEXT UNIQUE NOT NULL,
+      staff_id TEXT,
+      code TEXT NOT NULL,
       name TEXT NOT NULL,
       department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE RESTRICT,
       designation TEXT,
       max_weekly_hours INTEGER DEFAULT 20,
       is_active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (staff_id, department_id)
     );
     CREATE INDEX IF NOT EXISTS idx_fac_dept ON faculty(department_id);
 
-    -- 3. COURSES
+    -- 3. COURSES (Primary key combination: code + class + department_id)
     CREATE TABLE IF NOT EXISTS courses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      code TEXT UNIQUE NOT NULL,
+      code TEXT NOT NULL,
       name TEXT NOT NULL,
       alias TEXT,
       department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE RESTRICT,
       semester TEXT NOT NULL,
+      class INTEGER DEFAULT 0,
       program_type TEXT DEFAULT 'UG',
       course_type TEXT NOT NULL,
       category TEXT DEFAULT 'CORE',
@@ -46,7 +71,8 @@ export function createNormalizedTables(db) {
       hours INTEGER NOT NULL,
       theory_hours INTEGER DEFAULT 0,
       practical_hours INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (code, class, department_id)
     );
     CREATE INDEX IF NOT EXISTS idx_course_dept_sem ON courses(department_id, semester, program_type);
 

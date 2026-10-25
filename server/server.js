@@ -698,19 +698,24 @@ app.post('/api/courses/class-config', requireDepartment, (req, res) => {
 
   // Find course and verify ownership
   const targetBaseCode = courseCode.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '');
-  const course = db.courses.find(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode);
-  if (!course) return res.status(404).json({ success: false, message: 'Course not found.' });
-
-  if (course.department.toUpperCase() !== deptUpper) {
-    return res.status(403).json({ success: false, message: 'Unauthorized to edit this course.' });
-  }
+  const course = db.courses.find(c => 
+    c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode &&
+    c.department.toUpperCase() === deptUpper
+  );
+  if (!course) return res.status(404).json({ success: false, message: 'Course not found in this department.' });
 
   const targetClassesCount = parseInt(classes) || 1;
 
-  // Set the classes count property directly on all theory/practical variations of the base course
-  const matchingCourses = db.courses.filter(c => c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode);
+  // Set the classes count property directly on base course variations for THIS department
+  const matchingCourses = db.courses.filter(c => 
+    c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '').replace(/_C\d+$/, '') === targetBaseCode &&
+    c.department.toUpperCase() === deptUpper
+  );
   matchingCourses.forEach(c => {
-    c.classes = targetClassesCount;
+    // Explicit class variants (e.g. _C1, _C2) remain single-class rows
+    if (!/(_G|_C)\d+$/.test(c.code)) {
+      c.classes = targetClassesCount;
+    }
   });
 
   // Clear old mapped batches for this base code and C1..C5 classes
@@ -896,7 +901,7 @@ app.post('/api/faculty/code', requireDepartment, (req, res) => {
     return res.status(400).json({ success: false, message: `Visual code '${cleanCode}' is already assigned to ${conflict.name}.` });
   }
   
-  const fac = db.faculty.find(f => f.staffId === staffId);
+  const fac = db.faculty.find(f => f.staffId === staffId && (!departmentName || f.department.toUpperCase() === departmentName.toUpperCase()));
   if (!fac) return res.status(404).json({ success: false, message: 'Faculty not found' });
 
   if (departmentName && fac.department.toUpperCase() !== departmentName.toUpperCase()) {
@@ -904,7 +909,12 @@ app.post('/api/faculty/code', requireDepartment, (req, res) => {
   }
   
   const oldCode = fac.code;
-  fac.code = cleanCode;
+  // Update code across all department records for this staff member
+  db.faculty.forEach(f => {
+    if (f.staffId === staffId) {
+      f.code = cleanCode;
+    }
+  });
 
   // Update visual codes in allocations if changed
   for (const dept of Object.keys(db.allocations)) {
@@ -964,8 +974,7 @@ app.post('/api/faculty/code/batch', requireDepartment, (req, res) => {
   // Apply all updates
   for (const item of faculty) {
     const { staffId, code } = item;
-    const cleanCode = code.trim().toUpperCase();
-    const fac = db.faculty.find(f => f.staffId === staffId);
+    const fac = db.faculty.find(f => f.staffId === staffId && (!departmentName || f.department.toUpperCase() === departmentName.toUpperCase()));
     
     if (fac) {
       if (departmentName && fac.department.toUpperCase() !== departmentName.toUpperCase()) {
@@ -973,7 +982,11 @@ app.post('/api/faculty/code/batch', requireDepartment, (req, res) => {
       }
       
       const oldCode = fac.code;
-      fac.code = cleanCode;
+      db.faculty.forEach(f => {
+        if (f.staffId === staffId) {
+          f.code = cleanCode;
+        }
+      });
       
       if (oldCode !== cleanCode) {
         // Update visual codes in allocations if changed
@@ -1325,7 +1338,14 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         semester = extractSemesterFromCode(baseCode);
       }
 
-      const dbMatch = existingCourses.find(c => c.code === courseCode);
+      const dbMatch = existingCourses.find(c => {
+        const cDept = (c.department || '').trim().toUpperCase();
+        if (cDept !== department.toUpperCase()) return false;
+        const cClass = parseInt(c.class !== undefined ? c.class : (c.group || 0), 10) || 0;
+        if (cClass !== group_num) return false;
+        const cCleanBase = (c.code || '').trim().toUpperCase().replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        return c.code === courseCode || cCleanBase === baseCode;
+      });
 
       // Parse Program Type
       let program_val = 'UG';
@@ -1364,8 +1384,13 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
 
       // -------------------------------------------------------
       // Step 4: Merge if same courseCode already seen (T and P rows of same course)
+      // Compound key: course code + class + department
       // -------------------------------------------------------
-      const existingImported = importedCourses.find(c => c.code === courseCode);
+      const existingImported = importedCourses.find(c => 
+        (c.code === courseCode || (c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === baseCode && (c.class || 0) === group_num)) &&
+        (c.department || '').trim().toUpperCase() === department.toUpperCase() &&
+        (c.class || 0) === group_num
+      );
       if (existingImported) {
         weekdays.forEach(day => {
           Object.keys(recommendations[day]).forEach(p => {
@@ -1424,7 +1449,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
         recommendations,
         group:       group_num,
         class:       group_num,
-        classes:     group_num > 1 ? group_num : 1,
+        classes:     1,
         programType: program_val,
         courseType:  dbMatch ? (dbMatch.courseType || type_val) : type_val
       });
@@ -1432,13 +1457,32 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
 
     // -------------------------------------------------------
     // Step 6: Commit to database (Non-destructive merge)
+    // Primary Key: Course Code + Class + Department
     // -------------------------------------------------------
     const mergedCourses = [...db.courses];
     let newCount = 0;
     let updatedCount = 0;
 
     importedCourses.forEach(imported => {
-      const matchIdx = mergedCourses.findIndex(c => c.code === imported.code);
+      const impDept = (imported.department || '').trim().toUpperCase();
+      const impClass = parseInt(imported.class !== undefined ? imported.class : (imported.group || 0), 10) || 0;
+      const impCleanBase = (imported.code || '').trim().toUpperCase().replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const impCode = (imported.code || '').trim().toUpperCase().replace(/-(T|P)$/, '');
+
+      const matchIdx = mergedCourses.findIndex(c => {
+        const cDept = (c.department || '').trim().toUpperCase();
+        if (cDept !== impDept) return false;
+
+        const cClass = parseInt(c.class !== undefined ? c.class : (c.group || 0), 10) || 0;
+        if (cClass !== impClass) return false;
+
+        const cCode = (c.code || '').trim().toUpperCase().replace(/-(T|P)$/, '');
+        if (cCode === impCode) return true;
+
+        const cCleanBase = cCode.replace(/(_G|_C)\d+$/, '');
+        return cCleanBase === impCleanBase;
+      });
+
       if (matchIdx >= 0) {
         const existing = mergedCourses[matchIdx];
         mergedCourses[matchIdx] = {
@@ -1451,6 +1495,8 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
           hours: imported.hours,
           recommendations: imported.recommendations,
           group: imported.group,
+          class: imported.class,
+          classes: existing.classes > 1 ? existing.classes : 1,
           programType: imported.programType,
           courseType: imported.courseType,
           // Preserve visual alias if coordinator has edited it
@@ -1529,15 +1575,24 @@ app.post('/api/import/staff', requireAdmin, upload.single('file'), (req, res) =>
         return;
       }
 
-      const matchIdx = mergedFaculty.findIndex(f => f.staffId === staffId);
+      // Primary Key: staff code/ID + department
+      const staffIdUpper = staffId.toUpperCase();
+      const deptUpper = department.toUpperCase();
+
+      const matchIdx = mergedFaculty.findIndex(f => 
+        (f.staffId || '').trim().toUpperCase() === staffIdUpper &&
+        (f.department || '').trim().toUpperCase() === deptUpper
+      );
+
       if (matchIdx >= 0) {
         // Update details, but preserve their existing unique visual code initials
         mergedFaculty[matchIdx].name = name;
         mergedFaculty[matchIdx].department = department;
         updatedCount++;
       } else {
-        // Generate a new unique visual code initials
-        const code = generateFacultyCode(name, mergedFaculty);
+        // If the same staff member already exists in another department, reuse their initials code
+        const existingStaffWithSameId = mergedFaculty.find(f => (f.staffId || '').trim().toUpperCase() === staffIdUpper);
+        const code = existingStaffWithSameId ? existingStaffWithSameId.code : generateFacultyCode(name, mergedFaculty);
         
         mergedFaculty.push({
           staffId,

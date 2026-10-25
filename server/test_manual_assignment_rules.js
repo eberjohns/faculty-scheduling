@@ -10,13 +10,18 @@ const deptName = 'COMPUTER SCIENCE';
 // Test 1: Teacher Clash Detection (Cross-Course & Cross-Dept)
 // -------------------------------------------------------------
 console.log('--- Test 1: Teacher Double-Booking Clash Check ---');
-const csAlloc = db.allocations[deptName] || {};
+const testDb = JSON.parse(JSON.stringify(db));
 
-// Find an existing allocated slot with a faculty member
+// Seed an existing allocated slot with a faculty member for testing
 let testDay = 'THURSDAY';
 let testPeriod = '1';
 let testFac = 'JAM1';
 let testCourse = 'CSC5FS112';
+
+if (!testDb.allocations[deptName]) testDb.allocations[deptName] = {};
+if (!testDb.allocations[deptName][testCourse]) testDb.allocations[deptName][testCourse] = {};
+if (!testDb.allocations[deptName][testCourse][testDay]) testDb.allocations[deptName][testCourse][testDay] = {};
+testDb.allocations[deptName][testCourse][testDay][testPeriod] = [testFac];
 
 // Simulated validation payload for a DIFFERENT course at the SAME day & period with JAM1
 const clashPayload = {
@@ -89,7 +94,7 @@ function validateManualSlot(departmentName, courseCode, weekday, period, faculty
   };
 }
 
-const clashResult = validateManualSlot(clashPayload.departmentName, clashPayload.courseCode, clashPayload.weekday, clashPayload.period, clashPayload.facultyCodes, db);
+const clashResult = validateManualSlot(clashPayload.departmentName, clashPayload.courseCode, clashPayload.weekday, clashPayload.period, clashPayload.facultyCodes, testDb);
 assert.strictEqual(clashResult.valid, false, 'Manual assignment of JAM1 to Thursday P1 must trigger a conflict');
 assert(clashResult.conflicts.some(c => c.facultyCode === 'JAM1' && c.clashingCourseCode === 'CSC5FS112'), 'Conflict must identify CSC5FS112 as the clashing course');
 console.log('Teacher Double-Booking Clash Check: PASSED (Correctly blocked with conflicting course details)');
@@ -123,7 +128,9 @@ console.log('Teacher Unavailability Rule: PASSED (Blocked with blackout reason)'
 // -------------------------------------------------------------
 console.log('\n--- Test 4: Admin Global Locked Period Notice ---');
 // WEDNESDAY Period 3 has global lock 'AEC1'
-const lockResult = validateManualSlot(deptName, 'CSC1CJ101', 'WEDNESDAY', '3', ['AGK'], db);
+if (!testDb.config) testDb.config = {};
+testDb.config.globalLockedPeriods = [{ day: 'WEDNESDAY', period: '3', label: 'AEC1' }];
+const lockResult = validateManualSlot(deptName, 'CSC1CJ101', 'WEDNESDAY', '3', ['AGK'], testDb);
 assert.strictEqual(lockResult.adminLockNotice, 'AEC1', 'Must attach adminLockNotice AEC1 for Wednesday Period 3');
 console.log('Admin Global Locked Period Notice: PASSED (Notice attached: AEC1)');
 
