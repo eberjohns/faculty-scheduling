@@ -560,8 +560,11 @@
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
                     <p class="text-muted" style="margin:0;">Assign exactly one batch to major courses. The system automatically recommends a batch based on department, program, and semester.</p>
                     <div class="actions flex-row gap-2">
+                      <button id="btn-auto-assign-recommended-majors" class="btn btn-primary btn-sm" style="font-weight: 600;" title="Assign recommended batches to all major courses that have recommendations">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Assign Recommended Batches
+                      </button>
                       <button id="btn-export-major-mappings" class="btn btn-outline btn-sm"><i class="fa-solid fa-file-export"></i> Export</button>
-                      <button id="btn-trigger-import-major-mappings" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import"></i> Import</button>
+                      <button id="btn-trigger-import-major-mappings" class="btn btn-outline btn-sm"><i class="fa-solid fa-file-import"></i> Import</button>
                       <input type="file" id="import-major-mappings-file" class="hidden" accept=".xlsx,.xls,.csv">
                     </div>
                   </div>

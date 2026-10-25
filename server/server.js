@@ -223,14 +223,21 @@ function findAllocationClashes(allocations) {
 // Authentication & Authorization Middlewares
 // -------------------------------------------------------------
 function extractToken(req) {
+  let token = null;
   const authHeader = req.headers['authorization'];
   if (authHeader) {
     if (authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7).trim();
+      token = authHeader.substring(7).trim();
+    } else {
+      token = authHeader.trim();
     }
-    return authHeader.trim();
+  } else if (req.query.token) {
+    token = String(req.query.token).trim();
   }
-  return req.query.token ? String(req.query.token).trim() : null;
+  if (token && token.startsWith('Bearer ')) {
+    token = token.substring(7).trim();
+  }
+  return token;
 }
 
 function requireAdmin(req, res, next) {
@@ -1767,13 +1774,39 @@ app.get('/api/admin/group-mappings', requireUser, (req, res) => {
 });
 
 app.post('/api/admin/group-mappings', requireAdmin, (req, res) => {
-  const { courseCode, batches } = req.body;
+  const { courseCode, batches, mappings } = req.body;
+  const db = readDb();
+  if (!db.groupMappings) db.groupMappings = {};
+
+  if (mappings && typeof mappings === 'object') {
+    let updateCount = 0;
+    Object.entries(mappings).forEach(([cCode, bList]) => {
+      if (Array.isArray(bList)) {
+        const cleanBatches = bList.map(b => String(b).trim().toUpperCase());
+        db.groupMappings[cCode] = cleanBatches;
+        const baseCode = cCode.replace(/-(T|P)$/, '');
+        db.groupMappings[baseCode] = cleanBatches;
+
+        if (Array.isArray(db.courses)) {
+          db.courses.forEach(c => {
+            const cBase = (c.code || '').replace(/-(T|P)$/, '');
+            if (c.code === cCode || cBase === baseCode) {
+              c.mappedBatches = cleanBatches;
+            }
+          });
+        }
+        updateCount++;
+      }
+    });
+
+    writeDb(db);
+    return res.json({ success: true, count: updateCount, message: `Successfully updated ${updateCount} batch mapping(s).` });
+  }
+
   if (!courseCode || !Array.isArray(batches)) {
     return res.status(400).json({ success: false, message: 'Course code and batches array are required' });
   }
 
-  const db = readDb();
-  if (!db.groupMappings) db.groupMappings = {};
   const cleanBatches = batches.map(b => b.trim().toUpperCase());
   db.groupMappings[courseCode] = cleanBatches;
   const baseCode = courseCode.replace(/-(T|P)$/, '');
@@ -3797,15 +3830,22 @@ app.post('/api/import/major-mappings', requireAdmin, upload.single('file'), (req
       if (!dbCourse) continue;
 
       const batchVal = batchVal_raw ? String(batchVal_raw).trim().toUpperCase() : '';
+      const cleanBatches = batchVal ? [batchVal] : [];
       
-      if (batchVal) {
-        groupMappings[dbCourse.code] = [batchVal];
-      } else {
-        groupMappings[dbCourse.code] = [];
-      }
+      groupMappings[dbCourse.code] = cleanBatches;
+      const baseCode = dbCourse.code.replace(/-(T|P)$/, '');
+      groupMappings[baseCode] = cleanBatches;
+
+      existingCourses.forEach(c => {
+        const cBase = (c.code || '').replace(/-(T|P)$/, '');
+        if (c.code === dbCourse.code || cBase === baseCode) {
+          c.mappedBatches = cleanBatches;
+        }
+      });
       importCount++;
     }
 
+    db.courses = existingCourses;
     db.groupMappings = groupMappings;
     writeDb(db);
 

@@ -272,31 +272,7 @@ function bindCustomModals() {
     let batches = [];
     try { batches = JSON.parse(modal.dataset.currentMapped || '[]'); } catch(e) { batches = []; }
 
-    try {
-      const res = await fetch(`${API_BASE}/admin/group-mappings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ courseCode, batches })
-      });
-      const result = await res.json();
-      if (res.ok) {
-        document.getElementById('modal-group-mapping').classList.add('hidden');
-        showModalAlert('Success', 'Group mappings saved successfully.', 'success');
-        await fetchGlobalData();
-        renderGroupMappings();
-        if (state.currentTab === 'tab-admin-common-subject-mapping') {
-          if (activeAdminCommonSubjectCode) {
-            openAdminCommonSubjectDetail(activeAdminCommonSubjectCode);
-          } else {
-            renderAdminCommonSubjectMapping();
-          }
-        }
-      } else {
-        showModalAlert('Error', result.message || 'Failed to save mappings.', 'danger');
-      }
-    } catch (e) {
-      showModalAlert('Error', 'Connection error.', 'danger');
-    }
+    await saveBatchMapping(courseCode, batches, 'Batch mapping saved successfully.');
   });
 
   // Group Mapping Export CSV
@@ -363,15 +339,76 @@ function bindCustomModals() {
         fileInputGroupMappings.value = '';
 
         if (res.ok) {
-          showModalAlert('Success', result.message || 'Group mappings imported successfully.', 'success');
+          showToast(result.message || 'Group mappings imported successfully.', 'success');
           await fetchGlobalData();
           renderGroupMappings();
         } else {
-          showModalAlert('Error', result.error || 'Failed to import mappings.', 'danger');
+          showToast(result.error || 'Failed to import mappings.', 'danger');
         }
       } catch (err) {
         fileInputGroupMappings.value = '';
-        showModalAlert('Error', 'Connection error during upload.', 'danger');
+        showToast('Connection error during upload.', 'danger');
+      }
+    });
+  }
+
+  // Auto-Assign Recommended Batches for Major Courses
+  const btnAutoAssignRecMajors = document.getElementById('btn-auto-assign-recommended-majors');
+  if (btnAutoAssignRecMajors) {
+    btnAutoAssignRecMajors.addEventListener('click', async () => {
+      const majorCourses = (state.courses || []).filter(c => !c.group || c.group === 0);
+      const updates = {};
+      let eligibleCount = 0;
+
+      majorCourses.forEach(c => {
+        const rec = getRecommendedBatchForCourse(c);
+        if (rec) {
+          const current = (state.groupMappings[c.code] && state.groupMappings[c.code][0]) || '';
+          if (current !== rec) {
+            updates[c.code] = [rec];
+            eligibleCount++;
+          }
+        }
+      });
+
+      if (eligibleCount === 0) {
+        showToast('All eligible major courses already have their recommended batch assigned.', 'info');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/admin/group-mappings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mappings: updates })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          // Update in-memory state
+          Object.entries(updates).forEach(([code, batches]) => {
+            state.groupMappings[code] = batches;
+            const baseCode = code.replace(/-(T|P)$/, '');
+            state.groupMappings[baseCode] = batches;
+            if (Array.isArray(state.courses)) {
+              state.courses.forEach(c => {
+                const cBase = (c.code || '').replace(/-(T|P)$/, '');
+                if (c.code === code || cBase === baseCode) {
+                  c.mappedBatches = batches;
+                }
+              });
+            }
+          });
+
+          renderMajorAllocations();
+          renderGroupMappings();
+          renderBatchAllocationStatus();
+          renderBatchPreview();
+          showToast(`Assigned recommended batches to ${eligibleCount} major course(s).`, 'success');
+        } else {
+          showToast(result.message || 'Failed to auto-assign batches.', 'danger');
+        }
+      } catch (err) {
+        showToast('Connection error while auto-assigning batches.', 'danger');
       }
     });
   }
@@ -381,6 +418,10 @@ function bindCustomModals() {
   if (btnExportMajorMappings) {
     btnExportMajorMappings.addEventListener('click', () => {
       const adminToken = sessionStorage.getItem('adminToken') || '';
+      if (!adminToken) {
+        showToast('Please log in as administrator to export.', 'warning');
+        return;
+      }
       window.location.href = `${API_BASE}/admin/export/major-mappings?token=${encodeURIComponent(adminToken)}`;
     });
   }
@@ -410,16 +451,16 @@ function bindCustomModals() {
         fileInputMajorMappings.value = '';
 
         if (res.ok) {
-          showModalAlert('Success', result.message || 'Major mappings imported successfully.', 'success');
+          showToast(result.message || 'Major mappings imported successfully.', 'success');
           await fetchGlobalData();
           renderMajorAllocations();
           renderBatchAllocationStatus();
         } else {
-          showModalAlert('Error', result.error || 'Failed to import mappings.', 'danger');
+          showToast(result.error || 'Failed to import mappings.', 'danger');
         }
       } catch (err) {
         fileInputMajorMappings.value = '';
-        showModalAlert('Error', 'Connection error during upload.', 'danger');
+        showToast('Connection error during upload.', 'danger');
       }
     });
   }
@@ -468,6 +509,7 @@ async function initAdmin() {
       document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const targetSubtab = btn.getAttribute('data-subtab');
+      sessionStorage.setItem('adminBatchAllocSubtab', targetSubtab);
       document.querySelectorAll('#tab-admin-group-mappings .subtab-pane').forEach(p => {
         if (p.id === targetSubtab) {
           p.classList.remove('hidden');
@@ -606,7 +648,10 @@ async function initAdmin() {
     document.getElementById('header-user-info').classList.remove('hidden');
     await fetchGlobalData();
     switchView('admin');
-    showTab(state.currentTab);
+    const savedTab = sessionStorage.getItem('adminActiveTab') || state.currentTab;
+    const savedDataSubtab = sessionStorage.getItem('adminDataSubtab');
+    if (savedDataSubtab) state.selectedDataSubtab = savedDataSubtab;
+    await showTab(savedTab);
   } else {
     switchView('login');
   }
@@ -673,6 +718,139 @@ window.showModalConfirm = function(title, message, onConfirm) {
   
   overlay.classList.remove('hidden');
 };
+
+// Sleek, non-blocking toast notifications (no confirmation button required)
+window.showToast = function(message, type = 'info', duration = 3200) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = `
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 999999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+      max-width: 420px;
+    `;
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `custom-toast toast-${type}`;
+  toast.style.cssText = `
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.22);
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: #fff;
+    opacity: 0;
+    transform: translateY(-12px);
+    transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  `;
+
+  let bg = '#1e293b';
+  let icon = '<i class="fa-solid fa-circle-info"></i>';
+  if (type === 'success') {
+    bg = 'linear-gradient(135deg, #059669, #10b981)';
+    icon = '<i class="fa-solid fa-circle-check"></i>';
+  } else if (type === 'danger' || type === 'error') {
+    bg = 'linear-gradient(135deg, #dc2626, #ef4444)';
+    icon = '<i class="fa-solid fa-circle-exclamation"></i>';
+  } else if (type === 'warning') {
+    bg = 'linear-gradient(135deg, #d97706, #f59e0b)';
+    icon = '<i class="fa-solid fa-triangle-exclamation"></i>';
+  } else {
+    bg = 'linear-gradient(135deg, #2563eb, #3b82f6)';
+  }
+  toast.style.background = bg;
+
+  toast.innerHTML = `
+    <span style="font-size: 16px; flex-shrink: 0;">${icon}</span>
+    <span style="flex-grow: 1;">${message}</span>
+    <button type="button" style="background: transparent; border: none; color: rgba(255,255,255,0.85); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; margin-left: 6px; flex-shrink: 0;" title="Dismiss">&times;</button>
+  `;
+
+  const closeBtn = toast.querySelector('button');
+  const dismiss = () => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-12px)';
+    setTimeout(() => {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 300);
+  };
+
+  closeBtn.addEventListener('click', dismiss);
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  setTimeout(dismiss, duration);
+};
+
+// Global Batch Mapping Helper for live UI updates
+async function saveBatchMapping(courseCode, batches, successMsg = 'Batch mapping updated successfully.') {
+  try {
+    const res = await fetch(`${API_BASE}/admin/group-mappings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ courseCode, batches })
+    });
+    const result = await res.json();
+    if (res.ok) {
+      const modal = document.getElementById('modal-group-mapping');
+      if (modal) modal.classList.add('hidden');
+
+      // Update state in memory immediately for live responsiveness
+      state.groupMappings[courseCode] = batches;
+      const baseCode = courseCode.replace(/-(T|P)$/, '');
+      state.groupMappings[baseCode] = batches;
+      if (Array.isArray(state.courses)) {
+        state.courses.forEach(c => {
+          const cBase = (c.code || '').replace(/-(T|P)$/, '');
+          if (c.code === courseCode || cBase === baseCode) {
+            c.mappedBatches = batches;
+          }
+        });
+      }
+
+      window.showToast(successMsg, 'success');
+
+      // Live UI updates without requiring page refresh
+      renderMajorAllocations();
+      renderGroupMappings();
+      renderBatchAllocationStatus();
+      renderBatchPreview();
+      if (state.currentTab === 'tab-admin-common-subject-mapping') {
+        if (activeAdminCommonSubjectCode) {
+          openAdminCommonSubjectDetail(activeAdminCommonSubjectCode);
+        } else {
+          renderAdminCommonSubjectMapping();
+        }
+      }
+      return true;
+    } else {
+      window.showToast(result.message || 'Failed to save mapping.', 'danger');
+      return false;
+    }
+  } catch (e) {
+    window.showToast('Connection error while saving batch mapping.', 'danger');
+    return false;
+  }
+}
+window.saveBatchMapping = saveBatchMapping;
 
 // Switch top level view
 function switchView(viewName) {
@@ -808,7 +986,20 @@ function bindSidebarEvents() {
 }
 
 async function showTab(tabId) {
+  if (!tabId) tabId = 'tab-admin-dashboard';
   state.currentTab = tabId;
+  sessionStorage.setItem('adminActiveTab', tabId);
+
+  // Sync sidebar active class
+  const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
+  navItems.forEach(n => {
+    if (n.getAttribute('data-tab') === tabId) {
+      n.classList.add('active');
+    } else {
+      n.classList.remove('active');
+    }
+  });
+
   const panes = document.querySelectorAll('.dashboard-content .tab-pane');
   panes.forEach(pane => {
     if (pane.id === tabId) {
@@ -827,15 +1018,34 @@ async function showTab(tabId) {
   } else if (tabId === 'tab-admin-passwords') {
     // Admin password form tab - no dynamic table needed
   } else if (tabId === 'tab-admin-data') {
+    const savedDataSubtab = sessionStorage.getItem('adminDataSubtab') || state.selectedDataSubtab || 'subtab-courses';
+    state.selectedDataSubtab = savedDataSubtab;
+    document.querySelectorAll('#tab-admin-data .tab-sub-item').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-subtab') === savedDataSubtab);
+    });
+    document.querySelectorAll('#tab-admin-data .subtab-pane').forEach(p => {
+      p.classList.toggle('hidden', p.id !== savedDataSubtab);
+    });
     renderInspectRecords();
   } else if (tabId === 'tab-admin-batch-dept') {
     renderBatchDeptMappings();
     renderBatchConfig();
     renderBatchPreview();
   } else if (tabId === 'tab-admin-group-mappings') {
-    renderGroupMappings();
-    renderMajorAllocations();
-    renderBatchAllocationStatus();
+    const savedAllocSubtab = sessionStorage.getItem('adminBatchAllocSubtab') || 'subtab-alloc-electives';
+    document.querySelectorAll('#tab-admin-group-mappings .tab-sub-item').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-subtab') === savedAllocSubtab);
+    });
+    document.querySelectorAll('#tab-admin-group-mappings .subtab-pane').forEach(p => {
+      p.classList.toggle('hidden', p.id !== savedAllocSubtab);
+    });
+    if (savedAllocSubtab === 'subtab-alloc-majors') {
+      renderMajorAllocations();
+    } else if (savedAllocSubtab === 'subtab-alloc-status') {
+      renderBatchAllocationStatus();
+    } else {
+      renderGroupMappings();
+    }
   } else if (tabId === 'tab-admin-common-subject-mapping') {
     renderAdminCommonSubjectMapping();
   } else if (tabId === 'tab-admin-global-locks') {
@@ -1425,16 +1635,17 @@ function bindSearchEvents() {
     });
   }
 
-  // Bind sub-tabs toggle
-  document.querySelectorAll('.tab-sub-item').forEach(btn => {
+  // Bind sub-tabs toggle for Inspect Records
+  document.querySelectorAll('#tab-admin-data .tab-sub-item').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-sub-item').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#tab-admin-data .tab-sub-item').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       state.selectedDataSubtab = btn.getAttribute('data-subtab');
+      sessionStorage.setItem('adminDataSubtab', state.selectedDataSubtab);
       
-      document.querySelectorAll('.subtab-pane').forEach(p => {
+      document.querySelectorAll('#tab-admin-data .subtab-pane').forEach(p => {
         if (p.id === state.selectedDataSubtab) p.classList.remove('hidden');
-        else p.className = 'subtab-pane hidden';
+        else p.classList.add('hidden');
       });
       renderInspectRecords();
     });
@@ -3102,14 +3313,34 @@ function openGroupMappingModal(course, initialMapped, isSingleSelect = false) {
     filtered.forEach(batch => {
       const isChecked = currentMapped.includes(batch.batchId);
       const div = document.createElement('div');
-      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:3px 0;';
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;transition:background 0.15s;';
+      div.onmouseenter = () => div.style.background = '#f1f5f9';
+      div.onmouseleave = () => div.style.background = 'transparent';
+
       div.innerHTML = `
         <input type="checkbox" id="cb-batch-${batch.batchId}" value="${batch.batchId}" ${isChecked ? 'checked' : ''}>
-        <label for="cb-batch-${batch.batchId}" style="cursor:pointer;font-size:13px;">
+        <label for="cb-batch-${batch.batchId}" style="cursor:pointer;font-size:13px;flex-grow:1;margin:0;">
           <strong>${batch.batchId}</strong>
           <span class="text-muted" style="font-size:11px;"> — ${batch.batchLabel || ''}</span>
         </label>
+        ${isSingleSelect ? `
+          <button type="button" class="btn btn-primary btn-sm btn-assign-direct" style="padding: 2px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">
+            <i class="fa-solid fa-check"></i> Assign
+          </button>
+        ` : ''}
       `;
+
+      // Direct assign button for single select mode
+      if (isSingleSelect) {
+        const btnDirect = div.querySelector('.btn-assign-direct');
+        if (btnDirect) {
+          btnDirect.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await saveBatchMapping(course.code, [batch.batchId], `Assigned batch ${batch.batchId} to ${course.code}`);
+          });
+        }
+      }
+
       // Update currentMapped on check/uncheck so chips stay in sync
       div.querySelector('input').addEventListener('change', (e) => {
         if (e.target.checked) {
@@ -3219,11 +3450,21 @@ function renderMajorAllocations() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const majorCourses = state.courses.filter(c => !c.group || c.group === 0);
+  const majorCourses = (state.courses || []).filter(c => !c.group || c.group === 0);
   if (majorCourses.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No major courses found.</td></tr>';
     return;
   }
+
+  // Sort unassigned courses to the top of the list
+  majorCourses.sort((a, b) => {
+    const aAssigned = (state.groupMappings[a.code] && state.groupMappings[a.code].length > 0) ? 1 : 0;
+    const bAssigned = (state.groupMappings[b.code] && state.groupMappings[b.code].length > 0) ? 1 : 0;
+    if (aAssigned !== bAssigned) return aAssigned - bAssigned; // 0 (unassigned) first
+    if (a.department !== b.department) return (a.department || '').localeCompare(b.department || '');
+    if (a.semester !== b.semester) return (a.semester || 0) - (b.semester || 0);
+    return (a.code || '').localeCompare(b.code || '');
+  });
 
   majorCourses.forEach(c => {
     const recBatch = getRecommendedBatchForCourse(c);
@@ -3248,11 +3489,11 @@ function renderMajorAllocations() {
       </td>
       <td>
         <button class="btn btn-outline btn-sm btn-major-select-batch-trigger" style="font-weight:600; font-size:12px; min-width: 140px; ${!currentSelection ? 'border-color: var(--danger); color: var(--danger);' : ''}">
-          ${currentSelection || '-- Click to Select --'}
+          ${currentSelection ? `<i class="fa-solid fa-layer-group"></i> ${currentSelection}` : '<i class="fa-solid fa-plus-circle"></i> Assign Batch'}
         </button>
       </td>
       <td>
-        <button class="btn btn-outline-danger btn-sm btn-clear-major-mapping" style="padding: 2px 8px;" title="Clear Assignment"><i class="fa-solid fa-eraser"></i> Clear</button>
+        <button class="btn btn-outline-danger btn-sm btn-clear-major-mapping" style="padding: 2px 8px;" title="Clear Assignment" ${!currentSelection ? 'disabled' : ''}><i class="fa-solid fa-eraser"></i> Clear</button>
       </td>
     `;
 
@@ -3265,25 +3506,7 @@ function renderMajorAllocations() {
     // Clear mapping button
     tr.querySelector('.btn-clear-major-mapping').addEventListener('click', async () => {
       if (!currentSelection) return;
-      try {
-        const res = await fetch(`${API_BASE}/admin/group-mappings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            courseCode: c.code,
-            batches: []
-          })
-        });
-        if (res.ok) {
-          state.groupMappings[c.code] = [];
-          renderMajorAllocations();
-          renderBatchAllocationStatus();
-        } else {
-          showModalAlert('Error', 'Failed to clear mapping.', 'danger');
-        }
-      } catch (err) {
-        showModalAlert('Error', 'Connection error.', 'danger');
-      }
+      await saveBatchMapping(c.code, [], `Cleared batch assignment for ${cleanCode}`);
     });
 
     tbody.appendChild(tr);
