@@ -501,6 +501,7 @@ async function initAdmin() {
   bindImportEvents();
   bindSearchEvents();
   bindCustomModals();
+  bindResetDeptPasswordEvents();
   bindGlobalLocksEvents();
   await loadGlobalLocks();
   // Handle Batch Allocation sub-tabs switching
@@ -905,6 +906,9 @@ async function fetchGlobalData() {
     }
 
     updateAdminSummary();
+    if (typeof populateResetDeptPasswordDropdown === 'function') {
+      populateResetDeptPasswordDropdown();
+    }
   } catch (err) {
     console.error('Failed to load global data:', err);
   }
@@ -1016,7 +1020,7 @@ async function showTab(tabId) {
   } else if (tabId === 'tab-admin-config') {
     renderConfigForm();
   } else if (tabId === 'tab-admin-passwords') {
-    // Admin password form tab - no dynamic table needed
+    populateResetDeptPasswordDropdown();
   } else if (tabId === 'tab-admin-data') {
     const savedDataSubtab = sessionStorage.getItem('adminDataSubtab') || state.selectedDataSubtab || 'subtab-courses';
     state.selectedDataSubtab = savedDataSubtab;
@@ -1309,6 +1313,163 @@ function bindConfigEvents() {
         console.error(err);
         restoreDbFile.value = '';
         showModalAlert('Error', 'An error occurred during database restoration.', 'danger');
+      }
+    });
+  }
+}
+
+// -------------------------------------------------------------
+// Department Password Reset Controls (Change Password Tab)
+// -------------------------------------------------------------
+function populateResetDeptPasswordDropdown() {
+  const select = document.getElementById('select-reset-dept-password');
+  if (!select) return;
+
+  const depts = [];
+  if (Array.isArray(state.departments) && state.departments.length > 0) {
+    state.departments.forEach(d => {
+      if (d && d.name) depts.push(d.name.trim());
+    });
+  }
+  if (depts.length === 0 && Array.isArray(state.courses)) {
+    state.courses.forEach(c => {
+      if (c && c.department) depts.push(c.department.trim());
+    });
+  }
+
+  const uniqueDepts = Array.from(new Set(depts)).sort((a, b) => a.localeCompare(b));
+  const currentVal = select.value;
+
+  select.innerHTML = '<option value="">-- Choose a Department --</option>';
+  uniqueDepts.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `Department of ${name}`;
+    select.appendChild(opt);
+  });
+
+  if (uniqueDepts.includes(currentVal)) {
+    select.value = currentVal;
+  } else {
+    select.value = '';
+  }
+  updateResetDeptDetailsView();
+}
+
+function updateResetDeptDetailsView() {
+  const select = document.getElementById('select-reset-dept-password');
+  const detailsCard = document.getElementById('reset-dept-details-card');
+  const btnOpen = document.getElementById('btn-open-reset-dept-password');
+  const nameDisplay = document.getElementById('reset-dept-name-display');
+  const badge = document.getElementById('reset-dept-status-badge');
+
+  if (!select || !btnOpen) return;
+  const deptName = select.value;
+
+  if (deptName) {
+    btnOpen.disabled = false;
+    if (detailsCard) detailsCard.classList.remove('hidden');
+    if (nameDisplay) nameDisplay.textContent = `Department of ${deptName}`;
+
+    if (badge) {
+      const deptInfo = (state.departments || []).find(d => d.name === deptName) || { status: 'Draft' };
+      badge.textContent = deptInfo.status || 'Draft';
+      badge.className = 'badge';
+      if (deptInfo.status === 'Approved') badge.classList.add('badge-info');
+      else if (deptInfo.status === 'Submitted') badge.classList.add('recommend-p');
+      else if (deptInfo.status === 'Returned for Changes') badge.classList.add('recommend-t');
+      else badge.classList.add('recommend-none');
+    }
+  } else {
+    btnOpen.disabled = true;
+    if (detailsCard) detailsCard.classList.add('hidden');
+  }
+}
+
+let resetDeptPwdEventsBound = false;
+function bindResetDeptPasswordEvents() {
+  if (resetDeptPwdEventsBound) return;
+  resetDeptPwdEventsBound = true;
+
+  const select = document.getElementById('select-reset-dept-password');
+  const btnOpen = document.getElementById('btn-open-reset-dept-password');
+  const modal = document.getElementById('modal-reset-dept-pwd-confirm');
+  const modalDeptName = document.getElementById('reset-dept-modal-name');
+  const confirmInput = document.getElementById('reset-dept-pwd-confirm-input');
+  const btnConfirm = document.getElementById('btn-confirm-reset-dept-pwd');
+  const btnCancel = document.getElementById('btn-cancel-reset-dept-pwd');
+
+  if (select) {
+    select.addEventListener('change', updateResetDeptDetailsView);
+  }
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', () => {
+      const deptName = select ? select.value : '';
+      if (!deptName) return;
+
+      if (modalDeptName) modalDeptName.textContent = `Department of ${deptName}`;
+      if (confirmInput) confirmInput.value = '';
+      if (btnConfirm) btnConfirm.disabled = true;
+      if (modal) modal.classList.remove('hidden');
+      if (confirmInput) confirmInput.focus();
+    });
+  }
+
+  if (confirmInput) {
+    confirmInput.addEventListener('input', (e) => {
+      const isMatch = e.target.value.trim().toUpperCase() === 'CONFIRM';
+      if (btnConfirm) btnConfirm.disabled = !isMatch;
+    });
+
+    confirmInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.value.trim().toUpperCase() === 'CONFIRM') {
+        e.preventDefault();
+        if (btnConfirm && !btnConfirm.disabled) {
+          btnConfirm.click();
+        }
+      }
+    });
+  }
+
+  if (btnCancel) {
+    btnCancel.addEventListener('click', () => {
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  if (btnConfirm) {
+    btnConfirm.addEventListener('click', async () => {
+      const deptName = select ? select.value : '';
+      if (!deptName) return;
+
+      if (modal) modal.classList.add('hidden');
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || '';
+        const res = await fetch(`${API_BASE}/admin/departments/reset-password`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token
+          },
+          body: JSON.stringify({ name: deptName })
+        });
+        const result = await res.json();
+        if (res.ok) {
+          showModalAlert(
+            'Password Reset Successful',
+            `The sign-in password for Department of ${deptName} has been reset to default: 123456`,
+            'success'
+          );
+          await fetchGlobalData();
+          populateResetDeptPasswordDropdown();
+        } else {
+          showModalAlert('Error', result.message || 'Failed to reset password.', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Error', 'Connection error while resetting department password.', 'danger');
       }
     });
   }

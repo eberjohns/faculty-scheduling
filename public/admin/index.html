@@ -206,35 +206,76 @@
             </div>
           </div>
 
-          <!-- TAB 3: Change Admin Password -->
+          <!-- TAB 3: Change Admin Password & Reset Dept Passwords -->
           <div id="tab-admin-passwords" class="tab-pane hidden">
             <div class="content-header">
-              <h1>Change Administrator Password</h1>
+              <h1>Password Management</h1>
+              <p class="text-muted text-sm">Update administrator credentials or reset coordinator sign-in passcodes for any department.</p>
             </div>
 
-            <!-- Change Admin Password Card -->
-            <div class="card" style="max-width: 480px;">
-              <div class="card-header">
-                <h2><i class="fa-solid fa-lock text-primary"></i> Administrator Password Settings</h2>
+            <div class="row">
+              <!-- Column 1: Change Admin Password -->
+              <div class="col-md-6 mb-4">
+                <div class="card h-100" style="padding: 24px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: #ffffff;">
+                  <div class="card-header pb-2" style="border-bottom: 1.5px solid var(--border); margin-bottom: 16px;">
+                    <h2 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-lock text-primary"></i> Administrator Password Settings</h2>
+                  </div>
+                  <div class="card-body p-0">
+                    <p class="text-muted text-sm">Change the master administrator sign-in passcode for the system.</p>
+                    <form id="form-change-admin-pwd" style="margin-top: 15px;">
+                      <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
+                      <div class="form-group mb-3">
+                        <label for="admin-current-pwd" class="bold text-sm">Current Admin Password</label>
+                        <input type="password" id="admin-current-pwd" class="form-control" placeholder="Enter current password" autocomplete="current-password" required>
+                      </div>
+                      <div class="form-group mb-3">
+                        <label for="admin-new-pwd" class="bold text-sm">New Admin Password</label>
+                        <input type="password" id="admin-new-pwd" class="form-control" placeholder="Enter new password (min. 4 characters)" minlength="4" autocomplete="new-password" required>
+                      </div>
+                      <div class="form-group mb-4">
+                        <label for="admin-confirm-pwd" class="bold text-sm">Confirm New Password</label>
+                        <input type="password" id="admin-confirm-pwd" class="form-control" placeholder="Re-enter new password" minlength="4" autocomplete="new-password" required>
+                      </div>
+                      <button type="submit" class="btn btn-primary shadow-btn" style="background-color: var(--primary); color: white;"><i class="fa-solid fa-key"></i> Update Admin Password</button>
+                    </form>
+                  </div>
+                </div>
               </div>
-              <div class="card-body">
-                <p class="text-muted">Change the master administrator sign-in passcode for the system.</p>
-                <form id="form-change-admin-pwd" style="margin-top: 15px;">
-                  <input type="text" name="username" value="admin" style="display:none;" autocomplete="username">
-                  <div class="form-group mb-3">
-                    <label for="admin-current-pwd">Current Admin Password</label>
-                    <input type="password" id="admin-current-pwd" class="form-control" placeholder="Enter current password" autocomplete="current-password" required>
+
+              <!-- Column 2: Reset Department Password -->
+              <div class="col-md-6 mb-4">
+                <div class="card h-100" style="padding: 24px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: #ffffff;">
+                  <div class="card-header pb-2" style="border-bottom: 1.5px solid var(--border); margin-bottom: 16px;">
+                    <h2 style="font-size: 16px; margin: 0;"><i class="fa-solid fa-building-user text-warning"></i> Reset Department Login Password</h2>
                   </div>
-                  <div class="form-group mb-3">
-                    <label for="admin-new-pwd">New Admin Password</label>
-                    <input type="password" id="admin-new-pwd" class="form-control" placeholder="Enter new password (min. 4 characters)" minlength="4" autocomplete="new-password" required>
+                  <div class="card-body p-0">
+                    <p class="text-muted text-sm">Select a department to reset its coordinator access password back to the system default password (<code>123456</code>).</p>
+                    
+                    <div class="form-group mb-3 mt-3">
+                      <label for="select-reset-dept-password" class="bold text-sm">Select Department</label>
+                      <select id="select-reset-dept-password" class="form-control">
+                        <option value="">-- Choose a Department --</option>
+                      </select>
+                    </div>
+
+                    <div id="reset-dept-details-card" class="p-3 mb-4 hidden" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                      <div class="flex-row justify-between items-center mb-2">
+                        <span class="text-sm bold text-primary" id="reset-dept-name-display">Department</span>
+                        <span id="reset-dept-status-badge" class="badge">Draft</span>
+                      </div>
+                      <div class="text-xs text-muted mb-2">
+                        Default Passcode: <span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-family: monospace; font-size: 12px;">123456</span>
+                      </div>
+                      <div class="text-xs text-secondary">
+                        <i class="fa-solid fa-circle-info text-info"></i> Resetting will restore access if the coordinator forgot their password.
+                      </div>
+                    </div>
+
+                    <button type="button" id="btn-open-reset-dept-password" class="btn btn-warning shadow-btn" style="background-color: #f59e0b; color: white;" disabled>
+                      <i class="fa-solid fa-rotate-left"></i> Reset Password to Default...
+                    </button>
                   </div>
-                  <div class="form-group mb-4">
-                    <label for="admin-confirm-pwd">Confirm New Password</label>
-                    <input type="password" id="admin-confirm-pwd" class="form-control" placeholder="Re-enter new password" minlength="4" autocomplete="new-password" required>
-                  </div>
-                  <button type="submit" class="btn btn-primary shadow-btn" style="background-color: var(--primary); color: white;"><i class="fa-solid fa-key"></i> Update Admin Password</button>
-                </form>
+                </div>
               </div>
             </div>
           </div>
@@ -1211,6 +1252,25 @@
         <div class="actions flex-row justify-center gap-2 mt-4">
           <button id="btn-confirm-clear-db" class="btn btn-danger" style="background-color: var(--danger); color: white;" disabled>Clear Database</button>
           <button id="btn-cancel-clear-db" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DIALOG: CONFIRM DEPARTMENT PASSWORD RESET -->
+    <div id="modal-reset-dept-pwd-confirm" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-sm text-center" style="max-width: 440px; width: 100%; padding: 24px;">
+        <div class="modal-icon text-warning" style="font-size: 40px; margin-bottom: 12px;"><i class="fa-solid fa-rotate-left"></i></div>
+        <h2 style="font-size: 20px;">Reset Department Password?</h2>
+        <p class="text-muted mt-2 text-sm">
+          You are resetting the sign-in password for <strong id="reset-dept-modal-name" class="text-primary">-</strong> to the default password: <strong class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 13px;">123456</strong>.
+        </p>
+        <p class="text-muted text-sm mt-2">To confirm this action, please type <strong style="color: #b45309;">CONFIRM</strong> below:</p>
+        
+        <input type="text" id="reset-dept-pwd-confirm-input" class="form-control mt-3 text-center" placeholder="Type CONFIRM" style="font-weight: bold; text-transform: uppercase;" autocomplete="off">
+        
+        <div class="actions flex-row justify-center gap-2 mt-4">
+          <button type="button" id="btn-confirm-reset-dept-pwd" class="btn btn-warning" style="background-color: #f59e0b; color: white;" disabled><i class="fa-solid fa-check"></i> Reset Password</button>
+          <button type="button" id="btn-cancel-reset-dept-pwd" class="btn btn-outline">Cancel</button>
         </div>
       </div>
     </div>

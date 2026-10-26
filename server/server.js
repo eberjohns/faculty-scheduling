@@ -567,6 +567,28 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
   res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
 
+app.post('/api/admin/departments/reset-password', requireAdmin, (req, res) => {
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Department name is required' });
+  }
+  const db = readDb();
+  if (!db.departments) db.departments = {};
+  const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.trim().toLowerCase()) || name.trim();
+  if (!db.departments[existingKey]) {
+    db.departments[existingKey] = {};
+  }
+  const defaultPassword = '123456';
+  db.departments[existingKey].password = encryptDeptPasscode(defaultPassword);
+  writeDb(db);
+  res.json({
+    success: true,
+    message: `Password for Department ${existingKey} has been reset to default (${defaultPassword}).`,
+    departmentName: existingKey,
+    defaultPassword
+  });
+});
+
 app.get('/api/admin/departments', requireAdmin, (req, res) => {
   const db = readDb();
   if (ensureDepartmentDefaults(db)) {

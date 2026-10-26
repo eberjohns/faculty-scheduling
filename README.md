@@ -75,6 +75,8 @@ The platform provides a dual-portal interface:
 ### 9. Enterprise Security & Access Control
 - **Salted Password Hashing**: Administrator credentials protected with scrypt/PBKDF2.
 - **Role-Based HMAC JWTs**: Signed authentication tokens distinguishing `admin` and `department` roles.
+- **Department Password Reset**: Administrators can select any department on the **Change Password** page to reset their coordinator access password back to the default (`123456`), protected with a required `CONFIRM` verification step.
+- **Course & Faculty Alias Filtering**: Department coordinator editors include instant search, program (`UG`, `PG`, `INT`), semester, and category filtering with a one-click grid filter sync.
 - **BOLA / IDOR Protection**: Cross-department timetable modifications are strictly verified and forbidden.
 - **Rate Limiting & Security Headers**: Integrated brute-force login protection, HSTS, CSP, and dotfile deny filters.
 
