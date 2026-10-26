@@ -693,6 +693,7 @@ function bindFilterEvents() {
 
   // Hook populateFilters to trigger when loading workspace
   window.populateFiltersDropdowns = populateFilters;
+  window.getSemesterLabel = getSemesterLabel;
 }
 
 // -------------------------------------------------------------
@@ -716,6 +717,8 @@ async function loadDepartmentWorkspace() {
     window.populateFiltersDropdowns();
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
+    if (typeof bindDeptEditorFilterEvents === 'function') bindDeptEditorFilterEvents();
+    if (typeof populateDeptEditorFilterDropdowns === 'function') populateDeptEditorFilterDropdowns();
     renderDeptDataEditors();
     renderTeacherAvailabilityEditor();
     populateTeacherTimetableDropdowns();
@@ -1180,7 +1183,8 @@ function bindDeptEvents() {
     const deptName = state.currentUser.departmentName;
     const deptCourses = state.courses.filter(c => c.department === deptName);
     const coursesToSave = deptCourses.map(c => {
-      const alias = document.getElementById(`calias-${c.code}`).value.trim();
+      const el = document.getElementById(`calias-${c.code}`);
+      const alias = el ? el.value.trim() : (c.alias || '');
       return { code: c.code, name: c.name, alias };
     });
 
@@ -1211,7 +1215,8 @@ function bindDeptEvents() {
     const deptName = state.currentUser.departmentName;
     const deptFaculty = state.faculty.filter(f => f.department === deptName);
     const facultyToSave = deptFaculty.map(f => {
-      const code = document.getElementById(`fcode-${f.staffId}`).value.trim();
+      const el = document.getElementById(`fcode-${f.staffId}`);
+      const code = el ? el.value.trim() : (f.code || '');
       return { staffId: f.staffId, code };
     });
 
@@ -2797,72 +2802,521 @@ async function executeSave(isSubmission) {
 }
 
 // -------------------------------------------------------------
-// Inline Editors (Shuffled from Admin Panel to Department View)
+// Inline Editors (Department View: Courses & Faculty Aliases)
 // -------------------------------------------------------------
+const deptEditorFilters = {
+  courseSearch: '',
+  courseProgram: '',
+  courseSemester: '',
+  courseCategory: '',
+  facultySearch: '',
+  facultyProgram: '',
+  facultySemester: '',
+  facultyCategory: ''
+};
+
+function getFacultyAssignedCourses(facCode, deptName) {
+  if (!facCode) return [];
+  const normCode = facCode.trim().toUpperCase();
+  const matchedCourses = new Set();
+  const deptAlloc = state.allocations || {};
+
+  Object.entries(deptAlloc).forEach(([cCode, dayObj]) => {
+    Object.values(dayObj || {}).forEach(periodObj => {
+      Object.values(periodObj || {}).forEach(facVal => {
+        let facCodes = [];
+        if (Array.isArray(facVal)) {
+          facCodes = facVal;
+        } else if (typeof facVal === 'string') {
+          facCodes = facVal.split(',').map(s => s.trim());
+        }
+        if (facCodes.some(fc => (fc || '').trim().toUpperCase() === normCode)) {
+          const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+          const course = (state.courses || []).find(c => c.code === cCode) ||
+                         (state.courses || []).find(c => c.code === baseCode);
+          if (course) matchedCourses.add(course);
+        }
+      });
+    });
+  });
+
+  (state.crossDepartmentRequests || []).forEach(r => {
+    if (r.status === 'APPROVED' && (r.assignedFacultyCode || '').trim().toUpperCase() === normCode) {
+      const baseCode = (r.courseCode || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const course = (state.courses || []).find(c => c.code === r.courseCode) ||
+                     (state.courses || []).find(c => c.code === baseCode);
+      if (course) matchedCourses.add(course);
+    }
+  });
+
+  return Array.from(matchedCourses);
+}
+
+function populateDeptEditorFilterDropdowns() {
+  if (!state.currentUser || !state.currentUser.departmentName) return;
+  const deptName = state.currentUser.departmentName;
+  const deptCourses = (state.courses || []).filter(c => c.department === deptName);
+  const getSemLabel = window.getSemesterLabel || function(s) { return state.config?.semesterLabels?.[s] || `Sem ${s}`; };
+
+  // 1. Courses Dropdowns
+  const semCourseSelect = document.getElementById('filter-dept-courses-sem');
+  const catCourseSelect = document.getElementById('filter-dept-courses-cat');
+  const progCourseSelect = document.getElementById('filter-dept-courses-prog');
+
+  if (progCourseSelect) progCourseSelect.value = deptEditorFilters.courseProgram || '';
+
+  if (semCourseSelect) {
+    let availableCourses = deptCourses;
+    if (deptEditorFilters.courseProgram) {
+      availableCourses = availableCourses.filter(c => (c.programType || 'UG') === deptEditorFilters.courseProgram);
+    }
+    const sems = Array.from(new Set(availableCourses.map(c => c.semester))).filter(Boolean).sort((a,b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const prevSem = deptEditorFilters.courseSemester;
+
+    semCourseSelect.innerHTML = `
+      <option value="">All Semesters</option>
+      <option value="odd">Odd Semesters (1, 3, 5)</option>
+      <option value="even">Even Semesters (2, 4)</option>
+    `;
+    sems.forEach(s => {
+      let label = getSemLabel(s, deptEditorFilters.courseProgram || 'UG');
+      semCourseSelect.innerHTML += `<option value="${s}">${label}</option>`;
+    });
+
+    if (['', 'odd', 'even'].includes(prevSem) || sems.includes(prevSem)) {
+      semCourseSelect.value = prevSem;
+    } else {
+      deptEditorFilters.courseSemester = '';
+      semCourseSelect.value = '';
+    }
+  }
+
+  if (catCourseSelect) {
+    let availableCourses = deptCourses;
+    if (deptEditorFilters.courseProgram) {
+      availableCourses = availableCourses.filter(c => (c.programType || 'UG') === deptEditorFilters.courseProgram);
+    }
+    const cats = Array.from(new Set(availableCourses.map(c => c.category))).filter(Boolean).sort();
+    const prevCat = deptEditorFilters.courseCategory;
+
+    catCourseSelect.innerHTML = '<option value="">All Categories</option>';
+    cats.forEach(c => {
+      catCourseSelect.innerHTML += `<option value="${c}">${c}</option>`;
+    });
+
+    if (cats.includes(prevCat)) {
+      catCourseSelect.value = prevCat;
+    } else {
+      deptEditorFilters.courseCategory = '';
+      catCourseSelect.value = '';
+    }
+  }
+
+  // 2. Faculty Dropdowns
+  const semFacSelect = document.getElementById('filter-dept-faculty-sem');
+  const catFacSelect = document.getElementById('filter-dept-faculty-cat');
+  const progFacSelect = document.getElementById('filter-dept-faculty-prog');
+
+  if (progFacSelect) progFacSelect.value = deptEditorFilters.facultyProgram || '';
+
+  if (semFacSelect) {
+    let availableCourses = deptCourses;
+    if (deptEditorFilters.facultyProgram) {
+      availableCourses = availableCourses.filter(c => (c.programType || 'UG') === deptEditorFilters.facultyProgram);
+    }
+    const sems = Array.from(new Set(availableCourses.map(c => c.semester))).filter(Boolean).sort((a,b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const prevSem = deptEditorFilters.facultySemester;
+
+    semFacSelect.innerHTML = `
+      <option value="">All Semesters</option>
+      <option value="odd">Odd Semesters (1, 3, 5)</option>
+      <option value="even">Even Semesters (2, 4)</option>
+    `;
+    sems.forEach(s => {
+      let label = getSemLabel(s, deptEditorFilters.facultyProgram || 'UG');
+      semFacSelect.innerHTML += `<option value="${s}">${label}</option>`;
+    });
+
+    if (['', 'odd', 'even'].includes(prevSem) || sems.includes(prevSem)) {
+      semFacSelect.value = prevSem;
+    } else {
+      deptEditorFilters.facultySemester = '';
+      semFacSelect.value = '';
+    }
+  }
+
+  if (catFacSelect) {
+    let availableCourses = deptCourses;
+    if (deptEditorFilters.facultyProgram) {
+      availableCourses = availableCourses.filter(c => (c.programType || 'UG') === deptEditorFilters.facultyProgram);
+    }
+    const cats = Array.from(new Set(availableCourses.map(c => c.category))).filter(Boolean).sort();
+    const prevCat = deptEditorFilters.facultyCategory;
+
+    catFacSelect.innerHTML = '<option value="">All Categories</option>';
+    cats.forEach(c => {
+      catFacSelect.innerHTML += `<option value="${c}">${c}</option>`;
+    });
+
+    if (cats.includes(prevCat)) {
+      catFacSelect.value = prevCat;
+    } else {
+      deptEditorFilters.facultyCategory = '';
+      catFacSelect.value = '';
+    }
+  }
+}
+
+let deptEditorFilterEventsBound = false;
+function bindDeptEditorFilterEvents() {
+  if (deptEditorFilterEventsBound) return;
+  deptEditorFilterEventsBound = true;
+
+  // Course Search
+  const courseSearchInput = document.getElementById('filter-dept-courses-search');
+  if (courseSearchInput) {
+    courseSearchInput.addEventListener('input', (e) => {
+      deptEditorFilters.courseSearch = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Course Program
+  const courseProgSelect = document.getElementById('filter-dept-courses-prog');
+  if (courseProgSelect) {
+    courseProgSelect.addEventListener('change', (e) => {
+      deptEditorFilters.courseProgram = e.target.value;
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+    });
+  }
+
+  // Course Semester
+  const courseSemSelect = document.getElementById('filter-dept-courses-sem');
+  if (courseSemSelect) {
+    courseSemSelect.addEventListener('change', (e) => {
+      deptEditorFilters.courseSemester = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Course Category
+  const courseCatSelect = document.getElementById('filter-dept-courses-cat');
+  if (courseCatSelect) {
+    courseCatSelect.addEventListener('change', (e) => {
+      deptEditorFilters.courseCategory = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Course Sync Grid Filters
+  const btnSyncCourseFilters = document.getElementById('btn-sync-dept-courses-filters');
+  if (btnSyncCourseFilters) {
+    btnSyncCourseFilters.addEventListener('click', () => {
+      deptEditorFilters.courseProgram = state.filters.program || '';
+      deptEditorFilters.courseSemester = state.filters.semester || '';
+      deptEditorFilters.courseCategory = state.filters.category || '';
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+      const origText = btnSyncCourseFilters.innerHTML;
+      btnSyncCourseFilters.innerHTML = '<i class="fa-solid fa-check text-success"></i> Synced!';
+      setTimeout(() => { btnSyncCourseFilters.innerHTML = origText; }, 1500);
+    });
+  }
+
+  // Course Reset Filters
+  const btnResetCourseFilters = document.getElementById('btn-reset-dept-courses-filters');
+  if (btnResetCourseFilters) {
+    btnResetCourseFilters.addEventListener('click', () => {
+      deptEditorFilters.courseSearch = '';
+      deptEditorFilters.courseProgram = '';
+      deptEditorFilters.courseSemester = '';
+      deptEditorFilters.courseCategory = '';
+      if (courseSearchInput) courseSearchInput.value = '';
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+    });
+  }
+
+  // Faculty Search
+  const facultySearchInput = document.getElementById('filter-dept-faculty-search');
+  if (facultySearchInput) {
+    facultySearchInput.addEventListener('input', (e) => {
+      deptEditorFilters.facultySearch = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Faculty Program
+  const facultyProgSelect = document.getElementById('filter-dept-faculty-prog');
+  if (facultyProgSelect) {
+    facultyProgSelect.addEventListener('change', (e) => {
+      deptEditorFilters.facultyProgram = e.target.value;
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+    });
+  }
+
+  // Faculty Semester
+  const facultySemSelect = document.getElementById('filter-dept-faculty-sem');
+  if (facultySemSelect) {
+    facultySemSelect.addEventListener('change', (e) => {
+      deptEditorFilters.facultySemester = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Faculty Category
+  const facultyCatSelect = document.getElementById('filter-dept-faculty-cat');
+  if (facultyCatSelect) {
+    facultyCatSelect.addEventListener('change', (e) => {
+      deptEditorFilters.facultyCategory = e.target.value;
+      renderDeptDataEditors();
+    });
+  }
+
+  // Faculty Sync Grid Filters
+  const btnSyncFacFilters = document.getElementById('btn-sync-dept-faculty-filters');
+  if (btnSyncFacFilters) {
+    btnSyncFacFilters.addEventListener('click', () => {
+      deptEditorFilters.facultyProgram = state.filters.program || '';
+      deptEditorFilters.facultySemester = state.filters.semester || '';
+      deptEditorFilters.facultyCategory = state.filters.category || '';
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+      const origText = btnSyncFacFilters.innerHTML;
+      btnSyncFacFilters.innerHTML = '<i class="fa-solid fa-check text-success"></i> Synced!';
+      setTimeout(() => { btnSyncFacFilters.innerHTML = origText; }, 1500);
+    });
+  }
+
+  // Faculty Reset Filters
+  const btnResetFacFilters = document.getElementById('btn-reset-dept-faculty-filters');
+  if (btnResetFacFilters) {
+    btnResetFacFilters.addEventListener('click', () => {
+      deptEditorFilters.facultySearch = '';
+      deptEditorFilters.facultyProgram = '';
+      deptEditorFilters.facultySemester = '';
+      deptEditorFilters.facultyCategory = '';
+      if (facultySearchInput) facultySearchInput.value = '';
+      populateDeptEditorFilterDropdowns();
+      renderDeptDataEditors();
+    });
+  }
+}
+
 function renderDeptDataEditors() {
   const deptName = state.currentUser.departmentName;
   const deptCourses = state.courses.filter(c => c.department === deptName);
   const deptFaculty = state.faculty.filter(f => f.department === deptName);
   const locked = isTimetableLocked();
 
-  document.getElementById('count-dept-courses').textContent = deptCourses.length;
-  document.getElementById('count-dept-faculty').textContent = deptFaculty.length;
+  const totalCoursesCount = deptCourses.length;
+  const totalFacultyCount = deptFaculty.length;
+
+  document.getElementById('count-dept-courses').textContent = totalCoursesCount;
+  document.getElementById('count-dept-faculty').textContent = totalFacultyCount;
+
+  // Filter Courses
+  let filteredCourses = deptCourses;
+
+  if (deptEditorFilters.courseProgram) {
+    filteredCourses = filteredCourses.filter(c => (c.programType || 'UG') === deptEditorFilters.courseProgram);
+  }
+
+  if (deptEditorFilters.courseSemester) {
+    if (deptEditorFilters.courseSemester === 'odd') {
+      filteredCourses = filteredCourses.filter(c => {
+        const sNum = parseInt(c.semester, 10);
+        return !isNaN(sNum) && sNum % 2 !== 0;
+      });
+    } else if (deptEditorFilters.courseSemester === 'even') {
+      filteredCourses = filteredCourses.filter(c => {
+        const sNum = parseInt(c.semester, 10);
+        return !isNaN(sNum) && sNum % 2 === 0;
+      });
+    } else {
+      filteredCourses = filteredCourses.filter(c => String(c.semester) === String(deptEditorFilters.courseSemester));
+    }
+  }
+
+  if (deptEditorFilters.courseCategory) {
+    filteredCourses = filteredCourses.filter(c => (c.category || '').toUpperCase() === deptEditorFilters.courseCategory.toUpperCase());
+  }
+
+  if (deptEditorFilters.courseSearch && deptEditorFilters.courseSearch.trim()) {
+    const q = deptEditorFilters.courseSearch.trim().toLowerCase();
+    filteredCourses = filteredCourses.filter(c => {
+      const mappedBatches = getCourseClassBatches(c) || [];
+      const cleanCode = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const classNumMatch = (c.code || '').match(/(_G|_C)(\d+)/);
+      const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+      const formattedCode = formatCourseCodeWithGroup(cleanCode, classNum, mappedBatches);
+
+      return (
+        (c.code && c.code.toLowerCase().includes(q)) ||
+        (cleanCode && cleanCode.toLowerCase().includes(q)) ||
+        (formattedCode && formattedCode.toLowerCase().includes(q)) ||
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.alias && c.alias.toLowerCase().includes(q)) ||
+        (c.category && c.category.toLowerCase().includes(q)) ||
+        mappedBatches.some(b => String(b).toLowerCase().includes(q))
+      );
+    });
+  }
+
+  const textCoursesCount = document.getElementById('text-dept-courses-count');
+  if (textCoursesCount) {
+    textCoursesCount.innerHTML = `<i class="fa-solid fa-book-open"></i> Showing ${filteredCourses.length} of ${totalCoursesCount} courses`;
+  }
 
   // Render Courses Edit list
   const coursesTbody = document.querySelector('#table-dept-courses tbody');
   coursesTbody.innerHTML = '';
-  deptCourses.forEach(c => {
-    const mapped = getCourseClassBatches(c);
-    const batchListHtml = mapped.length > 0 
-      ? mapped.map(b => `<span class="badge badge-info" style="font-size: 11px; margin-right: 4px;">${b}</span>`).join('')
-      : `<span class="text-muted text-sm">None</span>`;
 
-    const tr = document.createElement('tr');
-    // For tooltip and visual code formatting, fetch appropriate batches list
-    const mappedBaseBatches = getCourseClassBatches(c);
-    const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
-    const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
-    const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-    const formattedCode = formatCourseCodeWithGroup(cleanCode, classNum, mappedBaseBatches);
-    tr.innerHTML = `
-      <td><strong>${formattedCode}</strong></td>
-      <td>${c.semester}</td>
-      <td>${c.category}</td>
-      <td>
-        <span class="text-sm font-medium">${c.name}</span>
-      </td>
-      <td>
-        <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}" ${locked ? 'disabled' : ''}>
-      </td>
-      <td>
-        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; max-width: 250px;">
-          <div style="display:flex; flex-wrap:wrap; gap:4px; flex:1;">${batchListHtml}</div>
-        </div>
-      </td>
-      <td>
-        <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
-      </td>
+  if (filteredCourses.length === 0) {
+    coursesTbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="text-center text-muted p-4" style="background: #fafafa;">
+          <i class="fa-solid fa-filter-circle-xmark text-secondary mb-2" style="font-size: 24px; opacity: 0.5;"></i>
+          <p class="mb-0">No courses match the active filters or search query.</p>
+        </td>
+      </tr>
     `;
-    coursesTbody.appendChild(tr);
-  });
+  } else {
+    filteredCourses.forEach(c => {
+      const mapped = getCourseClassBatches(c);
+      const batchListHtml = mapped.length > 0 
+        ? mapped.map(b => `<span class="badge badge-info" style="font-size: 11px; margin-right: 4px;">${b}</span>`).join('')
+        : `<span class="text-muted text-sm">None</span>`;
+
+      const tr = document.createElement('tr');
+      const mappedBaseBatches = getCourseClassBatches(c);
+      const classNumMatch = c.code.match(/(_G|_C)(\d+)/);
+      const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (c.class || c.group || 0);
+      const cleanCode = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const formattedCode = formatCourseCodeWithGroup(cleanCode, classNum, mappedBaseBatches);
+      tr.innerHTML = `
+        <td><strong>${formattedCode}</strong></td>
+        <td>${c.semester}</td>
+        <td>${c.category}</td>
+        <td>
+          <span class="text-sm font-medium">${c.name}</span>
+        </td>
+        <td>
+          <input type="text" class="form-control text-sm" id="calias-${c.code}" value="${c.alias || ''}" ${locked ? 'disabled' : ''}>
+        </td>
+        <td>
+          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; max-width: 250px;">
+            <div style="display:flex; flex-wrap:wrap; gap:4px; flex:1;">${batchListHtml}</div>
+          </div>
+        </td>
+        <td>
+          <button class="btn btn-outline btn-xs" onclick="saveDeptCourseRecord('${c.code}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
+        </td>
+      `;
+      const input = tr.querySelector(`input[id="calias-${c.code}"]`);
+      if (input) {
+        input.addEventListener('input', (e) => {
+          c.alias = e.target.value;
+        });
+      }
+      coursesTbody.appendChild(tr);
+    });
+  }
+
+  // Filter Faculty
+  let filteredFaculty = deptFaculty;
+  const hasCourseCriteria = !!(deptEditorFilters.facultyProgram || deptEditorFilters.facultySemester || deptEditorFilters.facultyCategory);
+
+  if (hasCourseCriteria) {
+    filteredFaculty = filteredFaculty.filter(f => {
+      const assignedCourses = getFacultyAssignedCourses(f.code, deptName);
+      if (assignedCourses.length === 0) return false;
+
+      return assignedCourses.some(c => {
+        if (deptEditorFilters.facultyProgram) {
+          if ((c.programType || 'UG') !== deptEditorFilters.facultyProgram) return false;
+        }
+        if (deptEditorFilters.facultySemester) {
+          if (deptEditorFilters.facultySemester === 'odd') {
+            const sNum = parseInt(c.semester, 10);
+            if (isNaN(sNum) || sNum % 2 === 0) return false;
+          } else if (deptEditorFilters.facultySemester === 'even') {
+            const sNum = parseInt(c.semester, 10);
+            if (isNaN(sNum) || sNum % 2 !== 0) return false;
+          } else {
+            if (String(c.semester) !== String(deptEditorFilters.facultySemester)) return false;
+          }
+        }
+        if (deptEditorFilters.facultyCategory) {
+          if ((c.category || '').toUpperCase() !== deptEditorFilters.facultyCategory.toUpperCase()) return false;
+        }
+        return true;
+      });
+    });
+  }
+
+  if (deptEditorFilters.facultySearch && deptEditorFilters.facultySearch.trim()) {
+    const q = deptEditorFilters.facultySearch.trim().toLowerCase();
+    filteredFaculty = filteredFaculty.filter(f => {
+      const assignedCourses = getFacultyAssignedCourses(f.code, deptName);
+      return (
+        (f.staffId && String(f.staffId).toLowerCase().includes(q)) ||
+        (f.name && f.name.toLowerCase().includes(q)) ||
+        (f.code && f.code.toLowerCase().includes(q)) ||
+        (f.designation && f.designation.toLowerCase().includes(q)) ||
+        assignedCourses.some(c => 
+          (c.code && c.code.toLowerCase().includes(q)) || 
+          (c.name && c.name.toLowerCase().includes(q)) || 
+          (c.alias && c.alias.toLowerCase().includes(q))
+        )
+      );
+    });
+  }
+
+  const textFacultyCount = document.getElementById('text-dept-faculty-count');
+  if (textFacultyCount) {
+    textFacultyCount.innerHTML = `<i class="fa-solid fa-users"></i> Showing ${filteredFaculty.length} of ${totalFacultyCount} faculty`;
+  }
 
   // Render Faculty Edit list
   const facultyTbody = document.querySelector('#table-dept-faculty tbody');
   facultyTbody.innerHTML = '';
-  deptFaculty.forEach(f => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${f.staffId}</td>
-      <td><strong>${f.name}</strong></td>
-      <td>
-        <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width:120px;" ${locked ? 'disabled' : ''}>
-      </td>
-      <td>
-        <button class="btn btn-outline btn-xs" onclick="saveDeptFacultyCode('${f.staffId}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
-      </td>
+
+  if (filteredFaculty.length === 0) {
+    facultyTbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="text-center text-muted p-4" style="background: #fafafa;">
+          <i class="fa-solid fa-filter-circle-xmark text-secondary mb-2" style="font-size: 24px; opacity: 0.5;"></i>
+          <p class="mb-0">No faculty match the active filters or search query.</p>
+        </td>
+      </tr>
     `;
-    facultyTbody.appendChild(tr);
-  });
+  } else {
+    deptFaculty.forEach(f => {
+      if (!filteredFaculty.includes(f)) return;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${f.staffId}</td>
+        <td><strong>${f.name}</strong></td>
+        <td>
+          <input type="text" class="form-control text-sm" id="fcode-${f.staffId}" value="${f.code}" style="max-width:120px;" ${locked ? 'disabled' : ''}>
+        </td>
+        <td>
+          <button class="btn btn-outline btn-xs" onclick="saveDeptFacultyCode('${f.staffId}')" ${locked ? 'disabled' : ''}><i class="fa-solid fa-save"></i> Save</button>
+        </td>
+      `;
+      const input = tr.querySelector(`input[id="fcode-${f.staffId}"]`);
+      if (input) {
+        input.addEventListener('input', (e) => {
+          f.code = e.target.value;
+        });
+      }
+      facultyTbody.appendChild(tr);
+    });
+  }
 
   // Setup click warning handler on details tab when locked
   const tableCourses = document.getElementById('table-dept-courses');
@@ -2896,7 +3350,8 @@ function renderDeptDataEditors() {
 }
 
 window.saveDeptCourseRecord = async function(code) {
-  const alias = document.getElementById(`calias-${code}`).value.trim();
+  const el = document.getElementById(`calias-${code}`);
+  const alias = el ? el.value.trim() : '';
   const course = state.courses.find(c => c.code === code);
   const name = course ? course.name : '';
   const deptName = state.currentUser.departmentName;
@@ -2924,7 +3379,8 @@ window.saveDeptCourseRecord = async function(code) {
 };
 
 window.saveDeptFacultyCode = async function(staffId) {
-  const code = document.getElementById(`fcode-${staffId}`).value.trim();
+  const el = document.getElementById(`fcode-${staffId}`);
+  const code = el ? el.value.trim() : '';
   const deptName = state.currentUser.departmentName;
   
   try {

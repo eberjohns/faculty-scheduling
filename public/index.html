@@ -286,8 +286,60 @@
 
           <!-- Course Editor with Save All Courses button -->
           <div id="subtab-dept-courses" class="subtab-pane active mt-3">
+            <!-- Filter & Search Toolbar for Courses -->
+            <div class="card p-3 mb-3" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <div class="flex-row justify-between items-center flex-wrap gap-2 mb-2">
+                <div class="flex-row items-center gap-2 flex-wrap" style="flex: 1; min-width: 280px;">
+                  <!-- Search Bar -->
+                  <div style="position: relative; min-width: 200px; flex: 1;">
+                    <i class="fa-solid fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 13px;"></i>
+                    <input type="text" id="filter-dept-courses-search" class="form-control form-control-sm" placeholder="Search course code, name, alias, batch..." style="padding-left: 30px;">
+                  </div>
+                  <!-- Program Filter -->
+                  <div style="min-width: 130px;">
+                    <select id="filter-dept-courses-prog" class="form-control form-control-sm">
+                      <option value="">All Programs</option>
+                      <option value="UG">UG (Under Graduate)</option>
+                      <option value="PG">PG (Post Graduate)</option>
+                      <option value="INT">INT (Integrated)</option>
+                    </select>
+                  </div>
+                  <!-- Semester Filter -->
+                  <div style="min-width: 140px;">
+                    <select id="filter-dept-courses-sem" class="form-control form-control-sm">
+                      <option value="">All Semesters</option>
+                      <option value="odd">Odd Semesters (1, 3, 5)</option>
+                      <option value="even">Even Semesters (2, 4)</option>
+                    </select>
+                  </div>
+                  <!-- Category Filter -->
+                  <div style="min-width: 130px;">
+                    <select id="filter-dept-courses-cat" class="form-control form-control-sm">
+                      <option value="">All Categories</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="flex-row items-center gap-2">
+                  <button type="button" id="btn-sync-dept-courses-filters" class="btn btn-outline btn-sm" title="Sync active filters from timetable grid">
+                    <i class="fa-solid fa-arrows-rotate"></i> Sync Grid Filters
+                  </button>
+                  <button type="button" id="btn-reset-dept-courses-filters" class="btn btn-outline btn-sm" title="Reset course filters and search">
+                    <i class="fa-solid fa-filter-circle-xmark"></i> Reset
+                  </button>
+                </div>
+              </div>
+
+              <div class="flex-row justify-between items-center text-xs text-muted pt-2" style="border-top: 1px solid #e2e8f0;">
+                <span id="text-dept-courses-count" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 600; font-size: 12px; padding: 4px 8px;">
+                  <i class="fa-solid fa-book-open"></i> Showing 0 of 0 courses
+                </span>
+                <span>Filter and modify course visual aliases locally.</span>
+              </div>
+            </div>
+
             <div class="flex-row justify-between items-center mb-3">
-              <span class="text-muted text-sm">Modify course names and aliases locally.</span>
+              <span class="text-muted text-sm">Course Aliases & Visual Display</span>
               <button id="btn-save-all-courses" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All Course
                 Details</button>
             </div>
@@ -313,8 +365,60 @@
 
           <!-- Faculty Editor with Save All Faculty button -->
           <div id="subtab-dept-faculty" class="subtab-pane hidden mt-3">
+            <!-- Filter & Search Toolbar for Faculty -->
+            <div class="card p-3 mb-3" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <div class="flex-row justify-between items-center flex-wrap gap-2 mb-2">
+                <div class="flex-row items-center gap-2 flex-wrap" style="flex: 1; min-width: 280px;">
+                  <!-- Search Bar -->
+                  <div style="position: relative; min-width: 200px; flex: 1;">
+                    <i class="fa-solid fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 13px;"></i>
+                    <input type="text" id="filter-dept-faculty-search" class="form-control form-control-sm" placeholder="Search staff ID, faculty name, visual code..." style="padding-left: 30px;">
+                  </div>
+                  <!-- Program Filter -->
+                  <div style="min-width: 130px;">
+                    <select id="filter-dept-faculty-prog" class="form-control form-control-sm">
+                      <option value="">All Programs</option>
+                      <option value="UG">UG (Under Graduate)</option>
+                      <option value="PG">PG (Post Graduate)</option>
+                      <option value="INT">INT (Integrated)</option>
+                    </select>
+                  </div>
+                  <!-- Semester Filter -->
+                  <div style="min-width: 140px;">
+                    <select id="filter-dept-faculty-sem" class="form-control form-control-sm">
+                      <option value="">All Semesters</option>
+                      <option value="odd">Odd Semesters (1, 3, 5)</option>
+                      <option value="even">Even Semesters (2, 4)</option>
+                    </select>
+                  </div>
+                  <!-- Category Filter -->
+                  <div style="min-width: 130px;">
+                    <select id="filter-dept-faculty-cat" class="form-control form-control-sm">
+                      <option value="">All Categories</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="flex-row items-center gap-2">
+                  <button type="button" id="btn-sync-dept-faculty-filters" class="btn btn-outline btn-sm" title="Sync active filters from timetable grid">
+                    <i class="fa-solid fa-arrows-rotate"></i> Sync Grid Filters
+                  </button>
+                  <button type="button" id="btn-reset-dept-faculty-filters" class="btn btn-outline btn-sm" title="Reset faculty filters and search">
+                    <i class="fa-solid fa-filter-circle-xmark"></i> Reset
+                  </button>
+                </div>
+              </div>
+
+              <div class="flex-row justify-between items-center text-xs text-muted pt-2" style="border-top: 1px solid #e2e8f0;">
+                <span id="text-dept-faculty-count" class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 600; font-size: 12px; padding: 4px 8px;">
+                  <i class="fa-solid fa-users"></i> Showing 0 of 0 faculty
+                </span>
+                <span>Filter and modify faculty visual initials codes.</span>
+              </div>
+            </div>
+
             <div class="flex-row justify-between items-center mb-3">
-              <span class="text-muted text-sm">Modify faculty visual codes.</span>
+              <span class="text-muted text-sm">Faculty Codes & Identification</span>
               <button id="btn-save-all-faculty" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save All
                 Faculty Codes</button>
             </div>
