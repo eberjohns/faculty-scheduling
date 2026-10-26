@@ -509,6 +509,20 @@ function bindAuthEvents() {
     }
   });
 
+  const linkForgotPwd = document.getElementById('link-forgot-dept-pwd');
+  if (linkForgotPwd) {
+    linkForgotPwd.addEventListener('click', (e) => {
+      e.preventDefault();
+      const selectedDept = document.getElementById('login-dept').value;
+      const deptMsg = selectedDept ? ` for "${selectedDept}"` : '';
+      showModalAlert(
+        'Department Password Assistance',
+        `Department sign-in passcodes are centrally managed by the College Timetable Administrator.\n\nIf you have forgotten your password${deptMsg}, please contact the Administrator. The admin can quickly reset or assign a new passcode for your department from the Admin Portal.`,
+        'info'
+      );
+    });
+  }
+
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const departmentName = document.getElementById('login-dept').value;
