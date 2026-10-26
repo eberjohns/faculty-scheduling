@@ -351,8 +351,9 @@ All imports accept `.xlsx`, `.xls`, or `.csv` files and run through input saniti
 - **Validation**: Automatically performs external teacher clash detection, teacher availability validation, and locked status verification before committing.
 
 ### 7. Full Database Restore
-- **Endpoint**: `POST /api/admin/restore` (Admin only, password verified)
-- **Purpose**: Restores the complete database state from a `timetable_backup.json` archive.
+- **Endpoint**: `POST /api/admin/restore` (Admin only, JWT verified)
+- **Supported Formats**: `.json` (full data serialization), `.db` or `.sqlite` (direct binary SQLite file).
+- **Behavior**: Wipes stale normalized table records in foreign-key dependency order, repopulates fresh key-value structures, and runs atomic relational migration (`migrateDataToNormalizedTables`).
 
 ---
 
@@ -379,10 +380,13 @@ Admins and department heads can download pre-formatted `.xlsx` templates contain
 - **Output**: `Classes_Summary.xlsx`
 - **Content**: Summary breakdown of courses having multiple class sections (`C1`, `C2`, etc.) and their assigned faculty.
 
-### Database Backup Snapshot
-- **Endpoint**: `GET /api/admin/backup?token=<JWT>`
-- **Output**: `timetable_backup.json`
-- **Content**: Full point-in-time JSON serialization of all collections, configurations, and allocations.
+### Database Backup Snapshots
+- **JSON Snapshot**: `GET /api/admin/backup?token=<JWT>`
+  - Output: `timetable_backup_<timestamp>.json`
+  - Content: Complete point-in-time JSON archive of configurations, allocations, submissions, cross-department requests, courses, and faculty records.
+- **SQLite Binary Snapshot**: `GET /api/admin/backup/sqlite?token=<JWT>`
+  - Output: `timetable_<timestamp>.db`
+  - Content: Direct binary download of the current SQLite database file for rapid cloning, offline inspection, or server migration.
 
 ### Client-Side CSV & Printable Reports
 - **Elective Batch CSV**: Generates `class_batches_export.csv` client-side from the active batch mapping state.

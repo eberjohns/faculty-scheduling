@@ -268,13 +268,14 @@ JWT_SECRET=your-secure-random-secret-key-here
 - **Major Batch Mappings**: `POST /api/import/major-mappings` (Excel/CSV)
 - **Elective Group Mappings**: `POST /api/import/group-mappings` (Excel/CSV)
 - **Department Timetable**: `POST /api/department/import-timetable` (Excel/CSV)
-- **Full Database Restore**: `POST /api/admin/restore` (`timetable_backup.json`)
+- **Full Database Restore**: `POST /api/admin/restore` (`timetable_backup.json` or raw `timetable.db`)
 
-### Exports
+### Exports & Backups
 - **Master Institutional Timetable**: `GET /api/admin/export/strict-timetable` (`Institution_Strict_Timetable.xlsx`)
 - **Major Mappings**: `GET /api/admin/export/major-mappings` (`Major_Mappings.xlsx`)
 - **Classes Summary**: `GET /api/admin/export/classes-summary` (`Classes_Summary.xlsx`)
-- **Full Database Backup**: `GET /api/admin/backup` (`timetable_backup.json`)
+- **Full Database JSON Backup**: `GET /api/admin/backup` (`timetable_backup_<timestamp>.json`)
+- **Raw SQLite Database Backup**: `GET /api/admin/backup/sqlite` (`timetable_<timestamp>.db`)
 - **Free Faculty Availability Roster**: CSV download + formatted landscape print view.
 
 ---

@@ -1272,6 +1272,15 @@ function bindConfigEvents() {
     });
   }
 
+  const btnBackupSqlite = document.getElementById('btn-backup-sqlite');
+  if (btnBackupSqlite) {
+    btnBackupSqlite.addEventListener('click', () => {
+      const token = sessionStorage.getItem('adminToken');
+      if (!token) return;
+      window.location.href = `${API_BASE}/admin/backup/sqlite?token=${encodeURIComponent(token)}`;
+    });
+  }
+
   const btnTriggerRestoreDb = document.getElementById('btn-trigger-restore-db');
   const restoreDbFile = document.getElementById('restore-db-file');
 
@@ -1280,40 +1289,56 @@ function bindConfigEvents() {
       restoreDbFile.click();
     });
 
-    restoreDbFile.addEventListener('change', async (e) => {
+    restoreDbFile.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
-      const confirmed = window.confirm("Are you sure you want to restore the database from backup? This will overwrite the current database.");
-      if (!confirmed) {
-        restoreDbFile.value = '';
-        return;
-      }
+      const fileName = file.name;
+      const fileSizeKB = (file.size / 1024).toFixed(1);
 
-      const formData = new FormData();
-      formData.append('file', file);
+      showModalConfirm(
+        'Restore Database',
+        `Are you sure you want to restore the database from "${fileName}" (${fileSizeKB} KB)?\n\nThis will overwrite current courses, faculty, allocations, and configurations with data from the backup file.`,
+        async () => {
+          const token = sessionStorage.getItem('adminToken');
+          const formData = new FormData();
+          formData.append('file', file);
 
-      try {
-        const res = await fetch(`${API_BASE}/admin/restore`, {
-          method: 'POST',
-          body: formData
-        });
+          try {
+            if (typeof showToast === 'function') {
+              showToast('Restoring database, please wait...', 'info', 4000);
+            }
 
-        const data = await res.json();
-        restoreDbFile.value = '';
+            const res = await fetch(`${API_BASE}/admin/restore?token=${encodeURIComponent(token || '')}`, {
+              method: 'POST',
+              headers: {
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: formData
+            });
 
-        if (res.ok && data.success) {
-          showModalAlert('Database Restored', 'The database has been successfully restored.', 'success');
-          await fetchGlobalData();
-          showTab('tab-admin-dashboard');
-        } else {
-          showModalAlert('Error', 'Failed to restore database: ' + (data.message || 'Unknown error'), 'danger');
+            const data = await res.json();
+            restoreDbFile.value = '';
+
+            if (res.ok && data.success) {
+              const detailsMsg = data.details
+                ? ` (${data.details.courses || 0} courses, ${data.details.faculty || 0} faculty members, ${data.details.departments || 0} departments)`
+                : '';
+              showModalAlert('Database Restored', (data.message || 'The database has been successfully restored.') + detailsMsg, 'success', async () => {
+                await fetchGlobalData();
+                showTab('tab-admin-dashboard');
+              });
+            } else {
+              showModalAlert('Restore Failed', data.message || 'Failed to restore database.', 'danger');
+            }
+          } catch (err) {
+            console.error("Database restore error:", err);
+            restoreDbFile.value = '';
+            showModalAlert('Error', 'An error occurred during database restoration: ' + err.message, 'danger');
+          }
         }
-      } catch (err) {
-        console.error(err);
-        restoreDbFile.value = '';
-        showModalAlert('Error', 'An error occurred during database restoration.', 'danger');
-      }
+      );
+      restoreDbFile.value = '';
     });
   }
 }

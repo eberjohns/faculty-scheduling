@@ -11,7 +11,7 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'timetable.db');
+export const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'timetable.db');
 const DB_DIR = path.dirname(DB_PATH);
 const JSON_DB_PATH = path.join(DB_DIR, 'db.json');
 
@@ -328,3 +328,99 @@ async function saveToPostgres(data) {
     client.release();
   }
 }
+
+// Re-initialize SQLite connection (used when restoring a raw .db file)
+export function reinitSqliteDb() {
+  if (sqliteDb) {
+    try { sqliteDb.close(); } catch (e) {}
+    sqliteDb = null;
+  }
+  sqliteDb = new Database(DB_PATH);
+  initDbSync();
+}
+
+// Restore SQLite from raw .db buffer safely
+export function restoreSqliteDbFile(buffer) {
+  if (sqliteDb) {
+    try { sqliteDb.close(); } catch (e) {}
+    sqliteDb = null;
+  }
+  fs.writeFileSync(DB_PATH, buffer);
+  sqliteDb = new Database(DB_PATH);
+  initDbSync();
+  return { success: true };
+}
+
+// Atomically restore full database from backup data payload
+export function restoreDb(data) {
+  const parsed = parseDbData(data);
+  dbInstance = parsed;
+
+  const payload = {
+    config: parsed.config,
+    departments: parsed.departments,
+    courses: parsed.courses,
+    faculty: parsed.faculty,
+    allocations: parsed.allocations,
+    submissions: parsed.submissions,
+    batchDeptMappings: parsed.batchDeptMappings,
+    groupMappings: parsed.groupMappings,
+    teacherUnavailability: parsed.teacherUnavailability || {},
+    subjectTeacherMapping: parsed.subjectTeacherMapping || {},
+    commonBatches: parsed.commonBatches || [],
+    batchConfig: parsed.batchConfig,
+    periods: parsed.periods,
+    crossDepartmentRequests: parsed.crossDepartmentRequests || []
+  };
+
+  if (isPostgres) {
+    saveToPostgres(payload).catch(err => {
+      console.error("PostgreSQL background update failed during restore:", err);
+    });
+    return {
+      success: true,
+      count: {
+        courses: (parsed.courses || []).length,
+        faculty: (parsed.faculty || []).length,
+        departments: Object.keys(parsed.departments || {}).length
+      }
+    };
+  } else {
+    try {
+      const restoreTransaction = sqliteDb.transaction((dbData) => {
+        // Clear old records in child-to-parent order to avoid foreign key conflicts
+        try { sqliteDb.prepare('DELETE FROM allocation_faculty').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM timetable_allocations').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM curriculum_recommendations').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM course_faculty_mappings').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM teacher_unavailability').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM courses').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM faculty').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM departments').run(); } catch (e) {}
+        try { sqliteDb.prepare('DELETE FROM app_data').run(); } catch (e) {}
+
+        const stmt = sqliteDb.prepare('INSERT OR REPLACE INTO app_data (key, value) VALUES (?, ?)');
+        Object.entries(dbData).forEach(([key, val]) => {
+          stmt.run(key, JSON.stringify(val));
+        });
+
+        migrateDataToNormalizedTables(sqliteDb);
+      });
+
+      restoreTransaction(payload);
+
+      return {
+        success: true,
+        count: {
+          courses: (parsed.courses || []).length,
+          faculty: (parsed.faculty || []).length,
+          departments: Object.keys(parsed.departments || {}).length
+        }
+      };
+    } catch (err) {
+      console.error("Error restoring SQLite database:", err);
+      return { success: false, message: err.message };
+    }
+  }
+}
+

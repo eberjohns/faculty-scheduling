@@ -188,8 +188,9 @@
                 
                 <div style="display: flex; gap: 12px; margin-top: 15px; flex-wrap: wrap;">
                   <button type="button" id="btn-backup-db" class="btn btn-primary"><i class="fa-solid fa-download"></i> Backup Database (JSON)</button>
-                  <button type="button" id="btn-trigger-restore-db" class="btn btn-outline"><i class="fa-solid fa-upload"></i> Restore Database (JSON)...</button>
-                  <input type="file" id="restore-db-file" class="hidden" accept=".json">
+                  <button type="button" id="btn-backup-sqlite" class="btn btn-secondary" style="background: var(--bg-hover, #475569); color: white;"><i class="fa-solid fa-file-arrow-down"></i> Backup SQLite (.db)</button>
+                  <button type="button" id="btn-trigger-restore-db" class="btn btn-outline"><i class="fa-solid fa-upload"></i> Restore Database (.json / .db)...</button>
+                  <input type="file" id="restore-db-file" class="hidden" accept=".json,.db,.sqlite">
                 </div>
               </div>
             </div>

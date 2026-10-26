@@ -1,11 +1,12 @@
 import 'dotenv/config';
+import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readDb, writeDb } from './db.js';
+import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH } from './db.js';
 import { generateDepartmentSchedule } from './scheduler.js';
 import {
   hashPassword,
@@ -105,6 +106,20 @@ const upload = multer({
     const allowedExts = ['.xlsx', '.xls', '.csv'];
     if (!allowedExts.includes(ext)) {
       return cb(new Error('Invalid file type. Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed.'));
+    }
+    cb(null, true);
+  }
+});
+
+// Configure Multer for backup/restore archives (JSON and SQLite)
+const uploadBackup = multer({
+  storage: storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExts = ['.json', '.db', '.sqlite'];
+    if (!allowedExts.includes(ext)) {
+      return cb(new Error('Invalid backup file type. Only JSON (.json) and SQLite (.db, .sqlite) files are allowed.'));
     }
     cb(null, true);
   }
@@ -993,7 +1008,8 @@ app.post('/api/faculty/code/batch', requireDepartment, (req, res) => {
 app.get('/api/admin/backup', requireAdmin, (req, res) => {
   try {
     const db = readDb();
-    res.setHeader('Content-Disposition', 'attachment; filename="timetable_backup.json"');
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    res.setHeader('Content-Disposition', `attachment; filename="timetable_backup_${dateStr}.json"`);
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(db, null, 2));
   } catch (err) {
@@ -1002,28 +1018,77 @@ app.get('/api/admin/backup', requireAdmin, (req, res) => {
   }
 });
 
-app.post('/api/admin/restore', requireAdmin, upload.single('file'), (req, res) => {
+app.get('/api/admin/backup/sqlite', requireAdmin, (req, res) => {
+  try {
+    if (!fs.existsSync(DB_PATH)) {
+      return res.status(404).json({ success: false, message: 'SQLite database file not found.' });
+    }
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    res.download(DB_PATH, `timetable_${dateStr}.db`);
+  } catch (err) {
+    console.error("SQLite backup download failed:", err);
+    res.status(500).json({ success: false, message: 'Failed to download SQLite database.' });
+  }
+});
+
+app.post('/api/admin/restore', requireAdmin, (req, res, next) => {
+  uploadBackup.single('file')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, message: err.message || 'File upload error.' });
+    }
+    next();
+  });
+}, (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No backup file uploaded.' });
   }
 
-  try {
-    const backupData = JSON.parse(req.file.buffer.toString('utf8'));
-    
-    // Validate required fields
-    if (!backupData.config || !backupData.courses || !backupData.faculty) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid backup file. It must containconfig, courses, and faculty records.' 
-      });
-    }
+  const ext = path.extname(req.file.originalname).toLowerCase();
 
-    // Write back to database
-    writeDb(backupData);
-    res.json({ success: true, message: 'Database successfully restored from backup file.' });
+  try {
+    if (ext === '.json') {
+      let backupData;
+      try {
+        backupData = JSON.parse(req.file.buffer.toString('utf8'));
+      } catch (parseErr) {
+        return res.status(400).json({ success: false, message: 'Failed to parse JSON backup file. Ensure it is valid JSON.' });
+      }
+
+      // Validate required structure
+      if (!backupData || typeof backupData !== 'object' || (!backupData.config && !backupData.courses && !backupData.faculty)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid backup file. The backup JSON must contain at least config, courses, or faculty records.' 
+        });
+      }
+
+      // Restore data with full table wipe and migration
+      const result = restoreDb(backupData);
+      if (!result.success) {
+        return res.status(500).json({ success: false, message: result.message || 'Database restore failed.' });
+      }
+
+      return res.json({ 
+        success: true, 
+        message: 'Database successfully restored from JSON backup archive.',
+        details: result.count
+      });
+    } else if (ext === '.db' || ext === '.sqlite') {
+      const result = restoreSqliteDbFile(req.file.buffer);
+      if (!result.success) {
+        return res.status(500).json({ success: false, message: 'Failed to restore SQLite database.' });
+      }
+
+      return res.json({ 
+        success: true, 
+        message: 'SQLite database successfully replaced and re-initialized from uploaded database file.' 
+      });
+    } else {
+      return res.status(400).json({ success: false, message: 'Unsupported file type. Please upload a .json, .db, or .sqlite file.' });
+    }
   } catch (err) {
     console.error("Backup restoration failed:", err);
-    res.status(400).json({ success: false, message: 'Failed to restore database. Ensure the file is valid JSON.' });
+    res.status(500).json({ success: false, message: 'Failed to restore database: ' + err.message });
   }
 });
 
