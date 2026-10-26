@@ -186,7 +186,7 @@ function bindCustomModals() {
       const result = await res.json();
       if (res.ok) {
         document.getElementById('modal-edit-course').classList.add('hidden');
-        showModalAlert('Success', 'Course details and class split updated successfully.', 'success');
+        showToast('Course details and class split updated successfully.', 'success');
         await fetchGlobalData();
         renderInspectRecords();
       } else {
@@ -500,6 +500,7 @@ async function initAdmin() {
   bindConfigEvents();
   bindImportEvents();
   bindSearchEvents();
+  initImportRecordsModal();
   bindCustomModals();
   bindResetDeptPasswordEvents();
   bindGlobalLocksEvents();
@@ -1807,7 +1808,7 @@ function bindSearchEvents() {
             const result = await res.json();
             if (res.ok) {
               selectedCourseRecords.clear();
-              showModalAlert('Success', result.message || 'Courses deleted successfully.', 'success');
+              showToast(result.message || 'Courses deleted successfully.', 'success');
               await fetchGlobalData();
               renderInspectRecords();
             } else {
@@ -1836,6 +1837,479 @@ function bindSearchEvents() {
       renderInspectRecords();
     });
   });
+}
+
+// -------------------------------------------------------------
+// Batch Import & Multi-Record Creation Modal (Inspect Records)
+// -------------------------------------------------------------
+function initImportRecordsModal() {
+  const modal = document.getElementById('modal-import-records');
+  const btnOpen = document.getElementById('btn-open-import-records-modal');
+  const btnClose = document.getElementById('btn-close-import-modal');
+  const btnCloseX = document.getElementById('btn-close-import-modal-x');
+  const btnAddRow = document.getElementById('btn-add-import-row');
+  const btnClearRows = document.getElementById('btn-clear-import-rows');
+  const btnSave = document.getElementById('btn-save-import-records');
+  const fileInput = document.getElementById('input-import-records-file');
+  const tbody = document.getElementById('import-records-tbody');
+  const thead = document.getElementById('import-table-thead');
+  const countBadge = document.getElementById('import-rows-count-text');
+  const badgesContainer = document.getElementById('import-presets-badges');
+  const titleEl = document.getElementById('import-records-modal-title');
+
+  if (!modal || !btnOpen) return;
+
+  const closeModal = () => modal.classList.add('hidden');
+  if (btnClose) btnClose.addEventListener('click', closeModal);
+  if (btnCloseX) btnCloseX.addEventListener('click', closeModal);
+
+  // Helper to get all known departments
+  const getAllDepartments = () => {
+    const deptSet = new Set();
+    (state.departments || []).forEach(d => {
+      const name = typeof d === 'string' ? d : d.name;
+      if (name) deptSet.add(name.trim().toUpperCase());
+    });
+    (state.courses || []).forEach(c => c.department && deptSet.add(c.department.trim().toUpperCase()));
+    (state.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim().toUpperCase()));
+    return Array.from(deptSet).sort();
+  };
+
+  // Helper to get all known categories
+  const getAllCategories = () => {
+    const catSet = new Set(['MAJOR', 'MINOR', 'IDC', 'AEC', 'SEC', 'VAC', 'MDC']);
+    (state.courses || []).forEach(c => c.category && catSet.add(c.category.trim().toUpperCase()));
+    return Array.from(catSet).sort();
+  };
+
+  const updateRowCount = () => {
+    const rows = tbody.querySelectorAll('tr');
+    if (countBadge) {
+      countBadge.textContent = `${rows.length} ${rows.length === 1 ? 'record' : 'records'} ready`;
+    }
+    // Re-index row numbers
+    rows.forEach((tr, idx) => {
+      const numCell = tr.querySelector('.row-idx');
+      if (numCell) numCell.textContent = String(idx + 1);
+    });
+  };
+
+  // Add a Course row (auto-filling from active filters)
+  const addCourseRow = (initial = {}) => {
+    const depts = getAllDepartments();
+    const cats = getAllCategories();
+    const activeDept = document.getElementById('data-select-dept')?.value || '';
+    const activeSem = document.getElementById('data-select-semester')?.value || '';
+    const activeCat = document.getElementById('data-select-category')?.value || '';
+
+    const curDept = initial.department || activeDept;
+    const curSem = initial.semester || activeSem || '1';
+    const curCat = initial.category || activeCat || 'MAJOR';
+    const curCode = initial.code || '';
+    const curName = initial.name || '';
+    const curAlias = initial.alias || '';
+    const curClasses = parseInt(initial.classes || 1, 10) || 1;
+
+    const tr = document.createElement('tr');
+    tr.className = 'import-row-course';
+    tr.innerHTML = `
+      <td class="row-idx" style="text-align: center; vertical-align: middle; font-weight: 700; color: var(--text-muted); font-size: 12px;"></td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-course-code" placeholder="e.g. CS101" value="${escapeHtml(curCode)}" style="text-transform: uppercase; font-weight: 700; padding: 4px 8px; font-size: 12.5px; height: 32px;" required>
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-course-name" placeholder="e.g. Data Structures" value="${escapeHtml(curName)}" style="padding: 4px 8px; font-size: 12.5px; height: 32px;" required>
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-course-sem" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          ${[1, 2, 3, 4, 5, 6, 7, 8].map(s => `<option value="${s}" ${String(s) === String(curSem) ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-course-cat" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          ${cats.map(c => `<option value="${c}" ${c.toUpperCase() === String(curCat).toUpperCase() ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-course-dept" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          <option value="" disabled ${!curDept ? 'selected' : ''}>Select Dept</option>
+          ${depts.map(d => `<option value="${d}" ${d.toUpperCase() === String(curDept).toUpperCase() ? 'selected' : ''}>${d}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-course-alias" placeholder="Optional" value="${escapeHtml(curAlias)}" style="padding: 4px 8px; font-size: 12.5px; height: 32px;">
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-course-classes" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          <option value="1" ${curClasses === 1 ? 'selected' : ''}>1</option>
+          <option value="2" ${curClasses === 2 ? 'selected' : ''}>2</option>
+          <option value="3" ${curClasses === 3 ? 'selected' : ''}>3</option>
+          <option value="4" ${curClasses === 4 ? 'selected' : ''}>4</option>
+          <option value="5" ${curClasses === 5 ? 'selected' : ''}>5</option>
+        </select>
+      </td>
+      <td style="text-align: center; vertical-align: middle;">
+        <button type="button" class="btn btn-outline btn-xs btn-remove-row text-danger" title="Remove Row" style="border: none; padding: 4px 6px;">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </td>
+    `;
+
+    tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+      tr.remove();
+      updateRowCount();
+    });
+
+    tbody.appendChild(tr);
+    updateRowCount();
+
+    const container = tbody.closest('.table-responsive');
+    if (container) container.scrollTop = container.scrollHeight;
+  };
+
+  // Add a Faculty row (auto-filling from active department filter)
+  const addFacultyRow = (initial = {}) => {
+    const depts = getAllDepartments();
+    const activeDept = document.getElementById('data-select-dept')?.value || '';
+    const curDept = initial.department || activeDept;
+    const curStaffId = initial.staffId || '';
+    const curName = initial.name || '';
+    const curCode = initial.code || '';
+
+    const tr = document.createElement('tr');
+    tr.className = 'import-row-faculty';
+    tr.innerHTML = `
+      <td class="row-idx" style="text-align: center; vertical-align: middle; font-weight: 700; color: var(--text-muted); font-size: 12px;"></td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-faculty-staffid" placeholder="e.g. CS012" value="${escapeHtml(curStaffId)}" style="text-transform: uppercase; font-weight: 700; padding: 4px 8px; font-size: 12.5px; height: 32px;" required>
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-faculty-name" placeholder="e.g. Dr. John Doe" value="${escapeHtml(curName)}" style="padding: 4px 8px; font-size: 12.5px; height: 32px;" required>
+      </td>
+      <td>
+        <input type="text" class="form-control form-control-sm inp-faculty-code" placeholder="Auto" value="${escapeHtml(curCode)}" style="text-transform: uppercase; padding: 4px 8px; font-size: 12.5px; height: 32px;">
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-faculty-dept" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          <option value="" disabled ${!curDept ? 'selected' : ''}>Select Dept</option>
+          ${depts.map(d => `<option value="${d}" ${d.toUpperCase() === String(curDept).toUpperCase() ? 'selected' : ''}>${d}</option>`).join('')}
+        </select>
+      </td>
+      <td style="text-align: center; vertical-align: middle;">
+        <button type="button" class="btn btn-outline btn-xs btn-remove-row text-danger" title="Remove Row" style="border: none; padding: 4px 6px;">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>
+      </td>
+    `;
+
+    tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+      tr.remove();
+      updateRowCount();
+    });
+
+    tbody.appendChild(tr);
+    updateRowCount();
+
+    const container = tbody.closest('.table-responsive');
+    if (container) container.scrollTop = container.scrollHeight;
+  };
+
+  // Open modal trigger
+  btnOpen.addEventListener('click', () => {
+    const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+    const activeDept = document.getElementById('data-select-dept')?.value || '';
+    const activeSem = document.getElementById('data-select-semester')?.value || '';
+    const activeCat = document.getElementById('data-select-category')?.value || '';
+
+    // Title
+    if (titleEl) {
+      titleEl.innerHTML = isCourses
+        ? '<i class="fa-solid fa-book-open text-primary"></i> Import & Add Courses'
+        : '<i class="fa-solid fa-user-plus text-primary"></i> Import & Add Faculty';
+    }
+
+    // Presets Badges
+    if (badgesContainer) {
+      badgesContainer.innerHTML = '';
+      let hasFilter = false;
+      if (activeDept) {
+        hasFilter = true;
+        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-building"></i> Dept: ${escapeHtml(activeDept)}</span>`;
+      }
+      if (isCourses && activeSem) {
+        hasFilter = true;
+        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-graduation-cap"></i> Sem: ${escapeHtml(activeSem)}</span>`;
+      }
+      if (isCourses && activeCat) {
+        hasFilter = true;
+        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-tag"></i> Category: ${escapeHtml(activeCat)}</span>`;
+      }
+      if (!hasFilter) {
+        badgesContainer.innerHTML = `<span class="text-muted" style="font-size: 12px; font-weight: normal;">None (All columns open for manual selection)</span>`;
+      }
+    }
+
+    // Thead
+    if (thead) {
+      thead.innerHTML = isCourses ? `
+        <tr>
+          <th style="width: 44px; text-align: center;">#</th>
+          <th style="min-width: 140px;">Course Code *</th>
+          <th style="min-width: 240px;">Course Name *</th>
+          <th style="width: 100px;">Semester *</th>
+          <th style="width: 140px;">Category *</th>
+          <th style="min-width: 200px;">Department *</th>
+          <th style="width: 120px;">Visual Alias</th>
+          <th style="width: 90px;">Classes</th>
+          <th style="width: 50px; text-align: center;"></th>
+        </tr>
+      ` : `
+        <tr>
+          <th style="width: 44px; text-align: center;">#</th>
+          <th style="min-width: 150px;">Staff ID *</th>
+          <th style="min-width: 260px;">Faculty Name *</th>
+          <th style="width: 130px;">Initials Code</th>
+          <th style="min-width: 240px;">Department *</th>
+          <th style="width: 50px; text-align: center;"></th>
+        </tr>
+      `;
+    }
+
+    // Reset rows and add 1 initial row
+    tbody.innerHTML = '';
+    if (isCourses) {
+      addCourseRow();
+    } else {
+      addFacultyRow();
+    }
+
+    modal.classList.remove('hidden');
+  });
+
+  // Add row button
+  if (btnAddRow) {
+    btnAddRow.addEventListener('click', () => {
+      const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+      if (isCourses) {
+        addCourseRow();
+      } else {
+        addFacultyRow();
+      }
+    });
+  }
+
+  // Clear rows button
+  if (btnClearRows) {
+    btnClearRows.addEventListener('click', () => {
+      tbody.innerHTML = '';
+      updateRowCount();
+    });
+  }
+
+  // File upload trigger
+  if (fileInput) {
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+      const activeDept = document.getElementById('data-select-dept')?.value || '';
+      const activeSem = document.getElementById('data-select-semester')?.value || '';
+      const activeCat = document.getElementById('data-select-category')?.value || '';
+
+      try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(firstSheet);
+
+        if (!Array.isArray(json) || json.length === 0) {
+          showToast('No rows found in uploaded spreadsheet.', 'warning');
+          fileInput.value = '';
+          return;
+        }
+
+        let loadedCount = 0;
+        json.forEach(row => {
+          if (isCourses) {
+            const code = row['Course Code'] || row['CourseCode'] || row['Code'] || row['code'] || '';
+            const name = row['Course Name'] || row['CourseName'] || row['Name'] || row['name'] || row['Title'] || '';
+            const sem = row['Semester'] || row['Sem'] || row['semester'] || activeSem || '1';
+            const cat = row['Category'] || row['Cat'] || row['category'] || activeCat || 'MAJOR';
+            const dept = row['Department'] || row['Dept'] || row['department'] || activeDept || '';
+            const alias = row['Visual Alias'] || row['Alias'] || row['alias'] || '';
+            const classes = row['Classes'] || row['classes'] || row['Class'] || 1;
+
+            if (code || name) {
+              addCourseRow({ code, name, semester: sem, category: cat, department: dept, alias, classes });
+              loadedCount++;
+            }
+          } else {
+            const staffId = row['Staff ID'] || row['StaffId'] || row['StaffID'] || row['staffId'] || '';
+            const name = row['Name'] || row['Faculty Name'] || row['FacultyName'] || row['name'] || '';
+            const code = row['Code'] || row['Initials'] || row['Initials Code'] || row['code'] || '';
+            const dept = row['Department'] || row['Dept'] || row['department'] || activeDept || '';
+
+            if (staffId || name) {
+              addFacultyRow({ staffId, name, code, department: dept });
+              loadedCount++;
+            }
+          }
+        });
+
+        fileInput.value = '';
+        showToast(`Loaded ${loadedCount} record(s) from spreadsheet with active filter presets.`, 'success');
+      } catch (err) {
+        console.error("Spreadsheet import error:", err);
+        fileInput.value = '';
+        showToast('Error reading spreadsheet: ' + err.message, 'danger');
+      }
+    });
+  }
+
+  // Save records button
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+      const rows = tbody.querySelectorAll('tr');
+
+      if (rows.length === 0) {
+        showToast('Please add at least one record before saving.', 'warning');
+        return;
+      }
+
+      const token = sessionStorage.getItem('adminToken');
+
+      if (isCourses) {
+        const payloadCourses = [];
+        let hasValidationError = false;
+
+        rows.forEach(tr => {
+          const code = (tr.querySelector('.inp-course-code')?.value || '').trim();
+          const name = (tr.querySelector('.inp-course-name')?.value || '').trim();
+          const semester = (tr.querySelector('.inp-course-sem')?.value || '').trim();
+          const category = (tr.querySelector('.inp-course-cat')?.value || '').trim();
+          const department = (tr.querySelector('.inp-course-dept')?.value || '').trim();
+          const alias = (tr.querySelector('.inp-course-alias')?.value || '').trim();
+          const classes = parseInt(tr.querySelector('.inp-course-classes')?.value || 1, 10) || 1;
+
+          if (!code || !name || !department) {
+            hasValidationError = true;
+            tr.style.background = '#fef2f2';
+          } else {
+            tr.style.background = '';
+            payloadCourses.push({
+              code,
+              name,
+              semester,
+              category,
+              department,
+              alias,
+              classes
+            });
+          }
+        });
+
+        if (hasValidationError) {
+          showToast('Please fill all required fields (Course Code, Name, Department) in highlighted rows.', 'warning');
+          return;
+        }
+
+        try {
+          btnSave.disabled = true;
+          btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+          const res = await fetch(`${API_BASE}/admin/courses/batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ courses: payloadCourses })
+          });
+
+          const result = await res.json();
+          btnSave.disabled = false;
+          btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save Records';
+
+          if (res.ok && result.success) {
+            closeModal();
+            showToast(result.message || `Successfully saved ${payloadCourses.length} course(s).`, 'success');
+            await fetchGlobalData();
+            renderInspectRecords();
+          } else {
+            showToast(result.message || 'Failed to save courses.', 'danger');
+          }
+        } catch (err) {
+          btnSave.disabled = false;
+          btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save Records';
+          console.error("Save error:", err);
+          showToast('Connection error: ' + err.message, 'danger');
+        }
+      } else {
+        // Faculty save
+        const payloadFaculty = [];
+        let hasValidationError = false;
+
+        rows.forEach(tr => {
+          const staffId = (tr.querySelector('.inp-faculty-staffid')?.value || '').trim();
+          const name = (tr.querySelector('.inp-faculty-name')?.value || '').trim();
+          const code = (tr.querySelector('.inp-faculty-code')?.value || '').trim();
+          const department = (tr.querySelector('.inp-faculty-dept')?.value || '').trim();
+
+          if (!staffId || !name || !department) {
+            hasValidationError = true;
+            tr.style.background = '#fef2f2';
+          } else {
+            tr.style.background = '';
+            payloadFaculty.push({
+              staffId,
+              name,
+              code,
+              department
+            });
+          }
+        });
+
+        if (hasValidationError) {
+          showToast('Please fill all required fields (Staff ID, Name, Department) in highlighted rows.', 'warning');
+          return;
+        }
+
+        try {
+          btnSave.disabled = true;
+          btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+          const res = await fetch(`${API_BASE}/admin/faculty/batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ faculty: payloadFaculty })
+          });
+
+          const result = await res.json();
+          btnSave.disabled = false;
+          btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save Records';
+
+          if (res.ok && result.success) {
+            closeModal();
+            showToast(result.message || `Successfully saved ${payloadFaculty.length} faculty member(s).`, 'success');
+            await fetchGlobalData();
+            renderInspectRecords();
+          } else {
+            showToast(result.message || 'Failed to save faculty.', 'danger');
+          }
+        } catch (err) {
+          btnSave.disabled = false;
+          btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save Records';
+          console.error("Save error:", err);
+          showToast('Connection error: ' + err.message, 'danger');
+        }
+      }
+    });
+  }
 }
 
 function renderInspectRecords() {
@@ -2040,7 +2514,7 @@ function renderInspectRecords() {
                     selectedCourseRecords.delete(k);
                   }
                 });
-                showModalAlert('Success', 'Course deleted successfully.', 'success');
+                showToast('Course deleted successfully.', 'success');
                 await fetchGlobalData();
                 renderInspectRecords();
               } else {
@@ -2098,7 +2572,7 @@ function renderInspectRecords() {
             });
             const result = await res.json();
             if (res.ok) {
-              showModalAlert('Success', 'Faculty member deleted successfully.', 'success');
+              showToast('Faculty member deleted successfully.', 'success');
               await fetchGlobalData();
               renderInspectRecords();
             } else {

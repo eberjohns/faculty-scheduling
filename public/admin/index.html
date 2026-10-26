@@ -364,7 +364,7 @@
           <div id="tab-admin-data" class="tab-pane hidden">
             <div class="content-header">
               <h1>Inspect Academic Records</h1>
-              <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap;">
+              <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
                 <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 220px;">
                 <select id="data-select-dept" class="form-control width-auto">
                   <option value="">All Departments</option>
@@ -375,6 +375,9 @@
                 <select id="data-select-category" class="form-control width-auto">
                   <option value="">All Categories</option>
                 </select>
+                <button type="button" id="btn-open-import-records-modal" class="btn btn-primary btn-sm" style="font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
+                  <i class="fa-solid fa-file-import"></i> Import / Add Records
+                </button>
               </div>
             </div>
 
@@ -1351,6 +1354,76 @@
         <div class="actions flex-row justify-end gap-2 mt-4">
           <button id="btn-save-course-details" class="btn btn-primary">Save Changes</button>
           <button id="btn-close-course-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: BATCH IMPORT & ADD RECORDS -->
+    <div id="modal-import-records" class="modal flex-center hidden no-print">
+      <div class="modal-content" style="max-width: 1100px; width: 95vw; padding: 24px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header flex-row justify-between items-center" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <div>
+            <h2 id="import-records-modal-title" style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-file-import text-primary"></i> Import & Add Records
+            </h2>
+            <p class="text-muted text-sm" style="margin: 4px 0 0 0;">Add multiple records together. Columns are automatically pre-filled based on your selected filters.</p>
+          </div>
+          <button type="button" id="btn-close-import-modal-x" class="btn btn-outline btn-xs" style="border: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--text-muted);">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="modal-body" style="padding: 16px 0; overflow-y: auto; flex: 1;">
+          <!-- Active Filter Presets Indicator Banner -->
+          <div id="import-presets-banner" style="background: var(--primary-light, #f1f5f9); border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); padding: 10px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div class="flex-row items-center gap-2" style="flex-wrap: wrap;">
+              <span style="font-weight: 700; font-size: 12.5px; color: var(--primary);"><i class="fa-solid fa-filter"></i> Active Filter Presets:</span>
+              <div id="import-presets-badges" class="flex-row gap-1" style="flex-wrap: wrap;">
+                <!-- Dynamically populated badges -->
+              </div>
+            </div>
+            <span class="text-muted" style="font-size: 11.5px;">Auto-applied to new rows; editable per entry</span>
+          </div>
+
+          <!-- Multi-Row Entry Table -->
+          <div class="table-responsive" style="max-height: 48vh; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm, 6px);">
+            <table class="table table-bordered table-sm" id="table-import-records-matrix" style="margin-bottom: 0; min-width: 920px;">
+              <thead id="import-table-thead" style="background: var(--background); position: sticky; top: 0; z-index: 2;">
+                <!-- Rendered Dynamically based on Courses vs Faculty -->
+              </thead>
+              <tbody id="import-records-tbody">
+                <!-- Dynamically added rows -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Under-table action buttons -->
+          <div class="flex-row justify-between items-center mt-3" style="flex-wrap: wrap; gap: 10px;">
+            <div class="flex-row items-center gap-2">
+              <button type="button" id="btn-add-import-row" class="btn btn-outline btn-sm" style="color: var(--primary); border-color: var(--primary); font-weight: 700;">
+                <i class="fa-solid fa-plus"></i> Add Row
+              </button>
+              <label class="btn btn-outline btn-sm" style="cursor: pointer; font-weight: 600; margin-bottom: 0;">
+                <i class="fa-solid fa-file-excel text-success"></i> Upload Excel / CSV
+                <input type="file" id="input-import-records-file" accept=".xlsx, .xls, .csv" style="display: none;">
+              </label>
+            </div>
+            <div class="flex-row items-center gap-2">
+              <button type="button" id="btn-clear-import-rows" class="btn btn-outline btn-xs text-danger" style="border-color: var(--border);">
+                <i class="fa-solid fa-eraser"></i> Clear All Rows
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer flex-row justify-between items-center pt-3" style="border-top: 1.5px solid var(--border); margin-top: 8px;">
+          <span id="import-rows-count-text" class="text-sm font-semibold text-muted">0 records ready</span>
+          <div class="flex-row gap-2">
+            <button type="button" id="btn-close-import-modal" class="btn btn-outline">Cancel</button>
+            <button type="button" id="btn-save-import-records" class="btn btn-primary">
+              <i class="fa-solid fa-check"></i> Save Records
+            </button>
+          </div>
         </div>
       </div>
     </div>

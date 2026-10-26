@@ -2149,6 +2149,212 @@ app.post('/api/admin/courses/bulk-delete', requireAdmin, (req, res) => {
   });
 });
 
+// Batch Import/Add Courses
+app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
+  const { courses } = req.body;
+  if (!Array.isArray(courses) || courses.length === 0) {
+    return res.status(400).json({ success: false, message: 'No course records provided.' });
+  }
+
+  const db = readDb();
+  if (!db.courses) db.courses = [];
+  if (!db.departments) db.departments = {};
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  const errors = [];
+
+  courses.forEach((item, idx) => {
+    const rawCode = (item.code || '').trim().toUpperCase();
+    const name = (item.name || '').trim();
+    const department = (item.department || '').trim().toUpperCase();
+    const semester = String(item.semester !== undefined ? item.semester : '').trim();
+    const category = (item.category || 'MAJOR').trim().toUpperCase();
+    const alias = (item.alias || '').trim();
+    const programType = (item.programType || 'UG').trim().toUpperCase();
+    const classes = Math.max(1, Math.min(5, parseInt(item.classes, 10) || 1));
+    const hours = parseInt(item.hours, 10) || 4;
+
+    if (!rawCode || !name || !department) {
+      errors.push(`Row ${idx + 1}: Course Code, Course Name, and Department are required.`);
+      return;
+    }
+
+    // Ensure department exists in db.departments
+    if (!db.departments[department]) {
+      db.departments[department] = { password: encryptDeptPasscode('123456') };
+    }
+
+    const cleanBaseCode = rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
+    if (classes === 1) {
+      // Single class record
+      const matchIdx = db.courses.findIndex(c => {
+        const cBase = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === department;
+      });
+
+      if (matchIdx >= 0) {
+        db.courses[matchIdx].name = name;
+        if (alias) db.courses[matchIdx].alias = alias;
+        if (semester) db.courses[matchIdx].semester = semester;
+        if (category) db.courses[matchIdx].category = category;
+        if (programType) db.courses[matchIdx].programType = programType;
+        updatedCount++;
+      } else {
+        db.courses.push({
+          code: cleanBaseCode,
+          name,
+          department,
+          semester: semester || '1',
+          category: category || 'MAJOR',
+          alias: alias || '',
+          roomNo: '',
+          batch: '',
+          hours,
+          programType: ['UG', 'PG', 'INT'].includes(programType) ? programType : 'UG',
+          courseType: 'T',
+          group: 0,
+          class: 0,
+          classes: 1,
+          recommendations: {
+            MONDAY: {},
+            TUESDAY: {},
+            WEDNESDAY: {},
+            THURSDAY: {},
+            FRIDAY: {}
+          }
+        });
+        addedCount++;
+      }
+    } else {
+      // Multiple class split records (_C1, _C2, ... _C{classes})
+      for (let cl = 1; cl <= classes; cl++) {
+        const classCode = `${cleanBaseCode}_C${cl}`;
+        const matchIdx = db.courses.findIndex(c => 
+          c.code === classCode && (c.department || '').trim().toUpperCase() === department
+        );
+
+        if (matchIdx >= 0) {
+          db.courses[matchIdx].name = name;
+          if (alias) db.courses[matchIdx].alias = alias;
+          if (semester) db.courses[matchIdx].semester = semester;
+          if (category) db.courses[matchIdx].category = category;
+          if (programType) db.courses[matchIdx].programType = programType;
+          updatedCount++;
+        } else {
+          db.courses.push({
+            code: classCode,
+            name,
+            department,
+            semester: semester || '1',
+            category: category || 'MAJOR',
+            alias: alias || '',
+            roomNo: '',
+            batch: '',
+            hours,
+            programType: ['UG', 'PG', 'INT'].includes(programType) ? programType : 'UG',
+            courseType: 'T',
+            group: cl,
+            class: cl,
+            classes: 1,
+            recommendations: {
+              MONDAY: {},
+              TUESDAY: {},
+              WEDNESDAY: {},
+              THURSDAY: {},
+              FRIDAY: {}
+            }
+          });
+          addedCount++;
+        }
+      }
+    }
+  });
+
+  if (addedCount > 0 || updatedCount > 0) {
+    writeDb(db);
+  }
+
+  res.json({
+    success: true,
+    addedCount,
+    updatedCount,
+    errors,
+    message: `Processed ${courses.length} course(s): ${addedCount} added, ${updatedCount} updated.`
+  });
+});
+
+// Batch Import/Add Faculty
+app.post('/api/admin/faculty/batch', requireAdmin, (req, res) => {
+  const { faculty } = req.body;
+  if (!Array.isArray(faculty) || faculty.length === 0) {
+    return res.status(400).json({ success: false, message: 'No faculty records provided.' });
+  }
+
+  const db = readDb();
+  if (!db.faculty) db.faculty = [];
+  if (!db.departments) db.departments = {};
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  const errors = [];
+
+  faculty.forEach((item, idx) => {
+    const staffId = (item.staffId || '').trim();
+    const name = (item.name || '').trim();
+    const department = (item.department || '').trim().toUpperCase();
+    let code = (item.code || '').trim().toUpperCase();
+
+    if (!staffId || !name || !department) {
+      errors.push(`Row ${idx + 1}: Staff ID, Name, and Department are required.`);
+      return;
+    }
+
+    if (!db.departments[department]) {
+      db.departments[department] = { password: encryptDeptPasscode('123456') };
+    }
+
+    const staffIdUpper = staffId.toUpperCase();
+    const deptUpper = department.toUpperCase();
+
+    const matchIdx = db.faculty.findIndex(f => 
+      (f.staffId || '').trim().toUpperCase() === staffIdUpper &&
+      (f.department || '').trim().toUpperCase() === deptUpper
+    );
+
+    if (matchIdx >= 0) {
+      db.faculty[matchIdx].name = name;
+      if (code) db.faculty[matchIdx].code = code;
+      updatedCount++;
+    } else {
+      if (!code) {
+        const existingSameStaff = db.faculty.find(f => (f.staffId || '').trim().toUpperCase() === staffIdUpper);
+        code = existingSameStaff ? existingSameStaff.code : generateFacultyCode(name, db.faculty);
+      }
+      db.faculty.push({
+        staffId,
+        name,
+        code,
+        department
+      });
+      addedCount++;
+    }
+  });
+
+  if (addedCount > 0 || updatedCount > 0) {
+    writeDb(db);
+  }
+
+  res.json({
+    success: true,
+    addedCount,
+    updatedCount,
+    errors,
+    message: `Processed ${faculty.length} faculty member(s): ${addedCount} added, ${updatedCount} updated.`
+  });
+});
+
 // Delete Faculty member
 app.delete('/api/admin/faculty/:staffId', requireAdmin, (req, res) => {
   const staffId = req.params.staffId.trim();
