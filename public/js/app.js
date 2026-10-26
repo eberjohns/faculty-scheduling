@@ -3633,12 +3633,6 @@ function syncPrintViewsIfActive() {
     const container = document.getElementById('teacher-print-area');
     if (container) renderTeacherTimetables(container, facCode, mode);
   }
-
-  // 3. Advanced Features tab: Teacher Timetable
-  const advModal = document.getElementById('modal-advanced-features');
-  if (advModal && !advModal.classList.contains('hidden') && typeof activeAdvancedFeaturesTab !== 'undefined' && activeAdvancedFeaturesTab === 'adv-pane-teacher-timetable') {
-    renderTeacherTimetablesTab();
-  }
 }
 
 function openTimetablePrintPreview(deptName) {
@@ -5321,8 +5315,6 @@ function switchAdvancedFeaturesTab(paneId) {
     renderSubjectMappingTiles();
   } else if (paneId === 'adv-pane-auto-generate') {
     initAutoGeneratorPane();
-  } else if (paneId === 'adv-pane-teacher-timetable') {
-    renderTeacherTimetablesTab();
   } else if (paneId === 'adv-pane-curriculum-slots') {
     renderCurriculumSlotAllocator();
   } else if (paneId === 'adv-pane-cross-dept') {
