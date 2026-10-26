@@ -214,6 +214,7 @@ function generateMultiCohortSchedule({
   let totalAllocatedSlots = 0;
   let practicalBlocksPlaced = 0;
   let teacherViolations = 0;
+  let totalCombinationsChecked = 0;
   const aggregatedExceptions = [];
   const aggregatedSuggestions = new Set();
   let hasRelaxedCohort = false;
@@ -266,6 +267,7 @@ function generateMultiCohortSchedule({
       totalAllocatedSlots += (cohortResult.audit.totalAllocatedSlots || 0);
       practicalBlocksPlaced += (cohortResult.audit.practicalBlocksPlaced || 0);
       teacherViolations += (cohortResult.audit.teacherConsecutiveViolations || 0);
+      totalCombinationsChecked += (cohortResult.audit.combinationsChecked || 0);
     }
 
     if (cohortResult.status === 'relaxed_with_exceptions') {
@@ -289,6 +291,7 @@ function generateMultiCohortSchedule({
     audit: {
       totalCourses: targetCourses.length,
       totalAllocatedSlots,
+      combinationsChecked: totalCombinationsChecked,
       practicalBlocksPlaced,
       teacherConsecutiveViolations: teacherViolations,
       facultyClashes: 0,
@@ -882,11 +885,14 @@ export function generateDepartmentSchedule({
     bottleneckCourses: {}
   };
 
-  // Track single department laboratory usage
+  // Track department laboratory usage (Set of practical course codes per slot)
   const occupiedLabSlots = {};
   function resetOccupiedLabSlots() {
     WEEKDAYS.forEach(day => {
       occupiedLabSlots[day] = {};
+      allRealPeriods.forEach(p => {
+        occupiedLabSlots[day][p] = new Set();
+      });
     });
     // Pre-fill with pinned practical slots or unselected department practical allocations
     Object.keys(initialAllocation).forEach(cCode => {
@@ -897,7 +903,8 @@ export function generateDepartmentSchedule({
           const facs = cDays[d][p];
           if (facs && facs.length > 0) {
             if (isSlotPractical(meta, cCode, d, p, facs, cDays[d])) {
-              occupiedLabSlots[d][p] = cCode;
+              if (!occupiedLabSlots[d][p]) occupiedLabSlots[d][p] = new Set();
+              occupiedLabSlots[d][p].add(cCode);
             }
           }
         });
@@ -1125,20 +1132,45 @@ export function generateDepartmentSchedule({
         if (otherCourse === card.courseCode) continue;
         if (allocState[otherCourse][day] && allocState[otherCourse][day][p] && allocState[otherCourse][day][p].length > 0) {
           const otherMeta = courseMetaMap[otherCourse] || targetCourses.find(tc => tc.code === otherCourse);
-          const otherSem = otherMeta ? String(otherMeta.semester || '').trim().toUpperCase() : '';
-          const cardSem = card.semester ? String(card.semester || '').trim().toUpperCase() : '';
 
-          if (cardSem && otherSem && cardSem === otherSem) {
+          // 1. Effective Semester resolution (from course code prefix e.g. MAT4 vs MAT6 or metadata)
+          const getSem = (meta, code) => {
+            const cStr = String(code || (meta && meta.code) || '').toUpperCase();
+            const m = cStr.match(/^[A-Z]+(\d)/);
+            if (m) return m[1];
+            return meta ? String(meta.semester || '').replace(/\D+/g, '') : '';
+          };
+          const cardSem = getSem(card, card.courseCode);
+          const otherSem = getSem(otherMeta, otherCourse);
+
+          // 2. Class section division resolution (C1 vs C2 vs C3...)
+          const getClass = (meta, code) => {
+            const cStr = String(code || (meta && meta.code) || '').toUpperCase();
+            const m = cStr.match(/(_C|_G)(\d+)/);
+            if (m) return m[2];
+            if (meta && (meta.class || meta.group)) return String(meta.class || meta.group);
+            return null;
+          };
+          const cardClass = getClass(card, card.courseCode);
+          const otherClass = getClass(otherMeta, otherCourse);
+
+          // Different class divisions (e.g. C1 vs C2) are disjoint student cohorts and can run in parallel
+          const areDisjointClasses = (cardClass && otherClass && String(cardClass) !== String(otherClass));
+
+          const otherProg = ((otherMeta && otherMeta.programType) || 'UG').toUpperCase().trim();
+          const cardProg = ((card.programType) || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].programType) || 'UG').toUpperCase().trim();
+
+          if (cardSem && otherSem && cardSem === otherSem && cardProg === otherProg && !areDisjointClasses) {
             const isMinorOrElectiveCourse = (c) => {
               if (!c) return false;
               const cat = (c.category || '').toUpperCase().trim();
               const code = (c.code || c.courseCode || '').toUpperCase().trim();
-              // Core Major courses (CJ) are NEVER electives and must never clash
-              if (code.includes('CJ') || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ'))) {
+              // Core Major courses (CJ or PG core starting with e.g. CSS1C01)
+              if (code.includes('CJ') || /^[A-Z]+\d+C\d+/i.test(code) || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ') && !/[A-Z]+\d+E\d+/i.test(code))) {
                 return false;
               }
               return cat === 'MINOR' || cat === 'ELECTIVE' || cat === 'MDC' || cat === 'AEC' || cat === 'VAC' || cat === 'SEC' ||
-                     code.includes('MN') || code.includes('EJ') || code.includes('FM') || code.includes('FS');
+                     code.includes('MN') || code.includes('EJ') || code.includes('FM') || code.includes('FS') || /[A-Z]+\d+E\d+/i.test(code);
             };
 
             const otherBatches = (db.groupMappings && db.groupMappings[otherCourse]) || [];
@@ -1150,7 +1182,7 @@ export function generateDepartmentSchedule({
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return false;
             }
-          } else if (card.batches && card.batches.length > 0) {
+          } else if (card.batches && card.batches.length > 0 && !areDisjointClasses) {
             const otherBatches = (db.groupMappings && db.groupMappings[otherCourse]) || [];
             if (otherBatches.length > 0 && card.batches.some(b => otherBatches.includes(b))) {
               recordRejection('BATCH_CLASH', card);
@@ -1172,10 +1204,17 @@ export function generateDepartmentSchedule({
       }
 
       if (!deepRelaxed) {
+        const getBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+        const cardBase = getBase(card.courseCode);
         for (const p of periodsGroup) {
-          if (occupiedLabSlots[day] && occupiedLabSlots[day][p] && occupiedLabSlots[day][p] !== card.courseCode) {
-            recordRejection('LAB_OCCUPIED', card);
-            return false;
+          const occSet = occupiedLabSlots[day] && occupiedLabSlots[day][p];
+          if (occSet && occSet.size > 0) {
+            for (const occCode of occSet) {
+              if (occCode !== card.courseCode && getBase(occCode) !== cardBase) {
+                recordRejection('LAB_OCCUPIED', card);
+                return false;
+              }
+            }
           }
         }
       }
@@ -1249,12 +1288,35 @@ export function generateDepartmentSchedule({
         if (otherCourse === card.courseCode) continue;
         if (allocState[otherCourse][day] && allocState[otherCourse][day][p] && allocState[otherCourse][day][p].length > 0) {
           const otherMeta = courseMetaMap[otherCourse] || targetCourses.find(tc => tc.code === otherCourse);
-          const otherSem = otherMeta ? String(otherMeta.semester || '').trim().toUpperCase() : '';
-          const cardSem = card.semester ? String(card.semester || '').trim().toUpperCase() : '';
+
+          // 1. Effective Semester resolution (from course code prefix e.g. MAT4 vs MAT6 or metadata)
+          const getSem = (meta, code) => {
+            const cStr = String(code || (meta && meta.code) || '').toUpperCase();
+            const m = cStr.match(/^[A-Z]+(\d)/);
+            if (m) return m[1];
+            return meta ? String(meta.semester || '').replace(/\D+/g, '') : '';
+          };
+          const cardSem = getSem(card, card.courseCode);
+          const otherSem = getSem(otherMeta, otherCourse);
+
+          // 2. Class section division resolution (C1 vs C2 vs C3...)
+          const getClass = (meta, code) => {
+            const cStr = String(code || (meta && meta.code) || '').toUpperCase();
+            const m = cStr.match(/(_C|_G)(\d+)/);
+            if (m) return m[2];
+            if (meta && (meta.class || meta.group)) return String(meta.class || meta.group);
+            return null;
+          };
+          const cardClass = getClass(card, card.courseCode);
+          const otherClass = getClass(otherMeta, otherCourse);
+
+          // Different class divisions (e.g. C1 vs C2) are disjoint student cohorts and can run in parallel
+          const areDisjointClasses = (cardClass && otherClass && String(cardClass) !== String(otherClass));
+
           const otherProg = ((otherMeta && otherMeta.programType) || 'UG').toUpperCase().trim();
           const cardProg = ((card.programType) || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].programType) || 'UG').toUpperCase().trim();
 
-          if (cardSem && otherSem && cardSem === otherSem && cardProg === otherProg) {
+          if (cardSem && otherSem && cardSem === otherSem && cardProg === otherProg && !areDisjointClasses) {
             const isMinorOrElectiveCourse = (c) => {
               if (!c) return false;
               const cat = (c.category || '').toUpperCase().trim();
@@ -1276,7 +1338,7 @@ export function generateDepartmentSchedule({
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return [];
             }
-          } else if (card.batches && card.batches.length > 0) {
+          } else if (card.batches && card.batches.length > 0 && !areDisjointClasses) {
             const otherBatches = (db.groupMappings && db.groupMappings[otherCourse]) || [];
             if (otherBatches.length > 0 && card.batches.some(b => otherBatches.includes(b))) {
               recordRejection('BATCH_CLASH', card);
@@ -1289,10 +1351,17 @@ export function generateDepartmentSchedule({
 
     // 1c. Single Computer Lab Constraint - Strictly enforced unless deepRelaxed
     if (card.type === 'P' && !deepRelaxed) {
+      const getBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      const cardBase = getBase(card.courseCode);
       for (const p of periodsGroup) {
-        if (occupiedLabSlots[day] && occupiedLabSlots[day][p] && occupiedLabSlots[day][p] !== card.courseCode) {
-          recordRejection('LAB_OCCUPIED', card);
-          return [];
+        const occSet = occupiedLabSlots[day] && occupiedLabSlots[day][p];
+        if (occSet && occSet.size > 0) {
+          for (const occCode of occSet) {
+            if (occCode !== card.courseCode && getBase(occCode) !== cardBase) {
+              recordRejection('LAB_OCCUPIED', card);
+              return [];
+            }
+          }
         }
       }
     }
@@ -1443,10 +1512,22 @@ export function generateDepartmentSchedule({
 
       // Reward spreading theory across distinct days (1 hr/day mandatory distribution)
       if (!isPractical) {
-        score += (distinctDaysCount * 20);
+        score += (distinctDaysCount * 30);
         // Heavy penalty if 2+ hours placed on the same day for theory
         if (multipleHoursDaysCount > 0) {
           score -= (multipleHoursDaysCount * 80);
+          // Keep track of adjacent slots: penalize back-to-back lectures of the same course on the same day
+          WEEKDAYS.forEach(d => {
+            const dayPeriods = Object.keys(allocState[c.code][d] || {});
+            if (dayPeriods.length > 1) {
+              const pNums = dayPeriods.map(p => parseInt(String(p).replace(/\D+/g, ''), 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+              for (let i = 0; i < pNums.length - 1; i++) {
+                if (pNums[i + 1] - pNums[i] === 1) {
+                  score -= 40; // Penalty for back-to-back lectures of the exact same subject
+                }
+              }
+            }
+          });
         }
       }
 
@@ -1567,17 +1648,151 @@ export function generateDepartmentSchedule({
     const isPractical = (card.duration > 1);
     const candidateSlots = isPractical ? validSlotsPractical : validSlots1Hour;
     
-    // Count existing hours for this course on each weekday
+    // 1. Count existing hours for this course on each weekday
     const placedOnDays = {};
     WEEKDAYS.forEach(d => {
       placedOnDays[d] = Object.keys((allocState[card.courseCode] && allocState[card.courseCode][d]) || {}).length;
     });
 
+    // 2. Count existing hours for this student cohort on each weekday (to balance daily cohort workload)
+    const cohortHoursOnDay = {};
+    WEEKDAYS.forEach(d => {
+      let count = 0;
+      Object.keys(allocState).forEach(cCode => {
+        const cMeta = courseMetaMap[cCode] || (targetCourses && targetCourses.find(tc => tc.code === cCode));
+        if (cMeta && String(cMeta.semester || '').trim() === String(card.semester || '').trim()) {
+          count += Object.keys((allocState[cCode] && allocState[cCode][d]) || {}).length;
+        }
+      });
+      cohortHoursOnDay[d] = count;
+    });
+
+    const existingWeeklySlots = getCourseWeeklySlots(allocState, card.courseCode);
+    const usedPeriods = new Set(existingWeeklySlots.map(s => String(s.period)));
+
+    // Helper: Check teacher availability and count available teachers for a slotGroup on a given day
+    function countAvailableTeachersForSlot(day, slotGroup) {
+      const pool = (card.facultyPool && card.facultyPool.length > 0) ? card.facultyPool : card.assignedFaculty;
+      if (!pool || pool.length === 0) return 1;
+
+      let availableCount = 0;
+      const allowedConsecutive = deepRelaxed ? (maxConsecutiveHours + 2) : (isRelaxed ? (maxConsecutiveHours + 1) : maxConsecutiveHours);
+
+      for (const fac of pool) {
+        let ok = true;
+        for (const p of slotGroup) {
+          // Check blackout / unavailable
+          if (!deepRelaxed && isTeacherUnavailable(fac, day, p)) {
+            ok = false;
+            break;
+          }
+          // Check external cross-dept clash
+          if (externalFacultyUsage[day][p] && externalFacultyUsage[day][p].has(fac)) {
+            ok = false;
+            break;
+          }
+          // Check internal department clash
+          for (const otherCourse of Object.keys(allocState)) {
+            const occ = allocState[otherCourse][day] && allocState[otherCourse][day][p];
+            if (Array.isArray(occ) && occ.includes(fac)) {
+              ok = false;
+              break;
+            }
+          }
+          if (!ok) break;
+        }
+
+        if (ok) {
+          // Check max consecutive hours fatigue (adjacent teaching slots tracking)
+          const currentTeacherPeriods = getTeacherPeriodsOnDay(allocState, day, fac);
+          if (checkMaxConsecutiveViolation(currentTeacherPeriods, slotGroup, rawPeriods, allowedConsecutive)) {
+            ok = false;
+          }
+        }
+
+        if (ok) availableCount++;
+      }
+      return availableCount;
+    }
+
+    // Helper: Check if slotGroup is adjacent to an existing period of the same course on that day
+    function hasAdjacentPeriodOnDay(day, slotGroup) {
+      const dayPeriods = Object.keys((allocState[card.courseCode] && allocState[card.courseCode][day]) || {});
+      if (dayPeriods.length === 0) return false;
+      const newPNums = slotGroup.map(p => parseInt(String(p).replace(/\D+/g, ''), 10)).filter(n => !isNaN(n));
+      const existPNums = dayPeriods.map(p => parseInt(String(p).replace(/\D+/g, ''), 10)).filter(n => !isNaN(n));
+      return newPNums.some(np => existPNums.some(ep => Math.abs(np - ep) === 1));
+    }
+
+    function createCandidate(day, slotGroup) {
+      const availCount = countAvailableTeachersForSlot(day, slotGroup);
+      const isAdj = hasAdjacentPeriodOnDay(day, slotGroup);
+      return {
+        day,
+        slotGroup,
+        availableTeacherCount: availCount,
+        hasAdjacentCoursePeriod: isAdj
+      };
+    }
+
+    function sortCandidateSlots(tier) {
+      tier.sort((a, b) => {
+        // Priority 0: Available teachers first (closed/unavailable slots demoted)
+        const aHasTeacher = a.availableTeacherCount > 0 ? 1 : 0;
+        const bHasTeacher = b.availableTeacherCount > 0 ? 1 : 0;
+        if (aHasTeacher !== bHasTeacher) return bHasTeacher - aHasTeacher;
+
+        // Priority 1: FIRST PRIORITY - SPREAD ACROSS WEEKDAYS
+        // Days with fewer existing hours for this course come FIRST (0 hours -> 1 hour -> 2 hours)
+        const aCourseHours = placedOnDays[a.day] || 0;
+        const bCourseHours = placedOnDays[b.day] || 0;
+        if (aCourseHours !== bCourseHours) {
+          return aCourseHours - bCourseHours;
+        }
+
+        // Priority 1b: Spread student cohort daily load (prefer day with fewer total cohort hours)
+        const aCohortHours = cohortHoursOnDay[a.day] || 0;
+        const bCohortHours = cohortHoursOnDay[b.day] || 0;
+        if (aCohortHours !== bCohortHours) {
+          return aCohortHours - bCohortHours;
+        }
+
+        // Priority 2: SECOND PRIORITY - SPREAD ACROSS PERIODS
+        // Prefer period indices not yet used by this course during the week (anti-mono-period)
+        const aUsed = a.slotGroup.filter(p => usedPeriods.has(String(p))).length;
+        const bUsed = b.slotGroup.filter(p => usedPeriods.has(String(p))).length;
+        if (aUsed !== bUsed) {
+          return aUsed - bUsed;
+        }
+
+        // Priority 3: KEEP TRACK OF ADJACENT SLOTS
+        // For multi-hour days, avoid back-to-back adjacent periods of the same theory course
+        if (aCourseHours > 0 || bCourseHours > 0) {
+          const aAdj = a.hasAdjacentCoursePeriod ? 1 : 0;
+          const bAdj = b.hasAdjacentCoursePeriod ? 1 : 0;
+          if (aAdj !== bAdj) {
+            return aAdj - bAdj; // non-adjacent is preferred!
+          }
+        }
+
+        // Priority 4: Teacher flexibility (more available teachers first)
+        if (a.availableTeacherCount !== b.availableTeacherCount) {
+          return b.availableTeacherCount - a.availableTeacherCount;
+        }
+
+        return Math.random() - 0.5;
+      });
+    }
+
     if (isPractical) {
-      const tier1 = []; // Curriculum Recommended 'P' slots
-      const tier2 = []; // Neutral slots (Strictly NO theory conflict!)
+      const recTier0 = []; // 0 hours today + Recommended 'P' slots
+      const recTier1 = []; // 1+ hours today + Recommended 'P' slots
+      const neutralTier0 = []; // 0 hours today + Neutral slots (Strictly NO theory conflict!)
+      const neutralTier1 = []; // 1+ hours today + Neutral slots (Strictly NO theory conflict!)
 
       WEEKDAYS.forEach(day => {
+        const hoursToday = placedOnDays[day];
+
         candidateSlots.forEach(slotGroup => {
           const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
           if (isAlreadyOccupied) return;
@@ -1589,32 +1804,47 @@ export function generateDepartmentSchedule({
           const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
 
           if (isOwnRecP) {
-            tier1.push({ day, slotGroup });
+            if (hoursToday === 0) {
+              recTier0.push(createCandidate(day, slotGroup));
+            } else {
+              recTier1.push(createCandidate(day, slotGroup));
+            }
           } else if (phase !== 1) {
             // Strict Practical/Theory separation: Disqualify any neutral slot with Theory recommendation!
             const hasTheoryConflict = slotGroup.some(p => isTheoryDesignated(day, p, card));
             if (!hasTheoryConflict) {
-              tier2.push({ day, slotGroup });
+              if (hoursToday === 0) {
+                neutralTier0.push(createCandidate(day, slotGroup));
+              } else {
+                neutralTier1.push(createCandidate(day, slotGroup));
+              }
             }
           }
         });
       });
 
-      tier1.sort(() => Math.random() - 0.5);
-      tier2.sort(() => Math.random() - 0.5);
+      sortCandidateSlots(recTier0);
+      sortCandidateSlots(recTier1);
+      sortCandidateSlots(neutralTier0);
+      sortCandidateSlots(neutralTier1);
 
       if (phase === 1) {
-        return tier1;
+        return [...recTier0, ...recTier1];
       }
-      return [...tier1, ...tier2];
+      return [...recTier0, ...recTier1, ...neutralTier0, ...neutralTier1];
     }
 
     // Theory courses:
-    const tier1 = []; // 0 hours today + Recommended 'T'
-    const tier2 = []; // 0 hours today + Neutral (Strictly NO practical conflict!)
-    const tier4 = []; // 1 hour today + Recommended 'T' (multi-hour placement if needed)
-    const tier5 = []; // 1 hour today + Neutral (Strictly NO practical conflict!)
-    const tier7 = []; // Relaxation (Strictly NO practical conflict!)
+    // Recommended slots ALWAYS come first (spread across weekdays, then across periods)
+    const recTier0 = []; // 0 hours today + Recommended 'T'
+    const recTier1 = []; // 1 hour today + Recommended 'T'
+    const recTier2 = []; // 2+ hours today + Recommended 'T'
+
+    // Neutral open slots follow if balance hours are needed (spread across weekdays, then across periods)
+    const neutralTier0 = []; // 0 hours today + Neutral (Strictly NO practical conflict!)
+    const neutralTier1 = []; // 1 hour today + Neutral (Strictly NO practical conflict!)
+    const neutralTier2 = []; // 2+ hours today + Neutral (Strictly NO practical conflict!)
+    const relaxTier = []; // Relaxation (Strictly NO practical conflict!)
 
     WEEKDAYS.forEach(day => {
       const hoursToday = placedOnDays[day];
@@ -1629,65 +1859,54 @@ export function generateDepartmentSchedule({
 
         const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
 
+        if (isOwnRecT) {
+          // RECOMMENDED SLOTS: spread across weekdays first
+          if (hoursToday === 0) {
+            recTier0.push(createCandidate(day, slotGroup));
+          } else if (hoursToday === 1) {
+            recTier1.push(createCandidate(day, slotGroup));
+          } else {
+            recTier2.push(createCandidate(day, slotGroup));
+          }
+          return;
+        }
+
         if (phase === 1) {
           // Phase 1: STRICTLY only recommended 'T' slots!
-          if (isOwnRecT) {
-            if (hoursToday === 0) {
-              tier1.push({ day, slotGroup });
-            } else {
-              tier4.push({ day, slotGroup });
-            }
-          }
           return;
         }
 
         // Strict Practical/Theory separation for neutral slots: Disqualify any slot with Practical recommendation!
         const hasPracticalConflict = slotGroup.some(p => isPracticalDesignated(day, p, card));
-        if (hasPracticalConflict && !isOwnRecT) {
+        if (hasPracticalConflict) {
           return;
         }
 
-        // Phase 2: Balance hours on neutral or leftover recommended slots
+        // Phase 2: Neutral open slots (spread across weekdays first, then across periods)
         if (hoursToday === 0) {
-          if (isOwnRecT) {
-            tier1.push({ day, slotGroup });
-          } else {
-            tier2.push({ day, slotGroup });
-          }
+          neutralTier0.push(createCandidate(day, slotGroup));
         } else if (hoursToday === 1) {
-          if (isOwnRecT) {
-            tier4.push({ day, slotGroup });
-          } else {
-            tier5.push({ day, slotGroup });
-          }
-        } else if (deepRelaxed || isRelaxed) {
-          tier7.push({ day, slotGroup });
+          neutralTier1.push(createCandidate(day, slotGroup));
+        } else if (hoursToday >= 2 && (deepRelaxed || isRelaxed)) {
+          neutralTier2.push(createCandidate(day, slotGroup));
+        } else if (deepRelaxed) {
+          relaxTier.push(createCandidate(day, slotGroup));
         }
       });
     });
 
-    const existingWeeklySlots = getCourseWeeklySlots(allocState, card.courseCode);
-    const usedPeriods = new Set(existingWeeklySlots.map(s => String(s.period)));
-
-    function sortTierSlots(tier) {
-      tier.sort((a, b) => {
-        const aUsed = a.slotGroup.filter(p => usedPeriods.has(String(p))).length;
-        const bUsed = b.slotGroup.filter(p => usedPeriods.has(String(p))).length;
-        if (aUsed !== bUsed) return aUsed - bUsed; // Fresh periods first!
-        return Math.random() - 0.5;
-      });
-    }
-
-    sortTierSlots(tier1);
-    sortTierSlots(tier2);
-    sortTierSlots(tier4);
-    sortTierSlots(tier5);
-    sortTierSlots(tier7);
+    sortCandidateSlots(recTier0);
+    sortCandidateSlots(recTier1);
+    sortCandidateSlots(recTier2);
+    sortCandidateSlots(neutralTier0);
+    sortCandidateSlots(neutralTier1);
+    sortCandidateSlots(neutralTier2);
+    sortCandidateSlots(relaxTier);
 
     if (phase === 1) {
-      return [...tier1, ...tier4];
+      return [...recTier0, ...recTier1, ...recTier2];
     }
-    return [...tier1, ...tier2, ...tier4, ...tier5, ...tier7];
+    return [...recTier0, ...recTier1, ...recTier2, ...neutralTier0, ...neutralTier1, ...neutralTier2, ...relaxTier];
   }
 
   // -----------------------------------------------------------
@@ -1730,7 +1949,8 @@ export function generateDepartmentSchedule({
               slotGroup.forEach(p => {
                 currentAlloc[card.courseCode][day][p] = [chosenFac];
                 if (card.type === 'P') {
-                  occupiedLabSlots[day][p] = card.courseCode;
+                  if (!occupiedLabSlots[day][p]) occupiedLabSlots[day][p] = new Set();
+                  occupiedLabSlots[day][p].add(card.courseCode);
                 }
               });
               if (!currentCourseFacultyHours[card.courseCode]) currentCourseFacultyHours[card.courseCode] = {};
@@ -1744,8 +1964,8 @@ export function generateDepartmentSchedule({
               currentCourseFacultyHours[card.courseCode][chosenFac] -= card.duration;
               slotGroup.forEach(p => {
                 delete currentAlloc[card.courseCode][day][p];
-                if (card.type === 'P') {
-                  delete occupiedLabSlots[day][p];
+                if (card.type === 'P' && occupiedLabSlots[day] && occupiedLabSlots[day][p]) {
+                  occupiedLabSlots[day][p].delete(card.courseCode);
                 }
               });
 
@@ -1757,7 +1977,8 @@ export function generateDepartmentSchedule({
             slotGroup.forEach(p => {
               currentAlloc[card.courseCode][day][p] = card.assignedFaculty;
               if (card.type === 'P') {
-                occupiedLabSlots[day][p] = card.courseCode;
+                if (!occupiedLabSlots[day][p]) occupiedLabSlots[day][p] = new Set();
+                occupiedLabSlots[day][p].add(card.courseCode);
               }
             });
 
@@ -1768,8 +1989,8 @@ export function generateDepartmentSchedule({
 
             slotGroup.forEach(p => {
               delete currentAlloc[card.courseCode][day][p];
-              if (card.type === 'P') {
-                delete occupiedLabSlots[day][p];
+              if (card.type === 'P' && occupiedLabSlots[day] && occupiedLabSlots[day][p]) {
+                occupiedLabSlots[day][p].delete(card.courseCode);
               }
             });
           }
@@ -1786,7 +2007,8 @@ export function generateDepartmentSchedule({
       solution: localBestSolution,
       mostPlaced: localMostPlacedAlloc,
       maxPlacedCount: localMaxCardsPlaced,
-      bestScore: localBestScore
+      bestScore: localBestScore,
+      steps: localSteps
     };
   }
 
@@ -1795,6 +2017,9 @@ export function generateDepartmentSchedule({
     currentCourseFacultyHours = initializeCourseFacultyHours();
     WEEKDAYS.forEach(day => {
       occupiedLabSlots[day] = {};
+      allRealPeriods.forEach(p => {
+        occupiedLabSlots[day][p] = new Set();
+      });
     });
 
     Object.keys(baseAlloc).forEach(cCode => {
@@ -1809,7 +2034,8 @@ export function generateDepartmentSchedule({
             currentCourseFacultyHours[cCode][f] = (currentCourseFacultyHours[cCode][f] || 0) + 1;
           });
           if (facs.length > 0 && isSlotPractical(meta, cCode, d, p, facs, pMap)) {
-            occupiedLabSlots[d][p] = cCode;
+            if (!occupiedLabSlots[d][p]) occupiedLabSlots[d][p] = new Set();
+            occupiedLabSlots[d][p].add(cCode);
           }
         });
       });
@@ -1826,10 +2052,23 @@ export function generateDepartmentSchedule({
 
   let phase1Alloc = JSON.parse(JSON.stringify(initialAllocation));
   let unplacedPhase1Cards = [];
+  let totalCombinationsChecked = 0;
 
   if (phase1Cards.length > 0) {
     syncStateFromAllocation(phase1Alloc);
-    const p1Result = runBacktrackingSolver(phase1Cards, phase1Alloc, 1, false, false);
+    let p1Result = runBacktrackingSolver(phase1Cards, phase1Alloc, 1, false, false);
+    totalCombinationsChecked += (p1Result.steps || 0);
+
+    // If strict Phase 1 didn't find complete solution, attempt relaxed Phase 1 pass to lock recommended slots
+    if (!p1Result.solution && (allowRelaxedFallback || forceRelaxed)) {
+      syncStateFromAllocation(phase1Alloc);
+      const p1Relaxed = runBacktrackingSolver(phase1Cards, phase1Alloc, 1, true, false);
+      totalCombinationsChecked += (p1Relaxed.steps || 0);
+      if (p1Relaxed.solution || (p1Relaxed.maxPlacedCount > p1Result.maxPlacedCount)) {
+        p1Result = p1Relaxed;
+      }
+    }
+
     const chosenP1 = p1Result.solution || p1Result.mostPlaced;
     if (chosenP1) {
       phase1Alloc = chosenP1;
@@ -1883,6 +2122,7 @@ export function generateDepartmentSchedule({
     syncStateFromAllocation(phase1Alloc);
     if (!forceRelaxed) {
       const p2Result = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, false, false);
+      totalCombinationsChecked += (p2Result.steps || 0);
       if (p2Result.solution) {
         bestSolution = p2Result.solution;
         bestScore = p2Result.bestScore;
@@ -1896,6 +2136,7 @@ export function generateDepartmentSchedule({
     if (!bestSolution && (allowRelaxedFallback || forceRelaxed)) {
       syncStateFromAllocation(phase1Alloc);
       const p2Relaxed = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, true, false);
+      totalCombinationsChecked += (p2Relaxed.steps || 0);
       if (p2Relaxed.solution) {
         bestSolution = p2Relaxed.solution;
         bestScore = p2Relaxed.bestScore;
@@ -1910,6 +2151,7 @@ export function generateDepartmentSchedule({
     if (!bestSolution && (allowRelaxedFallback || forceRelaxed)) {
       syncStateFromAllocation(phase1Alloc);
       const p2Deep = runBacktrackingSolver(remainingPhase2Cards, phase1Alloc, 2, true, true);
+      totalCombinationsChecked += (p2Deep.steps || 0);
       if (p2Deep.solution) {
         bestSolution = p2Deep.solution;
         bestScore = p2Deep.bestScore;
@@ -2076,6 +2318,7 @@ export function generateDepartmentSchedule({
     audit: {
       totalCourses: targetCourses.length,
       totalAllocatedSlots,
+      combinationsChecked: totalCombinationsChecked,
       practicalBlocksPlaced,
       teacherConsecutiveViolations: teacherViolations,
       facultyClashes: 0,
