@@ -651,16 +651,7 @@ function bindFilterEvents() {
       <option value="even">Even Semesters (2, 4)</option>
     `;
     sems.forEach(s => {
-      let label = state.config.semesterLabels[s] || `Sem ${s}`;
-      
-      // Determine what program types exist for this semester in the filtered list
-      const coursePrograms = Array.from(new Set(deptCourses.filter(c => c.semester === s).map(c => c.programType || 'UG')));
-      if (coursePrograms.length === 1) {
-        label = getSemesterLabel(s, coursePrograms[0]);
-      } else if (coursePrograms.length > 1) {
-        label = `${getSemesterLabel(s, 'UG')} / ${getSemesterLabel(s, 'PG')}`;
-      }
-      
+      const label = formatSemLabel(s);
       semSelect.innerHTML += `<option value="${s}">${label}</option>`;
     });
     
@@ -689,23 +680,26 @@ function bindFilterEvents() {
     }
   }
 
-  function getSemesterLabel(s, program) {
-    const baseLabel = state.config.semesterLabels[s] || `Sem ${s}`;
-    if (program === 'PG') {
-      if (baseLabel.toUpperCase().includes('BSC')) {
-        return baseLabel.replace(/BSC/i, 'MSC');
-      }
-      return `${baseLabel} MSC`;
-    } else if (program === 'UG') {
-      if (baseLabel.toUpperCase().includes('BSC')) {
-        return baseLabel;
-      }
-      return `${baseLabel} BSC`;
+  function formatSemLabel(s) {
+    const romanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
+    const num = parseInt(s, 10);
+    if (!isNaN(num) && romanMap[num]) {
+      return `${romanMap[num]} Sem`;
     }
-    return baseLabel;
+    const baseLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[s]) || String(s || '');
+    const romanMatch = baseLabel.match(/^([IVXLCDM]+)\b/i);
+    if (romanMatch) {
+      return `${romanMatch[1].toUpperCase()} Sem`;
+    }
+    return `Sem ${s}`;
+  }
+
+  function getSemesterLabel(s, program) {
+    return formatSemLabel(s);
   }
 
   // Hook populateFilters to trigger when loading workspace
+  window.formatSemLabel = formatSemLabel;
   window.populateFiltersDropdowns = populateFilters;
   window.getSemesterLabel = getSemesterLabel;
 }
