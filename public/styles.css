@@ -1764,6 +1764,7 @@ input:checked + .slider:before {
   min-height: 0;
 }
 
+.advanced-sidebar,
 .adv-sidebar {
   width: 240px;
   flex-shrink: 0;
