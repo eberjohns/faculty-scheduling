@@ -749,6 +749,14 @@ app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
     });
   }
 
+  const isDeptMatch = (d) => {
+    const du = String(d || '').trim().toUpperCase();
+    if (deptUpper === 'MATHEMATICS' || deptUpper === 'MAT' || deptUpper === 'MATH') {
+      return du === 'MATHEMATICS' || du === 'MAT' || du === 'MATH';
+    }
+    return du === deptUpper;
+  };
+
   // 1. Update course recommendations
   if (courseRecommendations && typeof courseRecommendations === 'object') {
     Object.keys(courseRecommendations).forEach(courseCode => {
@@ -756,7 +764,7 @@ app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
       const baseCode = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       const coursesToUpdate = db.courses.filter(c => {
         const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return (c.code === courseCode || cBase === baseCode) && c.department.toUpperCase() === deptUpper;
+        return (c.code === courseCode || cBase === baseCode) && isDeptMatch(c.department);
       });
 
       coursesToUpdate.forEach(c => {
@@ -822,12 +830,20 @@ app.post('/api/curriculum-slots/reset', requireDepartment, (req, res) => {
 
   const semStr = String(semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
 
+  const isDeptMatch = (d) => {
+    const du = String(d || '').trim().toUpperCase();
+    if (deptUpper === 'MATHEMATICS' || deptUpper === 'MAT' || deptUpper === 'MATH') {
+      return du === 'MATHEMATICS' || du === 'MAT' || du === 'MATH';
+    }
+    return du === deptUpper;
+  };
+
   // Find courses to reset
   const coursesToReset = db.courses.filter(c => {
     const cDept = (c.department || '').toUpperCase();
     const cSem = String(c.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
     const cBase = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-    const matchDept = cDept === deptUpper;
+    const matchDept = isDeptMatch(cDept);
     const matchSem = !semStr || cSem === semStr;
     const matchCourse = (!courseFilter || courseFilter === 'ALL' || cBase === courseFilter || c.code === courseFilter);
     return matchDept && matchSem && matchCourse;

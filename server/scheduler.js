@@ -320,7 +320,12 @@ export function generateDepartmentSchedule({
   forceRelaxed = false,
   __isCohortPass = false
 }) {
-  const deptUpper = departmentName.toUpperCase();
+  const deptUpper = (departmentName.toUpperCase() === 'MAT' || departmentName.toUpperCase() === 'MATH') ? 'MATHEMATICS' : departmentName.toUpperCase();
+  const isDeptMatch = (d) => {
+    const du = String(d || '').trim().toUpperCase();
+    if (deptUpper === 'MATHEMATICS') return du === 'MATHEMATICS' || du === 'MAT' || du === 'MATH';
+    return du === deptUpper;
+  };
   const rawPeriods = db.periods || ['1', '2', '3', 'LB', '4', '5', '6'];
   const allRealPeriods = rawPeriods.filter(p => !isBreakPeriod(p));
   const periodBlocks = getPeriodBlocks(rawPeriods);
@@ -337,7 +342,7 @@ export function generateDepartmentSchedule({
   const teacherUnavail = db.teacherUnavailability || {};
 
   // 1. Filter department courses
-  const allDeptCourses = (db.courses || []).filter(c => c.department.toUpperCase() === deptUpper);
+  const allDeptCourses = (db.courses || []).filter(c => isDeptMatch(c.department));
   let deptCourses = allDeptCourses;
   if (semester && semester !== 'all') {
     if (semester === 'odd') {
@@ -392,7 +397,7 @@ export function generateDepartmentSchedule({
     });
   }
 
-  const deptFaculty = (db.faculty || []).filter(f => f.department.toUpperCase() === deptUpper);
+  const deptFaculty = (db.faculty || []).filter(f => isDeptMatch(f.department));
 
   // Map course metadata for fast lookup across departments
   const courseMetaMap = {};
@@ -412,7 +417,7 @@ export function generateDepartmentSchedule({
   });
 
   Object.keys(db.allocations || {}).forEach(otherDept => {
-    if (otherDept.toUpperCase() === deptUpper) return; // skip own dept
+    if (isDeptMatch(otherDept)) return; // skip own dept
     const otherAlloc = db.allocations[otherDept] || {};
     Object.keys(otherAlloc).forEach(cCode => {
       const otherMeta = courseMetaMap[cCode];
@@ -1161,14 +1166,18 @@ export function generateDepartmentSchedule({
           const cardProg = ((card.programType) || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].programType) || 'UG').toUpperCase().trim();
 
           if (cardSem && otherSem && cardSem === otherSem && cardProg === otherProg && !areDisjointClasses) {
-            const isMinorOrElectiveCourse = (c) => {
+            const isMajorCourse = (c) => {
               if (!c) return false;
               const cat = (c.category || '').toUpperCase().trim();
               const code = (c.code || c.courseCode || '').toUpperCase().trim();
-              // Core Major courses (CJ or PG core starting with e.g. CSS1C01)
-              if (code.includes('CJ') || /^[A-Z]+\d+C\d+/i.test(code) || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ') && !/[A-Z]+\d+E\d+/i.test(code))) {
-                return false;
-              }
+              return code.includes('CJ') || /^[A-Z]+\d+C\d+/i.test(code) || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ') && !/[A-Z]+\d+E\d+/i.test(code));
+            };
+
+            const isMinorOrElectiveCourse = (c) => {
+              if (!c) return false;
+              if (isMajorCourse(c)) return false;
+              const cat = (c.category || '').toUpperCase().trim();
+              const code = (c.code || c.courseCode || '').toUpperCase().trim();
               return cat === 'MINOR' || cat === 'ELECTIVE' || cat === 'MDC' || cat === 'AEC' || cat === 'VAC' || cat === 'SEC' ||
                      code.includes('MN') || code.includes('EJ') || code.includes('FM') || code.includes('FS') || /[A-Z]+\d+E\d+/i.test(code);
             };
@@ -1177,8 +1186,15 @@ export function generateDepartmentSchedule({
             const cardBatches = card.batches || [];
             const areDisjointBatches = cardBatches.length > 0 && otherBatches.length > 0 && !cardBatches.some(b => otherBatches.includes(b));
             const areBothMinorsOrElectives = isMinorOrElectiveCourse(card) && isMinorOrElectiveCourse(otherMeta);
+            // Core Major and Minor/Elective in the same department are taken by disjoint student cohorts:
+            // Major is taken by departmental students, while Minor is taken by external students.
+            const isMajorAndMinorPair = (isMajorCourse(card) && isMinorOrElectiveCourse(otherMeta)) || (isMajorCourse(otherMeta) && isMinorOrElectiveCourse(card));
+            // When both courses have explicit curriculum recommendations for this slot, they are designed to run in parallel
+            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'M' || card.recommendations[day][String(p)] === 'P'));
+            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'M' || otherMeta.recommendations[day][String(p)] === 'P'));
+            const bothExplicitlyRecommended = cardHasRecHere && otherHasRecHere;
 
-            if (!areDisjointBatches && !areBothMinorsOrElectives) {
+            if (!areDisjointBatches && !areBothMinorsOrElectives && !isMajorAndMinorPair && !bothExplicitlyRecommended) {
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return false;
             }
@@ -1317,14 +1333,18 @@ export function generateDepartmentSchedule({
           const cardProg = ((card.programType) || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].programType) || 'UG').toUpperCase().trim();
 
           if (cardSem && otherSem && cardSem === otherSem && cardProg === otherProg && !areDisjointClasses) {
-            const isMinorOrElectiveCourse = (c) => {
+            const isMajorCourse = (c) => {
               if (!c) return false;
               const cat = (c.category || '').toUpperCase().trim();
               const code = (c.code || c.courseCode || '').toUpperCase().trim();
-              // Core Major courses (CJ or PG core starting with e.g. CSS1C01)
-              if (code.includes('CJ') || /^[A-Z]+\d+C\d+/i.test(code) || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ') && !/[A-Z]+\d+E\d+/i.test(code))) {
-                return false;
-              }
+              return code.includes('CJ') || /^[A-Z]+\d+C\d+/i.test(code) || cat === 'CORE' || (cat === 'MAJOR' && !code.includes('EJ') && !/[A-Z]+\d+E\d+/i.test(code));
+            };
+
+            const isMinorOrElectiveCourse = (c) => {
+              if (!c) return false;
+              if (isMajorCourse(c)) return false;
+              const cat = (c.category || '').toUpperCase().trim();
+              const code = (c.code || c.courseCode || '').toUpperCase().trim();
               return cat === 'MINOR' || cat === 'ELECTIVE' || cat === 'MDC' || cat === 'AEC' || cat === 'VAC' || cat === 'SEC' ||
                      code.includes('MN') || code.includes('EJ') || code.includes('FM') || code.includes('FS') || /[A-Z]+\d+E\d+/i.test(code);
             };
@@ -1333,8 +1353,15 @@ export function generateDepartmentSchedule({
             const cardBatches = card.batches || [];
             const areDisjointBatches = cardBatches.length > 0 && otherBatches.length > 0 && !cardBatches.some(b => otherBatches.includes(b));
             const areBothMinorsOrElectives = isMinorOrElectiveCourse(card) && isMinorOrElectiveCourse(otherMeta);
+            // Core Major and Minor/Elective in the same department are taken by disjoint student cohorts:
+            // Major is taken by departmental students, while Minor is taken by external students.
+            const isMajorAndMinorPair = (isMajorCourse(card) && isMinorOrElectiveCourse(otherMeta)) || (isMajorCourse(otherMeta) && isMinorOrElectiveCourse(card));
+            // When both courses have explicit curriculum recommendations for this slot, they are designed to run in parallel
+            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'M' || card.recommendations[day][String(p)] === 'P'));
+            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'M' || otherMeta.recommendations[day][String(p)] === 'P'));
+            const bothExplicitlyRecommended = cardHasRecHere && otherHasRecHere;
 
-            if (!areDisjointBatches && !areBothMinorsOrElectives) {
+            if (!areDisjointBatches && !areBothMinorsOrElectives && !isMajorAndMinorPair && !bothExplicitlyRecommended) {
               recordRejection('SEMESTER_STUDENT_CLASH', card);
               return [];
             }
@@ -1507,8 +1534,30 @@ export function generateDepartmentSchedule({
         }
       });
 
+      // Count available recommendations vs placed recommendations
+      let totalCourseRecsCount = 0;
+      WEEKDAYS.forEach(d => {
+        const dRecs = c.recommendations?.[d] || {};
+        Object.keys(dRecs).forEach(p => {
+          if (dRecs[p] === expectedType || dRecs[p] === 'M') {
+            totalCourseRecsCount++;
+          }
+        });
+      });
+
       // High reward for matching Curriculum Recommendations
-      score += (recMatches * 150);
+      score += (recMatches * 300);
+
+      // CRITICAL USER CONSTRAINT:
+      // Allocation will start at recommended slots. Balance recommended slots must not be left empty
+      // while allocating slots outside!
+      const totalPlaced = Object.values(allocState[c.code] || {}).reduce((sum, dObj) => sum + Object.keys(dObj || {}).length, 0);
+      const outsideAllocations = Math.max(0, totalPlaced - recMatches);
+      const remainingRecs = Math.max(0, totalCourseRecsCount - recMatches);
+      if (outsideAllocations > 0 && remainingRecs > 0) {
+        // Severe penalty for allocating outside when balance recommended slots were available!
+        score -= (Math.min(outsideAllocations, remainingRecs) * 10000);
+      }
 
       // Reward spreading theory across distinct days (1 hr/day mandatory distribution)
       if (!isPractical) {
@@ -1828,9 +1877,29 @@ export function generateDepartmentSchedule({
       sortCandidateSlots(neutralTier0);
       sortCandidateSlots(neutralTier1);
 
+      const recCandidates = [...recTier0, ...recTier1];
       if (phase === 1) {
-        return [...recTier0, ...recTier1];
+        return recCandidates;
       }
+
+      // Check if this practical course has unoccupied recommended practical slots
+      let unoccupiedRecSlotCount = 0;
+      WEEKDAYS.forEach(d => {
+        validSlotsPractical.forEach(slotGroup => {
+          if (slotGroup.every(p => card.recommendations && card.recommendations[d] && card.recommendations[d][p] === 'P')) {
+            const isOcc = slotGroup.every(p => allocState[card.courseCode] && allocState[card.courseCode][d] && allocState[card.courseCode][d][p] && allocState[card.courseCode][d][p].length > 0);
+            if (!isOcc) unoccupiedRecSlotCount++;
+          }
+        });
+      });
+
+      // CRITICAL USER CONSTRAINT:
+      // Allocation MUST start at recommended slots. All recommended slots for a course MUST be allocated FIRST.
+      // As long as there are balance recommended slots available for this course, NEVER return or consider neutral slots outside!
+      if (unoccupiedRecSlotCount > 0 && recCandidates.length > 0 && !deepRelaxed) {
+        return recCandidates;
+      }
+
       return [...recTier0, ...recTier1, ...neutralTier0, ...neutralTier1];
     }
 
@@ -1903,9 +1972,30 @@ export function generateDepartmentSchedule({
     sortCandidateSlots(neutralTier2);
     sortCandidateSlots(relaxTier);
 
+    const recCandidates = [...recTier0, ...recTier1, ...recTier2];
     if (phase === 1) {
-      return [...recTier0, ...recTier1, ...recTier2];
+      return recCandidates;
     }
+
+    // Check if this course still has unoccupied recommended slots
+    let unoccupiedRecSlotCount = 0;
+    WEEKDAYS.forEach(d => {
+      const dRecs = (card.recommendations && card.recommendations[d]) || {};
+      Object.keys(dRecs).forEach(p => {
+        if (dRecs[p] === 'T' || dRecs[p] === 'M') {
+          const isOcc = allocState[card.courseCode] && allocState[card.courseCode][d] && allocState[card.courseCode][d][p] && allocState[card.courseCode][d][p].length > 0;
+          if (!isOcc) unoccupiedRecSlotCount++;
+        }
+      });
+    });
+
+    // CRITICAL USER CONSTRAINT:
+    // Allocation MUST start at recommended slots. All recommended slots for a course MUST be allocated FIRST.
+    // As long as there are balance recommended slots available for this course, NEVER return or consider neutral slots outside!
+    if (unoccupiedRecSlotCount > 0 && recCandidates.length > 0 && !deepRelaxed) {
+      return recCandidates;
+    }
+
     return [...recTier0, ...recTier1, ...recTier2, ...neutralTier0, ...neutralTier1, ...neutralTier2, ...relaxTier];
   }
 
@@ -1969,7 +2059,6 @@ export function generateDepartmentSchedule({
                 }
               });
 
-              if (availableTeachers.length > 2) break;
             }
           }
         } else {

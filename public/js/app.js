@@ -1269,7 +1269,14 @@ function renderAllocationMatrix() {
   const locked = isTimetableLocked();
   
   // Filter courses for this department
-  let deptCourses = state.courses.filter(c => c.department === deptName);
+  const dUpper = (deptName || '').toUpperCase();
+  let deptCourses = state.courses.filter(c => {
+    const cd = (c.department || '').toUpperCase();
+    if (dUpper === 'MATHEMATICS' || dUpper === 'MAT' || dUpper === 'MATH') {
+      return cd === 'MATHEMATICS' || cd === 'MAT' || cd === 'MATH';
+    }
+    return cd === dUpper;
+  });
   
   // Apply Dropdown Filters
   if (state.filters.program) {
