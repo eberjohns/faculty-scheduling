@@ -20,6 +20,7 @@ import {
   apiLimiter,
   sanitizeExcelRows
 } from './security.js';
+import { getVersionInfo } from './version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,12 +85,147 @@ app.use(express.static(path.join(__dirname, '../public'), {
 
 // Health check / ping endpoints for uptime bots & monitors (keeps Render from sleeping)
 app.get(['/health', '/api/health', '/ping'], (req, res) => {
+  const v = getVersionInfo();
   res.status(200).json({
     status: 'ok',
+    version: v.version,
+    commit: v.commit,
+    branch: v.branch,
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
     message: 'Timetable server is active and running'
   });
+});
+
+// Deployment version & git commit metadata endpoint (publicly readable)
+app.get(['/api/version', '/version'], (req, res) => {
+  const forceRefresh = req.query.refresh === 'true';
+  const info = getVersionInfo(forceRefresh);
+  res.status(200).json(info);
+});
+
+// Admin proxy endpoint to check a remote deployed server version without browser CORS restrictions
+app.get('/api/admin/check-remote-version', async (req, res) => {
+  let targetUrl = (req.query.url || '').trim();
+  if (!targetUrl) {
+    return res.status(400).json({ success: false, message: 'Server URL parameter is required.' });
+  }
+
+  if (!/^https?:\/\//i.test(targetUrl)) {
+    targetUrl = `http://${targetUrl}`;
+  }
+  targetUrl = targetUrl.replace(/\/+$/, '');
+
+  const localInfo = getVersionInfo(true);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    // Try /api/version first
+    let versionRes = null;
+    try {
+      versionRes = await fetch(`${targetUrl}/api/version`, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+    } catch (e) {
+      // Failed to reach /api/version directly
+    }
+
+    if (versionRes && versionRes.ok) {
+      clearTimeout(timeout);
+      const remote = await versionRes.json();
+      const isMatch = (
+        (localInfo.commit && remote.commit && (localInfo.commit === remote.commit || localInfo.commitFull === remote.commitFull)) ||
+        (localInfo.commitFull && remote.commit && localInfo.commitFull.startsWith(remote.commit))
+      );
+      return res.json({
+        success: true,
+        online: true,
+        hasVersionRoute: true,
+        targetUrl,
+        local: localInfo,
+        remote,
+        isMatch,
+        needsGitPull: !isMatch,
+        message: isMatch ? 'College server is 100% up to date!' : 'College server is running an older commit.'
+      });
+    }
+
+    // If /api/version returned 404 or failed, check /health to see if server is online with older build
+    let healthRes = null;
+    try {
+      healthRes = await fetch(`${targetUrl}/health`, {
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+    } catch (e) {
+      // ignore
+    }
+
+    clearTimeout(timeout);
+
+    if (healthRes && healthRes.ok) {
+      const healthData = await healthRes.json().catch(() => ({}));
+      return res.json({
+        success: true,
+        online: true,
+        hasVersionRoute: false,
+        targetUrl,
+        local: localInfo,
+        remote: {
+          version: 'Older build (pre-version tracking)',
+          commit: 'unknown (pre-version tracking)',
+          uptime: healthData.uptime,
+          message: 'Server is active, but running an earlier release'
+        },
+        isMatch: false,
+        needsGitPull: true,
+        message: 'College server is online, but running an older commit from before this update. A git pull is required!'
+      });
+    }
+
+    // If neither succeeded, check root /
+    let rootRes = null;
+    try {
+      rootRes = await fetch(`${targetUrl}/`, { headers: { 'Accept': 'text/html' } });
+    } catch (e) {
+      // ignore
+    }
+
+    if (rootRes && rootRes.ok) {
+      return res.json({
+        success: true,
+        online: true,
+        hasVersionRoute: false,
+        targetUrl,
+        local: localInfo,
+        remote: {
+          version: 'Older build',
+          commit: 'unknown',
+          message: 'Website is live, but running an earlier release'
+        },
+        isMatch: false,
+        needsGitPull: true,
+        message: 'College server is online, but running an older commit from before this update. A git pull is required!'
+      });
+    }
+
+    return res.status(502).json({
+      success: false,
+      online: false,
+      targetUrl,
+      message: `Could not reach college server at ${targetUrl}. Connection refused or server offline.`
+    });
+  } catch (err) {
+    return res.status(502).json({
+      success: false,
+      online: false,
+      targetUrl,
+      message: `Failed to connect to ${targetUrl}: ${err.message}`
+    });
+  }
 });
 
 app.head(['/', '/health', '/api/health', '/ping'], (req, res) => {

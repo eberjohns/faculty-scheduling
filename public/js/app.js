@@ -314,6 +314,7 @@ async function initApp() {
   bindPrintEvents();
   bindFacultySelectEvents();
   bindAutoGeneratorEvents();
+  fetchVersionInfo();
   
   // Auto-refresh config, courses, and subject mappings to reflect admin lock/unlock and batch mapping changes
   window.syncGlobalConfigWithAdmin = async function() {
@@ -10931,6 +10932,38 @@ window.deleteCrossDeptRequest = function(reqId, courseCode, status) {
     }
   });
 };
+
+// --------------------------------------------------------------------------
+// Deployment Version Fetcher & Header / Footer Badge Population
+// --------------------------------------------------------------------------
+async function fetchVersionInfo() {
+  try {
+    const res = await fetch(`${API_BASE}/version`);
+    if (res.ok) {
+      const data = await res.json();
+      const versionText = `v${data.version} (${data.commit})`;
+      const fullText = `v${data.version} • commit ${data.commit} (${data.branch})`;
+
+      const pill = document.getElementById('app-header-version-pill');
+      if (pill) {
+        pill.textContent = versionText;
+        pill.title = `Branch: ${data.branch}\nCommit: ${data.commitFull || data.commit}\nDate: ${data.commitDate || ''}\nMessage: ${data.commitMessage || ''}`;
+        pill.style.display = 'inline-block';
+      }
+
+      const loginText = document.getElementById('portal-version-text');
+      if (loginText) {
+        loginText.textContent = fullText;
+        if (loginText.parentElement) {
+          loginText.parentElement.title = `Commit Message: ${data.commitMessage || ''}\nDate: ${data.commitDate || ''}`;
+        }
+      }
+    }
+  } catch (err) {
+    // Ignore quietly
+  }
+}
+
 
 
 

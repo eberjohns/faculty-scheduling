@@ -503,6 +503,7 @@ async function initAdmin() {
   bindSearchEvents();
   initImportRecordsModal();
   bindCustomModals();
+  initDeploymentVersionInfo();
   bindResetDeptPasswordEvents();
   bindGlobalLocksEvents();
   await loadGlobalLocks();
@@ -6244,6 +6245,267 @@ function printFreeFacultyRoster() {
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();
+}
+
+// --------------------------------------------------------------------------
+// Deployment Version & Remote College Server Verification
+// --------------------------------------------------------------------------
+let localDeploymentData = null;
+
+async function initDeploymentVersionInfo() {
+  try {
+    const res = await fetch(`${API_BASE}/version`);
+    if (!res.ok) return;
+    localDeploymentData = await res.json();
+    renderDeploymentVersionDisplay(localDeploymentData);
+  } catch (err) {
+    console.warn('[Version] Could not fetch version metadata:', err.message);
+  }
+
+  // Setup copy commit hash
+  const btnCopy = document.getElementById('btn-copy-commit');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      const fullHash = localDeploymentData?.commitFull || localDeploymentData?.commit || '';
+      if (fullHash) {
+        navigator.clipboard.writeText(fullHash).then(() => {
+          showToast(`Copied commit hash (${fullHash.substring(0, 7)}) to clipboard!`, 'info');
+        }).catch(() => {
+          showToast(`Commit: ${fullHash}`, 'info');
+        });
+      }
+    });
+  }
+
+  // Restore remembered server URL
+  const inputUrl = document.getElementById('input-compare-server-url');
+  if (inputUrl) {
+    const saved = localStorage.getItem('college_timetable_remote_url');
+    if (saved) inputUrl.value = saved;
+  }
+
+  // Setup Check Remote Server Button
+  const btnCheck = document.getElementById('btn-run-deploy-check');
+  if (btnCheck && inputUrl) {
+    btnCheck.addEventListener('click', () => runRemoteDeploymentCheck());
+    inputUrl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runRemoteDeploymentCheck();
+      }
+    });
+  }
+}
+
+function renderDeploymentVersionDisplay(data) {
+  if (!data) return;
+
+  const versionText = `v${data.version} (${data.commit})`;
+  const fullText = `v${data.version} • commit ${data.commit} (${data.branch})`;
+
+  // Header pill
+  const headerPill = document.getElementById('admin-header-version-pill');
+  if (headerPill) {
+    headerPill.textContent = versionText;
+    headerPill.title = `Branch: ${data.branch}\nCommit: ${data.commitFull || data.commit}\nDate: ${data.commitDate || ''}\nMessage: ${data.commitMessage || ''}`;
+    headerPill.style.display = 'inline-block';
+  }
+
+  // Login card version text
+  const loginText = document.getElementById('admin-login-version-text');
+  if (loginText) {
+    loginText.textContent = fullText;
+    if (loginText.parentElement) {
+      loginText.parentElement.title = `Commit Message: ${data.commitMessage || ''}\nDate: ${data.commitDate || ''}`;
+    }
+  }
+
+  // Dashboard card fields
+  const pillVer = document.getElementById('sys-version-pill');
+  if (pillVer) pillVer.textContent = `v${data.version}`;
+
+  const pillCommit = document.getElementById('sys-commit-pill');
+  if (pillCommit) pillCommit.textContent = `git: ${data.commit}`;
+
+  const valVer = document.getElementById('deploy-version-val');
+  if (valVer) valVer.textContent = `v${data.version}`;
+
+  const valCommit = document.getElementById('deploy-commit-val');
+  if (valCommit) valCommit.textContent = data.commit;
+
+  const valBranch = document.getElementById('deploy-branch-val');
+  if (valBranch) valBranch.textContent = data.branch;
+
+  const valUptime = document.getElementById('deploy-uptime-val');
+  if (valUptime && data.serverUptimeSeconds !== undefined) {
+    const hrs = Math.floor(data.serverUptimeSeconds / 3600);
+    const mins = Math.floor((data.serverUptimeSeconds % 3600) / 60);
+    valUptime.textContent = `${hrs}h ${mins}m active`;
+  }
+
+  const valMsg = document.getElementById('deploy-msg-val');
+  if (valMsg) valMsg.textContent = data.commitMessage ? `"${data.commitMessage}"` : 'No commit message';
+
+  const valDate = document.getElementById('deploy-date-val');
+  if (valDate && data.commitDate) {
+    valDate.textContent = `Committed on: ${data.commitDate}`;
+  }
+}
+
+async function runRemoteDeploymentCheck() {
+  const inputUrl = document.getElementById('input-compare-server-url');
+  const resultEl = document.getElementById('deploy-check-result');
+  const btnCheck = document.getElementById('btn-run-deploy-check');
+  if (!inputUrl || !resultEl) return;
+
+  let url = inputUrl.value.trim();
+  if (!url) {
+    showToast('Please enter your college server URL (e.g., http://tt.stthomas.ac.in:8021)', 'warning');
+    inputUrl.focus();
+    return;
+  }
+
+  // Normalize URL
+  if (!/^https?:\/\//i.test(url)) {
+    url = `http://${url}`;
+    inputUrl.value = url;
+  }
+  url = url.replace(/\/+$/, '');
+  localStorage.setItem('college_timetable_remote_url', url);
+
+  resultEl.classList.remove('hidden');
+  resultEl.innerHTML = `
+    <div style="background: #f8fafc; border: 1.5px solid var(--border); border-radius: 6px; padding: 12px; font-size: 13px;">
+      <i class="fa-solid fa-spinner fa-spin text-primary"></i> Testing connection to <code>${escapeHtml(url)}</code> via server proxy...
+    </div>
+  `;
+
+  if (btnCheck) {
+    btnCheck.disabled = true;
+    btnCheck.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+  }
+
+  try {
+    // Request check through backend proxy to avoid all browser CORS / mixed-content restrictions
+    const res = await fetch(`${API_BASE}/admin/check-remote-version?url=${encodeURIComponent(url)}`);
+    const data = await res.json().catch(() => null);
+
+    if (btnCheck) {
+      btnCheck.disabled = false;
+      btnCheck.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Check Server';
+    }
+
+    if (!data) {
+      resultEl.innerHTML = `
+        <div class="alert alert-danger" style="margin: 0; padding: 12px 14px; font-size: 13px;">
+          <strong><i class="fa-solid fa-circle-exclamation"></i> Check Failed:</strong>
+          Received invalid response from the check proxy.
+        </div>
+      `;
+      return;
+    }
+
+    if (!data.online) {
+      resultEl.innerHTML = `
+        <div class="alert alert-danger" style="margin: 0; padding: 12px 14px; font-size: 13px;">
+          <div class="flex-row items-center gap-2 mb-1">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 16px;"></i>
+            <strong>Connection Failed:</strong>
+          </div>
+          <p style="margin: 4px 0 0;">
+            ${escapeHtml(data.message || `Could not reach ${url}`)}
+          </p>
+          <div style="margin-top: 8px; font-size: 12px; opacity: 0.9;">
+            Ensure the server process is running and any firewall/port forwarding permits inbound HTTP requests.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // Remote server is online!
+    const local = data.local || localDeploymentData || {};
+    const remote = data.remote || {};
+    const isMatch = Boolean(data.isMatch);
+    const hasVersionRoute = Boolean(data.hasVersionRoute);
+
+    if (isMatch) {
+      resultEl.innerHTML = `
+        <div style="background: #ecfdf5; border: 1.5px solid #10b981; border-radius: 6px; padding: 14px; color: #065f46; font-size: 13px;">
+          <div class="flex-row items-center gap-2 mb-1">
+            <i class="fa-solid fa-circle-check" style="font-size: 16px; color: #059669;"></i>
+            <strong style="font-size: 14px;">College Server is 100% Up-to-Date!</strong>
+          </div>
+          <p style="margin: 4px 0 0; color: #047857;">
+            The remote server at <strong>${escapeHtml(url)}</strong> is running the exact same commit:
+            <code style="background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 4px; font-weight: 700;">${escapeHtml(remote.commit || local.commit)}</code>
+            (${escapeHtml(remote.commitMessage || local.commitMessage || 'Latest')}). No git pull needed!
+          </p>
+        </div>
+      `;
+    } else {
+      let uptimeNote = '';
+      if (remote.uptime) {
+        const hrs = Math.floor(remote.uptime / 3600);
+        const mins = Math.floor((remote.uptime % 3600) / 60);
+        uptimeNote = ` (Server active for ${hrs}h ${mins}m)`;
+      }
+
+      const noteText = !hasVersionRoute
+        ? `The college server at <strong>${escapeHtml(url)}</strong> is <strong>ONLINE</strong>${uptimeNote}, but it is running an earlier release deployed before version-tracking was added.`
+        : `The college server at <strong>${escapeHtml(url)}</strong> is online${uptimeNote}, but is behind your latest local commits.`;
+
+      resultEl.innerHTML = `
+        <div style="background: #fffbeb; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 14px; color: #92400e; font-size: 13px;">
+          <div class="flex-row items-center gap-2 mb-2">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 16px; color: #d97706;"></i>
+            <strong style="font-size: 14px;">College Server is Online, but Needs a Git Pull!</strong>
+          </div>
+          <p style="margin: 0 0 10px 0; color: #78350f;">
+            ${noteText}
+          </p>
+          <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 4px; padding: 10px 12px; margin-bottom: 10px;">
+            <div><strong>Local Commit:</strong> <code style="color: var(--primary); font-weight: 700;">${escapeHtml(local.commit || 'unknown')}</code> &bull; "${escapeHtml(local.commitMessage || '')}"</div>
+            <div style="margin-top: 4px;"><strong>College Server:</strong> <code style="color: #b45309; font-weight: 700;">${escapeHtml(remote.commit || 'unknown')}</code> &bull; "${escapeHtml(remote.commitMessage || remote.message || 'Needs git pull')}"</div>
+          </div>
+          <div class="flex-row items-center justify-between mb-1" style="flex-wrap: wrap; gap: 6px;">
+            <p style="margin: 0; font-weight: 600; color: #78350f;">👉 Run this command on the College Server terminal:</p>
+            <button type="button" class="btn btn-xs btn-outline" id="btn-copy-deploy-cmd" style="font-size: 11px; padding: 3px 8px; background: #fff; cursor: pointer;">
+              <i class="fa-regular fa-copy"></i> Copy Command
+            </button>
+          </div>
+          <pre id="pre-deploy-cmd" style="background: #1e293b; color: #38bdf8; padding: 10px 12px; border-radius: 4px; margin: 0; font-family: monospace; font-size: 12px; user-select: all; white-space: pre-wrap; word-break: break-all;">git pull origin main && pm2 restart all</pre>
+        </div>
+      `;
+
+      const btnCopy = document.getElementById('btn-copy-deploy-cmd');
+      if (btnCopy) {
+        btnCopy.addEventListener('click', () => {
+          const cmd = document.getElementById('pre-deploy-cmd')?.textContent || 'git pull origin main && pm2 restart all';
+          navigator.clipboard.writeText(cmd).then(() => {
+            btnCopy.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+            showToast('Copied deployment command to clipboard!', 'info');
+            setTimeout(() => {
+              btnCopy.innerHTML = '<i class="fa-regular fa-copy"></i> Copy Command';
+            }, 2500);
+          }).catch(() => {
+            showToast('Please copy the command manually.', 'info');
+          });
+        });
+      }
+    }
+  } catch (err) {
+    if (btnCheck) {
+      btnCheck.disabled = false;
+      btnCheck.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Check Server';
+    }
+    resultEl.innerHTML = `
+      <div class="alert alert-danger" style="margin: 0; padding: 12px 14px; font-size: 13px;">
+        <strong><i class="fa-solid fa-triangle-exclamation"></i> Connection Check Failed:</strong>
+        ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
 }
 
 

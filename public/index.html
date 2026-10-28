@@ -32,6 +32,7 @@
       <div class="header-logo">
         <i class="fa-solid fa-calendar-days text-primary"></i>
         <span>College Timetable Department Portal</span>
+        <span class="badge" id="app-header-version-pill" style="font-size: 11px; background: rgba(99, 102, 241, 0.12); color: var(--primary); padding: 2px 7px; margin-left: 8px; font-weight: 600; border-radius: 4px; display: none;"></span>
       </div>
       <div id="header-user-info" class="header-actions hidden">
         <span class="user-badge"><i class="fa-solid fa-users"></i> <span id="current-user-display"></span></span>
@@ -72,6 +73,9 @@
           <div class="login-footer text-center" style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 6px;">
             <i class="fa-solid fa-circle-question" style="color: var(--primary); font-size: 13px;"></i>
             <span>Forgot password? <a href="javascript:void(0)" id="link-forgot-dept-pwd" style="color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 2px;">Contact admin</a></span>
+          </div>
+          <div class="version-tag text-center text-muted" style="font-size: 11.5px; margin-top: 12px; color: var(--text-muted);" id="portal-version-tag">
+            <i class="fa-solid fa-code-commit text-primary"></i> <span id="portal-version-text">Loading version...</span>
           </div>
         </form>
         <div id="login-error" class="alert alert-danger hidden" style="margin-top: 14px;"></div>
