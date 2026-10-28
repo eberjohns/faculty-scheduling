@@ -169,6 +169,7 @@ function bindCustomModals() {
     const code = document.getElementById('edit-course-code').value;
     const dept = document.getElementById('edit-course-dept').value;
     const name = document.getElementById('edit-course-name').value.trim();
+    const programType = document.getElementById('edit-course-program')?.value || 'UG';
     const alias = document.getElementById('edit-course-alias').value.trim();
     const classes = parseInt(document.getElementById('edit-course-classes').value, 10) || 1;
 
@@ -181,7 +182,7 @@ function bindCustomModals() {
       const res = await fetch(`${API_BASE}/admin/courses/${encodeURIComponent(code)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, alias, classes, department: dept })
+        body: JSON.stringify({ name, alias, programType, classes, department: dept })
       });
       const result = await res.json();
       if (res.ok) {
@@ -1738,11 +1739,13 @@ function updateBulkCoursesUI() {
 function bindSearchEvents() {
   const searchInput = document.getElementById('data-search-input');
   const deptFilter = document.getElementById('data-select-dept');
+  const progFilter = document.getElementById('data-select-program');
   const semFilter = document.getElementById('data-select-semester');
   const catFilter = document.getElementById('data-select-category');
   
   if (searchInput) searchInput.addEventListener('input', () => renderInspectRecords());
   if (deptFilter) deptFilter.addEventListener('change', () => renderInspectRecords());
+  if (progFilter) progFilter.addEventListener('change', () => renderInspectRecords());
   if (semFilter) semFilter.addEventListener('change', () => renderInspectRecords());
   if (catFilter) catFilter.addEventListener('change', () => renderInspectRecords());
 
@@ -1899,10 +1902,12 @@ function initImportRecordsModal() {
     const depts = getAllDepartments();
     const cats = getAllCategories();
     const activeDept = document.getElementById('data-select-dept')?.value || '';
+    const activeProg = document.getElementById('data-select-program')?.value || '';
     const activeSem = document.getElementById('data-select-semester')?.value || '';
     const activeCat = document.getElementById('data-select-category')?.value || '';
 
     const curDept = initial.department || activeDept;
+    const curProg = (initial.programType || initial.program || activeProg || '').toUpperCase();
     const curSem = initial.semester || activeSem || '1';
     const curCat = initial.category || activeCat || 'MAJOR';
     const curCode = initial.code || '';
@@ -1919,6 +1924,14 @@ function initImportRecordsModal() {
       </td>
       <td>
         <input type="text" class="form-control form-control-sm inp-course-name" placeholder="e.g. Data Structures" value="${escapeHtml(curName)}" style="padding: 4px 8px; font-size: 12.5px; height: 32px;" required>
+      </td>
+      <td>
+        <select class="form-control form-control-sm inp-course-program" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
+          <option value="" disabled ${!curProg ? 'selected' : ''}>Select Program</option>
+          <option value="UG" ${curProg === 'UG' ? 'selected' : ''}>UG</option>
+          <option value="PG" ${curProg === 'PG' ? 'selected' : ''}>PG</option>
+          <option value="INT" ${curProg === 'INT' ? 'selected' : ''}>INT</option>
+        </select>
       </td>
       <td>
         <select class="form-control form-control-sm inp-course-sem" style="padding: 4px 6px; font-size: 12.5px; height: 32px;">
@@ -2018,6 +2031,7 @@ function initImportRecordsModal() {
   btnOpen.addEventListener('click', () => {
     const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
     const activeDept = document.getElementById('data-select-dept')?.value || '';
+    const activeProg = document.getElementById('data-select-program')?.value || '';
     const activeSem = document.getElementById('data-select-semester')?.value || '';
     const activeCat = document.getElementById('data-select-category')?.value || '';
 
@@ -2036,9 +2050,13 @@ function initImportRecordsModal() {
         hasFilter = true;
         badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-building"></i> Dept: ${escapeHtml(activeDept)}</span>`;
       }
+      if (isCourses && activeProg) {
+        hasFilter = true;
+        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-graduation-cap"></i> Program: ${escapeHtml(activeProg)}</span>`;
+      }
       if (isCourses && activeSem) {
         hasFilter = true;
-        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-graduation-cap"></i> Sem: ${escapeHtml(activeSem)}</span>`;
+        badgesContainer.innerHTML += `<span class="badge badge-info" style="font-size: 11.5px; padding: 3px 8px;"><i class="fa-solid fa-calendar-days"></i> Sem: ${escapeHtml(activeSem)}</span>`;
       }
       if (isCourses && activeCat) {
         hasFilter = true;
@@ -2054,14 +2072,15 @@ function initImportRecordsModal() {
       thead.innerHTML = isCourses ? `
         <tr>
           <th style="width: 44px; text-align: center;">#</th>
-          <th style="min-width: 140px;">Course Code *</th>
-          <th style="min-width: 240px;">Course Name *</th>
-          <th style="width: 100px;">Semester *</th>
-          <th style="width: 140px;">Category *</th>
-          <th style="min-width: 200px;">Department *</th>
-          <th style="width: 120px;">Visual Alias</th>
-          <th style="width: 90px;">Classes</th>
-          <th style="width: 50px; text-align: center;"></th>
+          <th style="min-width: 130px;">Course Code *</th>
+          <th style="min-width: 220px;">Course Name *</th>
+          <th style="width: 105px;">Program *</th>
+          <th style="width: 95px;">Semester *</th>
+          <th style="width: 125px;">Category *</th>
+          <th style="min-width: 180px;">Department *</th>
+          <th style="width: 110px;">Visual Alias</th>
+          <th style="width: 80px;">Classes</th>
+          <th style="width: 45px; text-align: center;"></th>
         </tr>
       ` : `
         <tr>
@@ -2114,6 +2133,7 @@ function initImportRecordsModal() {
 
       const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
       const activeDept = document.getElementById('data-select-dept')?.value || '';
+      const activeProg = document.getElementById('data-select-program')?.value || '';
       const activeSem = document.getElementById('data-select-semester')?.value || '';
       const activeCat = document.getElementById('data-select-category')?.value || '';
 
@@ -2134,6 +2154,7 @@ function initImportRecordsModal() {
           if (isCourses) {
             const code = row['Course Code'] || row['CourseCode'] || row['Code'] || row['code'] || '';
             const name = row['Course Name'] || row['CourseName'] || row['Name'] || row['name'] || row['Title'] || '';
+            const prog = row['Program'] || row['ProgramType'] || row['program'] || row['programType'] || row['Prog'] || activeProg || 'UG';
             const sem = row['Semester'] || row['Sem'] || row['semester'] || activeSem || '1';
             const cat = row['Category'] || row['Cat'] || row['category'] || activeCat || 'MAJOR';
             const dept = row['Department'] || row['Dept'] || row['department'] || activeDept || '';
@@ -2141,7 +2162,7 @@ function initImportRecordsModal() {
             const classes = row['Classes'] || row['classes'] || row['Class'] || 1;
 
             if (code || name) {
-              addCourseRow({ code, name, semester: sem, category: cat, department: dept, alias, classes });
+              addCourseRow({ code, name, programType: prog, semester: sem, category: cat, department: dept, alias, classes });
               loadedCount++;
             }
           } else {
@@ -2187,13 +2208,14 @@ function initImportRecordsModal() {
         rows.forEach(tr => {
           const code = (tr.querySelector('.inp-course-code')?.value || '').trim();
           const name = (tr.querySelector('.inp-course-name')?.value || '').trim();
+          const programType = (tr.querySelector('.inp-course-program')?.value || '').trim();
           const semester = (tr.querySelector('.inp-course-sem')?.value || '').trim();
           const category = (tr.querySelector('.inp-course-cat')?.value || '').trim();
           const department = (tr.querySelector('.inp-course-dept')?.value || '').trim();
           const alias = (tr.querySelector('.inp-course-alias')?.value || '').trim();
           const classes = parseInt(tr.querySelector('.inp-course-classes')?.value || 1, 10) || 1;
 
-          if (!code || !name || !department) {
+          if (!code || !name || !department || !programType) {
             hasValidationError = true;
             tr.style.background = '#fef2f2';
           } else {
@@ -2201,6 +2223,7 @@ function initImportRecordsModal() {
             payloadCourses.push({
               code,
               name,
+              programType,
               semester,
               category,
               department,
@@ -2211,7 +2234,7 @@ function initImportRecordsModal() {
         });
 
         if (hasValidationError) {
-          showToast('Please fill all required fields (Course Code, Name, Department) in highlighted rows.', 'warning');
+          showToast('Please fill all required fields (Course Code, Name, Program, Department) in highlighted rows.', 'warning');
           return;
         }
 
@@ -2315,10 +2338,17 @@ function initImportRecordsModal() {
 function renderInspectRecords() {
   const query = document.getElementById('data-search-input').value.toLowerCase().trim();
   const selectedDept = document.getElementById('data-select-dept').value;
+  const progFilter = document.getElementById('data-select-program');
   const semFilter = document.getElementById('data-select-semester');
   const catFilter = document.getElementById('data-select-category');
+  const selectedProgram = progFilter ? progFilter.value : '';
   const selectedSemester = semFilter ? semFilter.value : '';
   const selectedCategory = catFilter ? catFilter.value : '';
+
+  const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+  if (progFilter) progFilter.style.display = isCourses ? '' : 'none';
+  if (semFilter) semFilter.style.display = isCourses ? '' : 'none';
+  if (catFilter) catFilter.style.display = isCourses ? '' : 'none';
 
   // Initialize department filter dropdown options
   const deptFilter = document.getElementById('data-select-dept');
@@ -2368,6 +2398,9 @@ function renderInspectRecords() {
   let filteredCourses = state.courses;
   if (selectedDept) {
     filteredCourses = filteredCourses.filter(c => c.department === selectedDept);
+  }
+  if (selectedProgram) {
+    filteredCourses = filteredCourses.filter(c => String(c.programType || 'UG').trim().toUpperCase() === selectedProgram.trim().toUpperCase());
   }
   if (selectedSemester) {
     filteredCourses = filteredCourses.filter(c => String(c.semester) === String(selectedSemester));
@@ -2444,11 +2477,15 @@ function renderInspectRecords() {
       `;
     }
 
+    const progColor = (c.programType === 'PG') ? '#0284c7' : (c.programType === 'INT' ? '#7c3aed' : '#059669');
+    const progBadge = `<span class="badge" style="background-color: ${progColor}; color: white; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 4px;">${escapeHtml(c.programType || 'UG')}</span>`;
+
     tr.innerHTML = `
       <td style="text-align: center; width: 44px;">
         <input type="checkbox" class="course-row-checkbox" data-code="${c.code}" data-class="${classNum}" data-dept="${c.department}" ${isChecked ? 'checked' : ''}>
       </td>
       <td><strong>${codeDisplay}</strong></td>
+      <td>${progBadge}</td>
       <td>${c.semester}</td>
       <td>${c.category}</td>
       <td>${c.name}</td>
@@ -2476,6 +2513,7 @@ function renderInspectRecords() {
         document.getElementById('edit-course-code').value = cleanCode;
         document.getElementById('edit-course-dept').value = c.department;
         document.getElementById('edit-course-name').value = c.name;
+        document.getElementById('edit-course-program').value = (c.programType || 'UG').toUpperCase();
         document.getElementById('edit-course-alias').value = c.alias || '';
         
         // Count how many class variants exist for this cleanCode and department
