@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "844b40c",
-  "commitFull": "844b40cc2eb7935b4ae958b375e79b5612a0e8f5",
+  "commit": "3c8e90b",
+  "commitFull": "3c8e90be877468d8bae3b31de95d8eeb9d511ca5",
   "branch": "main",
-  "commitDate": "2026-10-28 12:52:40 +0530",
-  "commitMessage": "version checker and diff in admin panel",
-  "builtAt": "2026-10-28T07:42:03.232Z",
+  "commitDate": "2026-10-29 10:04:51 +0530",
+  "commitMessage": "version checker documentation",
+  "builtAt": "2026-10-29T04:46:52.381Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

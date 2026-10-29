@@ -2351,48 +2351,75 @@ function renderInspectRecords() {
   if (semFilter) semFilter.style.display = isCourses ? '' : 'none';
   if (catFilter) catFilter.style.display = isCourses ? '' : 'none';
 
-  // Initialize department filter dropdown options
+  // Initialize and synchronize department filter dropdown options
   const deptFilter = document.getElementById('data-select-dept');
-  if (deptFilter && deptFilter.options.length <= 1) {
+  if (deptFilter) {
+    const currentVal = deptFilter.value;
     const deptSet = new Set();
     state.courses.forEach(c => c.department && deptSet.add(c.department));
     state.faculty.forEach(f => f.department && deptSet.add(f.department));
-    Array.from(deptSet).sort().forEach(name => {
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      deptFilter.appendChild(opt);
-    });
+    const sortedDepts = Array.from(deptSet).sort();
+    const existingOptions = Array.from(deptFilter.options).slice(1).map(o => o.value);
+    const optionsChanged = sortedDepts.length !== existingOptions.length || sortedDepts.some((d, idx) => d !== existingOptions[idx]);
+
+    if (optionsChanged) {
+      deptFilter.innerHTML = '<option value="">All Departments</option>';
+      sortedDepts.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        if (name === currentVal) opt.selected = true;
+        deptFilter.appendChild(opt);
+      });
+    }
   }
 
-  // Initialize semester filter dropdown options
-  if (semFilter && semFilter.options.length <= 1) {
+  // Initialize and synchronize semester filter dropdown options
+  if (semFilter) {
+    const currentVal = semFilter.value;
     const semSet = new Set();
     state.courses.forEach(c => {
       if (c.semester !== undefined && c.semester !== null && c.semester !== '') {
         semSet.add(String(c.semester));
       }
     });
-    Array.from(semSet).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0)).forEach(sem => {
-      const opt = document.createElement('option');
-      opt.value = sem;
-      opt.textContent = `Semester ${sem}`;
-      semFilter.appendChild(opt);
-    });
+    const sortedSems = Array.from(semSet).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+    const existingOptions = Array.from(semFilter.options).slice(1).map(o => o.value);
+    const optionsChanged = sortedSems.length !== existingOptions.length || sortedSems.some((s, idx) => s !== existingOptions[idx]);
+
+    if (optionsChanged) {
+      semFilter.innerHTML = '<option value="">All Semesters</option>';
+      sortedSems.forEach(sem => {
+        const opt = document.createElement('option');
+        opt.value = sem;
+        opt.textContent = `Semester ${sem}`;
+        if (sem === currentVal) opt.selected = true;
+        semFilter.appendChild(opt);
+      });
+    }
   }
 
-  // Initialize category filter dropdown options
-  if (catFilter && catFilter.options.length <= 1) {
+  // Initialize and synchronize category filter dropdown options
+  if (catFilter) {
+    const currentVal = catFilter.value;
     const catSet = new Set();
     state.courses.forEach(c => {
       if (c.category) catSet.add(String(c.category).trim());
     });
-    Array.from(catSet).sort().forEach(cat => {
-      const opt = document.createElement('option');
-      opt.value = cat;
-      opt.textContent = cat;
-      catFilter.appendChild(opt);
-    });
+    const sortedCats = Array.from(catSet).sort();
+    const existingOptions = Array.from(catFilter.options).slice(1).map(o => o.value);
+    const optionsChanged = sortedCats.length !== existingOptions.length || sortedCats.some((c, idx) => c !== existingOptions[idx]);
+
+    if (optionsChanged) {
+      catFilter.innerHTML = '<option value="">All Categories</option>';
+      sortedCats.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        if (cat === currentVal) opt.selected = true;
+        catFilter.appendChild(opt);
+      });
+    }
   }
 
   // Filter Courses

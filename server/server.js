@@ -442,16 +442,38 @@ app.get('/healthcheck', (req, res) => {
   res.status(200).end();
 });
 
-// Helper to ensure all departments (existing or newly discovered) have a default password of '123456'
+// Helper to get all actively existing departments (derived from courses and faculty)
+export function getActiveDepartments(db) {
+  const deptSet = new Set();
+  (db.courses || []).forEach(c => {
+    const d = (c.department || '').trim();
+    if (d) deptSet.add(d);
+  });
+  (db.faculty || []).forEach(f => {
+    const d = (f.department || '').trim();
+    if (d) deptSet.add(d);
+  });
+  return deptSet;
+}
+
+// Helper to ensure all active departments have a default password of '123456'
+// and prune orphan / deleted departments from db.departments
 function ensureDepartmentDefaults(db) {
   if (!db.departments) db.departments = {};
   let changed = false;
-  const deptSet = new Set();
-  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
-  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
-  Object.keys(db.departments).forEach(name => deptSet.add(name.trim()));
+  const activeDepts = getActiveDepartments(db);
 
-  deptSet.forEach(name => {
+  // Prune orphan / deleted departments from db.departments
+  for (const deptKey of Object.keys(db.departments)) {
+    const matched = Array.from(activeDepts).some(d => d.toLowerCase() === deptKey.trim().toLowerCase());
+    if (!matched) {
+      delete db.departments[deptKey];
+      changed = true;
+    }
+  }
+
+  // Ensure each active department has a password entry (default: 123456)
+  activeDepts.forEach(name => {
     const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
     if (!existingKey) {
       db.departments[name] = { password: encryptDeptPasscode('123456') };
@@ -494,6 +516,12 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
       return res.status(400).json({ success: false, message: 'Department name is required' });
     }
     if (!db.departments) db.departments = {};
+
+    const activeDepts = getActiveDepartments(db);
+    const isActive = Array.from(activeDepts).some(d => d.toLowerCase() === departmentName.trim().toLowerCase());
+    if (!isActive) {
+      return res.status(401).json({ success: false, message: 'Department not found or has no active courses or faculty.' });
+    }
 
     // Match department case-insensitively
     const existingKey = Object.keys(db.departments).find(
@@ -636,12 +664,8 @@ app.get('/api/departments', (req, res) => {
     writeDb(db);
   }
 
-  // Get all unique departments from courses, faculty & db.departments
-  const deptSet = new Set();
-  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
-  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
-  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
-
+  // Get active departments derived from courses and faculty
+  const deptSet = getActiveDepartments(db);
   const depts = Array.from(deptSet).sort();
 
   const result = depts.map(name => {
@@ -746,11 +770,7 @@ app.get('/api/admin/departments', requireAdmin, (req, res) => {
     writeDb(db);
   }
 
-  const deptSet = new Set();
-  (db.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
-  (db.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
-  Object.keys(db.departments || {}).forEach(name => deptSet.add(name.trim()));
-
+  const deptSet = getActiveDepartments(db);
   const depts = Array.from(deptSet).sort();
 
   const result = depts.map(name => {
