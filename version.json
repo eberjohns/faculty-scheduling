@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "ac14b9e",
-  "commitFull": "ac14b9e941a820cbbf7dd3909544da88d51e543a",
+  "commit": "844b40c",
+  "commitFull": "844b40cc2eb7935b4ae958b375e79b5612a0e8f5",
   "branch": "main",
-  "commitDate": "2026-10-28 10:33:22 +0530",
-  "commitMessage": "program filter added for import and inspect records",
-  "builtAt": "2026-10-28T07:11:41.678Z",
+  "commitDate": "2026-10-28 12:52:40 +0530",
+  "commitMessage": "version checker and diff in admin panel",
+  "builtAt": "2026-10-28T07:42:03.232Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

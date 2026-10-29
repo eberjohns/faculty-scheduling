@@ -19,7 +19,8 @@ The platform provides a dual-portal interface:
    - [Central Administrator Workflow](#central-administrator-workflow)
    - [Department Coordinator Workflow](#department-coordinator-workflow)
 8. [Data Imports, Exports & Templates](#data-imports-exports--templates)
-9. [Related Documentation](#related-documentation)
+9. [Version Tracking & Remote Deployment Verification](#version-tracking--remote-deployment-verification)
+10. [Related Documentation](#related-documentation)
 
 ---
 
@@ -79,6 +80,11 @@ The platform provides a dual-portal interface:
 - **Course & Faculty Alias Filtering**: Department coordinator editors include instant search, program (`UG`, `PG`, `INT`), semester, and category filtering with a one-click grid filter sync.
 - **BOLA / IDOR Protection**: Cross-department timetable modifications are strictly verified and forbidden.
 - **Rate Limiting & Security Headers**: Integrated brute-force login protection, HSTS, CSP, and dotfile deny filters.
+
+### 10. Version Tracking & Remote Deployment Verification
+- **Automated Git Metadata Extraction**: Captures semantic version, active commit hash, branch, and commit message dynamically at runtime.
+- **Visual Portal Badges**: Surfaces the active build version in both Department Coordinator and Central Admin login and header bars.
+- **Live College Server Verification**: Compare your local development repository with the live hosted college server (`http://tt.stthomas.ac.in:8021`) directly from the Admin Portal or CLI (`npm run check-deploy`) to detect if a `git pull` is required.
 
 ---
 
@@ -213,6 +219,7 @@ JWT_SECRET=your-secure-random-secret-key-here
 |---|---|
 | `npm run dev` | Starts the server in development mode with `nodemon` live-reload. |
 | `npm start` | Starts the server in standard production mode with `node`. |
+| `npm run check-deploy [url]` | Compares local Git commit with the live college server (default: `http://tt.stthomas.ac.in:8021`). |
 | `npm test` | Runs the automated test suite (`test_security.js`, `test_scheduler.js`, `test_manual_assignment_rules.js`). |
 
 ---
@@ -282,6 +289,7 @@ JWT_SECRET=your-secure-random-secret-key-here
 
 ## Related Documentation
 
+- [**Deployment & Version Management Guide**](file:///e:/git_repos/college_time_table/deployment_and_version_management.md): Architecture of runtime Git metadata extraction, remote server status verification proxy, and production update procedures.
 - [**Database Architecture & Data Management Guide**](file:///e:/git_repos/college_time_table/database_architecture_and_data_management.md): Detailed relational schema, SQLite/PostgreSQL drivers, import/export formats, and data integrity specifications.
 - [**Manual Period Allocation Features Guide**](file:///e:/git_repos/college_time_table/manual_period_allocation_features.md): Comprehensive reference for all department coordinator UI capabilities and workflows.
 - [**Requirements Specification**](file:///e:/git_repos/college_time_table/requirements.md): Original functional, academic, and scheduling rule requirements.
