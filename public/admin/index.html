@@ -455,6 +455,7 @@
             <div class="tab-sub-nav">
               <button class="tab-sub-item active" data-subtab="subtab-courses" title="Unique course code + department combinations &bull; Total class records">Courses (<span id="count-course-groups" title="Unique course code + department combinations">0</span> unique &bull; <span id="count-courses" title="Total class records (code + class + department)">0</span> classes)</button>
               <button class="tab-sub-item" data-subtab="subtab-faculty">Faculty (<span id="count-faculty">0</span>)</button>
+              <button class="tab-sub-item" data-subtab="subtab-departments">Departments (<span id="count-departments">0</span>)</button>
             </div>
 
             <!-- Courses list -->
@@ -519,6 +520,28 @@
                     </thead>
                     <tbody>
                       <!-- Rendered Dynamically (Read Only) -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Departments list -->
+            <div id="subtab-departments" class="subtab-pane hidden">
+              <div class="card mt-2">
+                <div class="table-responsive">
+                  <table class="table" id="table-manage-departments">
+                    <thead>
+                      <tr>
+                        <th>Department Name</th>
+                        <th>Programs Offered</th>
+                        <th>Courses</th>
+                        <th>Faculty</th>
+                        <th style="text-align: center;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <!-- Rendered Dynamically -->
                     </tbody>
                   </table>
                 </div>
@@ -1440,6 +1463,39 @@
         <div class="actions flex-row justify-end gap-2 mt-4">
           <button id="btn-save-course-details" class="btn btn-primary">Save Changes</button>
           <button id="btn-close-course-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: EDIT DEPARTMENT -->
+    <div id="modal-edit-dept" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 480px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-pen-to-square text-primary"></i> Edit Department Name
+          </h2>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0;">
+          <input type="hidden" id="edit-dept-old-name">
+          <div class="form-group mb-3">
+            <label for="edit-dept-current-display" style="font-weight: 600; font-size: 12.5px;">Current Department Name</label>
+            <input type="text" id="edit-dept-current-display" class="form-control" readonly disabled style="background: #f1f5f9; font-weight: 700; color: #334155;">
+          </div>
+          <div class="form-group mb-3">
+            <label for="edit-dept-new-name" style="font-weight: 700; font-size: 13px;">New Department Name <span class="text-danger">*</span></label>
+            <input type="text" id="edit-dept-new-name" class="form-control" placeholder="e.g. COMPUTER SCIENCE" required style="text-transform: uppercase;">
+            <small class="text-muted" style="display: block; margin-top: 4px; font-size: 11px;">
+              Enter the updated official name for this department.
+            </small>
+          </div>
+          <div class="alert alert-info mt-3" style="font-size: 12px; padding: 10px 12px; margin-bottom: 0; line-height: 1.45;">
+            <i class="fa-solid fa-circle-info text-primary" style="margin-right: 4px;"></i>
+            <strong>Cascading Update:</strong> Renaming this department will automatically update the name everywhere: across all associated <strong>faculty profiles</strong>, <strong>course catalogs</strong>, <strong>timetable allocations</strong>, <strong>batch mappings</strong>, and <strong>coordinator login credentials</strong>.
+          </div>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button type="button" id="btn-save-dept-name" class="btn btn-primary" style="font-weight: 600;"><i class="fa-solid fa-check"></i> Save & Update Everywhere</button>
+          <button type="button" id="btn-close-dept-modal" class="btn btn-outline">Cancel</button>
         </div>
       </div>
     </div>

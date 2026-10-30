@@ -502,6 +502,7 @@ async function initAdmin() {
   bindImportEvents();
   bindSearchEvents();
   initImportRecordsModal();
+  initEditDeptModal();
   bindCustomModals();
   initDeploymentVersionInfo();
   bindResetDeptPasswordEvents();
@@ -2661,6 +2662,193 @@ function renderInspectRecords() {
     });
     facultyTbody.appendChild(tr);
   });
+
+  // Filter & Render Departments
+  const deptsTable = document.querySelector('#table-manage-departments tbody');
+  if (deptsTable) {
+    deptsTable.innerHTML = '';
+
+    // Collect all active unique departments from state.departments, courses, and faculty
+    const deptSet = new Set();
+    (state.departments || []).forEach(d => d.name && deptSet.add(d.name.trim()));
+    (state.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+    (state.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+    let allDepts = Array.from(deptSet).sort();
+
+    if (selectedDept) {
+      allDepts = allDepts.filter(d => d.toLowerCase() === selectedDept.toLowerCase());
+    }
+    if (query) {
+      allDepts = allDepts.filter(d => d.toLowerCase().includes(query));
+    }
+
+    const countDeptsEl = document.getElementById('count-departments');
+    if (countDeptsEl) countDeptsEl.textContent = allDepts.length;
+
+    if (allDepts.length === 0) {
+      deptsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted p-4">No matching departments found.</td></tr>';
+    } else {
+      allDepts.forEach(dName => {
+        const tr = document.createElement('tr');
+
+        // Programs for this department
+        const deptCourses = (state.courses || []).filter(c => (c.department || '').trim().toLowerCase() === dName.toLowerCase());
+        const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toLowerCase() === dName.toLowerCase());
+
+        const progSet = new Set();
+        deptCourses.forEach(c => {
+          progSet.add(String(c.programType || 'UG').toUpperCase());
+        });
+        const progBadges = Array.from(progSet).sort().map(p => {
+          const color = (p === 'PG') ? '#0284c7' : (p === 'INT' ? '#7c3aed' : '#059669');
+          return `<span class="badge" style="background-color: ${color}; color: white; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 4px; margin-right: 4px;">${escapeHtml(p)}</span>`;
+        }).join('') || '<span class="text-muted text-xs">-</span>';
+
+        // Count unique base courses vs total class records
+        const uniqueCourses = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, ''))).size;
+        const totalClasses = deptCourses.length;
+        const coursesInfo = totalClasses > 0
+          ? `<strong>${uniqueCourses}</strong> unique <span class="text-muted text-xs">(${totalClasses} class${totalClasses === 1 ? '' : 'es'})</span>`
+          : '<span class="text-muted text-xs">0 courses</span>';
+
+        const facCount = deptFaculty.length;
+        const facInfo = facCount > 0
+          ? `<strong>${facCount}</strong> faculty`
+          : '<span class="text-muted text-xs">0 faculty</span>';
+
+        tr.innerHTML = `
+          <td>
+            <strong style="font-size: 13.5px; color: var(--text);">${escapeHtml(dName)}</strong>
+          </td>
+          <td>${progBadges}</td>
+          <td>${coursesInfo}</td>
+          <td>${facInfo}</td>
+          <td style="text-align: center;">
+            <button type="button" class="btn btn-outline btn-sm btn-edit-dept-name" data-dept="${escapeHtml(dName)}" style="padding: 3px 10px; font-weight: 600;" title="Edit and rename ${escapeHtml(dName)} everywhere">
+              <i class="fa-solid fa-pen-to-square text-primary"></i> Edit Name
+            </button>
+          </td>
+        `;
+
+        tr.querySelector('.btn-edit-dept-name').addEventListener('click', () => {
+          openEditDeptModal(dName);
+        });
+
+        deptsTable.appendChild(tr);
+      });
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Edit Department Modal Handlers
+// -------------------------------------------------------------
+function openEditDeptModal(deptName) {
+  const modal = document.getElementById('modal-edit-dept');
+  const oldInput = document.getElementById('edit-dept-old-name');
+  const displayInput = document.getElementById('edit-dept-current-display');
+  const newInput = document.getElementById('edit-dept-new-name');
+
+  if (!modal || !oldInput || !displayInput || !newInput) return;
+
+  oldInput.value = deptName;
+  displayInput.value = deptName;
+  newInput.value = deptName;
+
+  modal.classList.remove('hidden');
+  setTimeout(() => {
+    newInput.focus();
+    newInput.select();
+  }, 50);
+}
+
+let editDeptModalInitialized = false;
+function initEditDeptModal() {
+  if (editDeptModalInitialized) return;
+  editDeptModalInitialized = true;
+
+  const modal = document.getElementById('modal-edit-dept');
+  const btnClose = document.getElementById('btn-close-dept-modal');
+  const btnSave = document.getElementById('btn-save-dept-name');
+  const oldInput = document.getElementById('edit-dept-old-name');
+  const newInput = document.getElementById('edit-dept-new-name');
+
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+  }
+
+  if (newInput) {
+    newInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnSave) btnSave.click();
+      } else if (e.key === 'Escape') {
+        if (modal) modal.classList.add('hidden');
+      }
+    });
+  }
+
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const oldName = (oldInput?.value || '').trim();
+      const newName = (newInput?.value || '').trim().toUpperCase();
+
+      if (!newName) {
+        showToast('Please enter a valid department name.', 'warning');
+        if (newInput) newInput.focus();
+        return;
+      }
+
+      if (oldName.toUpperCase() === newName.toUpperCase()) {
+        showToast('The new department name is the same as the current name.', 'info');
+        if (modal) modal.classList.add('hidden');
+        return;
+      }
+
+      btnSave.disabled = true;
+      btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Renaming Everywhere...';
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || '';
+        const res = await fetch(`${API_BASE}/admin/departments/rename`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token
+          },
+          body: JSON.stringify({ oldName, newName })
+        });
+
+        const result = await res.json();
+        if (res.ok) {
+          if (modal) modal.classList.add('hidden');
+          showToast(result.message || `Department renamed to ${newName} successfully.`, 'success');
+          await fetchGlobalData();
+          renderInspectRecords();
+          renderAdminDepartments();
+          if (typeof populateResetDeptPasswordDropdown === 'function') {
+            populateResetDeptPasswordDropdown();
+          }
+        } else {
+          showModalAlert('Rename Failed', result.message || 'Could not rename department.', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Connection Error', 'Network error while attempting to rename department.', 'danger');
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save & Update Everywhere';
+      }
+    });
+  }
 }
 
 // -------------------------------------------------------------

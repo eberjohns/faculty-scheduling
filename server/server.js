@@ -6,7 +6,7 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH } from './db.js';
+import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH, getSqliteDb } from './db.js';
 import { generateDepartmentSchedule } from './scheduler.js';
 import {
   hashPassword,
@@ -791,6 +791,170 @@ app.get('/api/admin/departments', requireAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// Rename Department with full cascading updates across courses, faculty, allocations, batch mappings & credentials
+app.post(['/api/admin/departments/rename', '/api/admin/departments/update-name'], requireAdmin, handleDepartmentRename);
+app.put('/api/admin/departments/rename', requireAdmin, handleDepartmentRename);
+
+function handleDepartmentRename(req, res) {
+  const { oldName, newName } = req.body;
+  if (!oldName || !newName) {
+    return res.status(400).json({ success: false, message: 'Both current (oldName) and new department (newName) names are required.' });
+  }
+
+  const oldTrim = String(oldName).trim();
+  const newTrim = String(newName).trim().toUpperCase();
+
+  if (!oldTrim || !newTrim) {
+    return res.status(400).json({ success: false, message: 'Department names cannot be blank.' });
+  }
+
+  const db = readDb();
+  const activeDepts = getActiveDepartments(db);
+
+  // Check if old department exists
+  const oldExists = Array.from(activeDepts).some(d => d.toLowerCase() === oldTrim.toLowerCase()) ||
+                    (db.departments && Object.keys(db.departments).some(k => k.trim().toLowerCase() === oldTrim.toLowerCase()));
+  if (!oldExists) {
+    return res.status(404).json({ success: false, message: `Department '${oldTrim}' not found in active records.` });
+  }
+
+  // Prevent conflicting rename to another existing department
+  const isConflict = Array.from(activeDepts).some(d => d.toLowerCase() === newTrim.toLowerCase() && d.toLowerCase() !== oldTrim.toLowerCase()) ||
+                     (db.departments && Object.keys(db.departments).some(k => k.trim().toLowerCase() === newTrim.toLowerCase() && k.trim().toLowerCase() !== oldTrim.toLowerCase()));
+  if (isConflict) {
+    return res.status(400).json({ success: false, message: `A department named '${newTrim}' already exists.` });
+  }
+
+  // 1. Cascading update in db.courses
+  let coursesUpdated = 0;
+  (db.courses || []).forEach(c => {
+    if ((c.department || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+      c.department = newTrim;
+      coursesUpdated++;
+    }
+  });
+
+  // 2. Cascading update in db.faculty
+  let facultyUpdated = 0;
+  (db.faculty || []).forEach(f => {
+    if ((f.department || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+      f.department = newTrim;
+      facultyUpdated++;
+    }
+  });
+
+  // 3. Cascading update in db.departments
+  if (db.departments) {
+    const matchingKeys = Object.keys(db.departments).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedPasscode = null;
+    matchingKeys.forEach(k => {
+      if (!savedPasscode && db.departments[k]?.password) {
+        savedPasscode = db.departments[k].password;
+      }
+      delete db.departments[k];
+    });
+    db.departments[newTrim] = { password: savedPasscode || encryptDeptPasscode('123456') };
+  }
+
+  // 4. Cascading update in db.submissions
+  if (db.submissions) {
+    const matchingSubKeys = Object.keys(db.submissions).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedSub = null;
+    matchingSubKeys.forEach(k => {
+      if (!savedSub && db.submissions[k]) savedSub = db.submissions[k];
+      delete db.submissions[k];
+    });
+    if (savedSub) {
+      db.submissions[newTrim] = savedSub;
+    }
+  }
+
+  // 5. Cascading update in db.allocations
+  if (db.allocations) {
+    const matchingAllocKeys = Object.keys(db.allocations).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let mergedAlloc = {};
+    matchingAllocKeys.forEach(k => {
+      mergedAlloc = { ...mergedAlloc, ...(db.allocations[k] || {}) };
+      delete db.allocations[k];
+    });
+    if (Object.keys(mergedAlloc).length > 0) {
+      db.allocations[newTrim] = mergedAlloc;
+    }
+  }
+
+  // 6. Cascading update in db.timetables
+  if (db.timetables) {
+    const matchingTtKeys = Object.keys(db.timetables).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedTt = null;
+    matchingTtKeys.forEach(k => {
+      if (!savedTt && db.timetables[k]) savedTt = db.timetables[k];
+      delete db.timetables[k];
+    });
+    if (savedTt) {
+      db.timetables[newTrim] = savedTt;
+    }
+  }
+
+  // 7. Cascading update in db.subjectTeacherMapping
+  if (db.subjectTeacherMapping) {
+    const matchingSmKeys = Object.keys(db.subjectTeacherMapping).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedSm = null;
+    matchingSmKeys.forEach(k => {
+      if (!savedSm && db.subjectTeacherMapping[k]) savedSm = db.subjectTeacherMapping[k];
+      delete db.subjectTeacherMapping[k];
+    });
+    if (savedSm) {
+      db.subjectTeacherMapping[newTrim] = savedSm;
+    }
+  }
+
+  // 8. Cascading update in db.batchDeptMappings
+  let batchMappingsUpdated = 0;
+  if (Array.isArray(db.batchDeptMappings)) {
+    db.batchDeptMappings.forEach(m => {
+      if ((m.deptName || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        m.deptName = newTrim;
+        batchMappingsUpdated++;
+      }
+    });
+  }
+
+  // 9. Cascading update in db.crossDepartmentRequests
+  if (Array.isArray(db.crossDepartmentRequests)) {
+    db.crossDepartmentRequests.forEach(r => {
+      if ((r.requestingDepartment || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        r.requestingDepartment = newTrim;
+      }
+      if ((r.targetDepartment || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        r.targetDepartment = newTrim;
+      }
+    });
+  }
+
+  // 10. Update SQLite normalized departments table directly
+  const sDb = getSqliteDb();
+  if (sDb) {
+    try {
+      sDb.prepare('UPDATE departments SET name = ? WHERE UPPER(name) = UPPER(?)').run(newTrim, oldTrim);
+    } catch (e) {
+      console.warn('[Rename Dept] SQLite direct update notice:', e.message);
+    }
+  }
+
+  // Persist changes and run normalized tables migration
+  writeDb(db);
+
+  res.json({
+    success: true,
+    message: `Department '${oldTrim}' successfully renamed to '${newTrim}' everywhere (${coursesUpdated} courses, ${facultyUpdated} faculty, ${batchMappingsUpdated} batch mappings updated).`,
+    oldName: oldTrim,
+    newName: newTrim,
+    coursesUpdated,
+    facultyUpdated,
+    batchMappingsUpdated
+  });
+}
+
 // Course & Faculty Administration Endpoints
 // -------------------------------------------------------------
 function isDepartmentLocked(db, departmentName) {

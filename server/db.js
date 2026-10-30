@@ -330,6 +330,10 @@ async function saveToPostgres(data) {
 }
 
 // Re-initialize SQLite connection (used when restoring a raw .db file)
+export function getSqliteDb() {
+  return sqliteDb;
+}
+
 export function reinitSqliteDb() {
   if (sqliteDb) {
     try { sqliteDb.close(); } catch (e) {}
