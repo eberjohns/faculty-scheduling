@@ -430,25 +430,134 @@
             <div class="content-header">
               <h1>Inspect Academic Records</h1>
               <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
-                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 220px;">
-                <select id="data-select-dept" class="form-control width-auto">
-                  <option value="">All Departments</option>
-                </select>
-                <select id="data-select-program" class="form-control width-auto">
-                  <option value="">All Programs</option>
-                  <option value="UG">UG</option>
-                  <option value="PG">PG</option>
-                  <option value="INT">INT</option>
-                </select>
-                <select id="data-select-semester" class="form-control width-auto">
-                  <option value="">All Semesters</option>
-                </select>
-                <select id="data-select-category" class="form-control width-auto">
-                  <option value="">All Categories</option>
-                </select>
+                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 200px;">
+
+                <!-- MULTI-SELECT: DEPARTMENT -->
+                <div class="dropdown-multiselect" id="ms-container-dept">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-dept" title="Filter by Department">
+                    <span class="ms-label-text" id="ms-label-dept">All Departments</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-dept">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-dept" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-dept" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-search-wrap">
+                      <input type="text" class="form-control form-control-sm" id="ms-search-dept" placeholder="Filter departments..." style="font-size: 11.5px; padding: 4px 8px;">
+                    </div>
+                    <div class="ms-options-list" id="ms-options-dept">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: PROGRAM -->
+                <div class="dropdown-multiselect" id="ms-container-program">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-program" title="Filter by Program">
+                    <span class="ms-label-text" id="ms-label-program">All Programs</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-program">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-program" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-program" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-program">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: SEMESTER -->
+                <div class="dropdown-multiselect" id="ms-container-semester">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-semester" title="Filter by Semester">
+                    <span class="ms-label-text" id="ms-label-semester">All Semesters</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-semester">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-semester" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-semester" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-semester">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: CATEGORY -->
+                <div class="dropdown-multiselect" id="ms-container-category">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-category" title="Filter by Category">
+                    <span class="ms-label-text" id="ms-label-category">All Categories</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-category">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-category" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-category" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-category">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Hidden inputs to retain backward compatibility with any other scripts -->
+                <input type="hidden" id="data-select-dept" value="">
+                <input type="hidden" id="data-select-program" value="">
+                <input type="hidden" id="data-select-semester" value="">
+                <input type="hidden" id="data-select-category" value="">
+
+                <!-- ACTION: Import / Add Records -->
                 <button type="button" id="btn-open-import-records-modal" class="btn btn-primary btn-sm" style="font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
                   <i class="fa-solid fa-file-import"></i> Import / Add Records
                 </button>
+
+                <!-- ACTION: Export Excel (Split Button) -->
+                <div class="dropdown" style="position: relative; display: inline-flex;">
+                  <button type="button" id="btn-export-records-excel" class="btn btn-success btn-sm" style="font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0;" title="Export current filtered records as Excel (.xlsx)">
+                    <i class="fa-solid fa-file-excel"></i> <span id="export-records-btn-text">Export Courses (.xlsx)</span>
+                  </button>
+                  <button type="button" id="btn-export-records-menu" class="btn btn-success btn-sm" style="padding: 4px 8px; border-left: 1px solid rgba(255,255,255,0.3); border-top-left-radius: 0; border-bottom-left-radius: 0;" title="More Export Options">
+                    <i class="fa-solid fa-caret-down"></i>
+                  </button>
+                  <div class="export-dropdown-menu hidden" id="menu-export-records">
+                    <button type="button" class="export-menu-item" id="export-opt-active">
+                      <i class="fa-solid fa-file-excel text-success"></i>
+                      <span id="export-opt-active-text">Export Visible Courses (.xlsx)</span>
+                    </button>
+                    <button type="button" class="export-menu-item" id="export-opt-courses">
+                      <i class="fa-solid fa-book text-primary"></i>
+                      <span>Export Visible Courses (.xlsx)</span>
+                    </button>
+                    <button type="button" class="export-menu-item" id="export-opt-faculty">
+                      <i class="fa-solid fa-user-tie text-info"></i>
+                      <span>Export Visible Faculty (.xlsx)</span>
+                    </button>
+                    <div style="border-top: 1px solid var(--border); margin: 3px 0;"></div>
+                    <button type="button" class="export-menu-item" id="export-opt-both" style="font-weight: 600;">
+                      <i class="fa-solid fa-table-cells text-warning"></i>
+                      <span>Export All (Courses & Faculty Sheets)</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
