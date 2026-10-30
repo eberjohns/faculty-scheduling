@@ -520,5 +520,93 @@ if (blockResult.success && blockResult.allocations["MTH101"]) {
 
 console.log("Course MTH101 Blocked on Monday P1 & P2 Respected:", (!placedInBlockedSlots && blockResult.success) ? "PASSED (0 slots placed in blocked periods)" : "FAILED");
 
+console.log("\n--- Testing Strict Theory & Practical Compulsory Recommendations (including CourseType 'M') ---");
+const compDb = {
+  faculty: [
+    { code: "FAC1", name: "Faculty One", department: "PHYSICS" },
+    { code: "FAC2", name: "Faculty Two", department: "PHYSICS" }
+  ],
+  courses: [
+    {
+      code: "PHY101-T",
+      name: "Mechanics",
+      department: "PHYSICS",
+      semester: "1",
+      courseType: "T",
+      hours: 3,
+      recommendations: {
+        MONDAY: { "1": "T" },
+        WEDNESDAY: { "2": "T" },
+        FRIDAY: { "4": "T" }
+      }
+    },
+    {
+      code: "PHY101-P",
+      name: "Mechanics Lab",
+      department: "PHYSICS",
+      semester: "1",
+      courseType: "P",
+      hours: 2,
+      recommendations: {
+        TUESDAY: { "1": "P", "2": "P" }
+      }
+    },
+    {
+      code: "PHY102-M",
+      name: "Energy Studies (MDC/Minor)",
+      department: "PHYSICS",
+      semester: "1",
+      courseType: "M", // Course Type 'M' with recommended 'T' slots
+      hours: 2,
+      recommendations: {
+        THURSDAY: { "5": "T" },
+        FRIDAY: { "6": "T" }
+      }
+    }
+  ],
+  courseFacultyAssignments: {
+    "PHY101-T": ["FAC1"],
+    "PHY101-P": ["FAC1"],
+    "PHY102-M": ["FAC2"]
+  },
+  allocations: { "PHYSICS": {} },
+  config: {
+    periods: ["1", "2", "3", "LB", "4", "5", "6"],
+    globalLockedPeriods: []
+  }
+};
+
+const compResult = generateDepartmentSchedule({
+  db: compDb,
+  departmentName: "PHYSICS",
+  semester: "1",
+  courseFacultyMap: {
+    "PHY101-T": ["FAC1"],
+    "PHY101-P": ["FAC1"],
+    "PHY102-M": ["FAC2"]
+  }
+});
+
+let phy101TMatches = 0;
+let phy101PMatches = 0;
+let phy102MMatches = 0;
+
+if (compResult.success && compResult.allocations) {
+  const a = compResult.allocations;
+  if (a["PHY101-T"]?.MONDAY?.["1"]) phy101TMatches++;
+  if (a["PHY101-T"]?.WEDNESDAY?.["2"]) phy101TMatches++;
+  if (a["PHY101-T"]?.FRIDAY?.["4"]) phy101TMatches++;
+
+  if (a["PHY101-P"]?.TUESDAY?.["1"] && a["PHY101-P"]?.TUESDAY?.["2"]) phy101PMatches = 2;
+
+  if (a["PHY102-M"]?.THURSDAY?.["5"]) phy102MMatches++;
+  if (a["PHY102-M"]?.FRIDAY?.["6"]) phy102MMatches++;
+}
+
+console.log("PHY101-T Compulsory Recommendations Placed (Expected 3/3):", phy101TMatches === 3 ? "PASSED (100% matched)" : "FAILED (" + phy101TMatches + "/3)");
+console.log("PHY101-P Practical Block Recommendations Placed (Expected 2/2):", phy101PMatches === 2 ? "PASSED (100% matched)" : "FAILED (" + phy101PMatches + "/2)");
+console.log("PHY102-M (Type 'M') Theory Recommendations Placed (Expected 2/2):", phy102MMatches === 2 ? "PASSED (100% matched without M-mismatch)" : "FAILED (" + phy102MMatches + "/2)");
+
+
 
 

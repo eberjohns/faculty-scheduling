@@ -60,7 +60,7 @@ export function isSlotPractical(course, cCode, day, period, facs = [], dayAlloca
 
   if (course && course.recommendations && course.recommendations[day]) {
     if (course.recommendations[day][period] === 'P') return true;
-    if (course.recommendations[day][period] === 'T' || course.recommendations[day][period] === 'M') return false;
+    if (course.recommendations[day][period] === 'T') return false;
   }
 
   // If this is a composite course with both theory and practical hours,
@@ -642,7 +642,7 @@ export function generateDepartmentSchedule({
           }
         });
         validSlots1Hour.forEach(slotGroup => {
-          if (slotGroup.every(p => course.recommendations[d] && (course.recommendations[d][p] === 'T' || course.recommendations[d][p] === 'M'))) {
+          if (slotGroup.every(p => course.recommendations[d] && course.recommendations[d][p] === 'T')) {
             recTSlots++;
           }
         });
@@ -657,7 +657,7 @@ export function generateDepartmentSchedule({
         Object.keys(coursePinned[d]).forEach(p => {
           if (course.recommendations && course.recommendations[d]) {
             if (course.recommendations[d][p] === 'P') pinnedPCount++;
-            if (course.recommendations[d][p] === 'T' || course.recommendations[d][p] === 'M') pinnedTCount++;
+            if (course.recommendations[d][p] === 'T') pinnedTCount++;
           }
         });
       }
@@ -780,7 +780,7 @@ export function generateDepartmentSchedule({
           courseCode,
           courseName: course.name,
           alias: course.alias,
-          type: course.courseType === 'M' ? 'M' : 'T',
+          type: 'T',
           duration: 1,
           semester: course.semester,
           programType: course.programType || 'UG',
@@ -1190,8 +1190,8 @@ export function generateDepartmentSchedule({
             // Major is taken by departmental students, while Minor is taken by external students.
             const isMajorAndMinorPair = (isMajorCourse(card) && isMinorOrElectiveCourse(otherMeta)) || (isMajorCourse(otherMeta) && isMinorOrElectiveCourse(card));
             // When both courses have explicit curriculum recommendations for this slot, they are designed to run in parallel
-            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'M' || card.recommendations[day][String(p)] === 'P'));
-            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'M' || otherMeta.recommendations[day][String(p)] === 'P'));
+            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'P'));
+            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'P'));
             const bothExplicitlyRecommended = cardHasRecHere && otherHasRecHere;
 
             if (!areDisjointBatches && !areBothMinorsOrElectives && !isMajorAndMinorPair && !bothExplicitlyRecommended) {
@@ -1246,7 +1246,7 @@ export function generateDepartmentSchedule({
     } else if (card.type === 'T') {
       const alreadyPlacedToday = Object.keys(allocState[card.courseCode][day] || {}).length;
       const recCountToday = (card.recommendations && card.recommendations[day])
-        ? Object.values(card.recommendations[day]).filter(v => v === 'T' || v === 'M').length
+        ? Object.values(card.recommendations[day]).filter(v => v === 'T').length
         : 0;
       const maxPerDay = Math.max(recCountToday, deepRelaxed ? 3 : (isRelaxed ? 2 : 1));
       if (alreadyPlacedToday >= maxPerDay) {
@@ -1357,8 +1357,8 @@ export function generateDepartmentSchedule({
             // Major is taken by departmental students, while Minor is taken by external students.
             const isMajorAndMinorPair = (isMajorCourse(card) && isMinorOrElectiveCourse(otherMeta)) || (isMajorCourse(otherMeta) && isMinorOrElectiveCourse(card));
             // When both courses have explicit curriculum recommendations for this slot, they are designed to run in parallel
-            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'M' || card.recommendations[day][String(p)] === 'P'));
-            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'M' || otherMeta.recommendations[day][String(p)] === 'P'));
+            const cardHasRecHere = !!(card.recommendations && card.recommendations[day] && (card.recommendations[day][String(p)] === 'T' || card.recommendations[day][String(p)] === 'P'));
+            const otherHasRecHere = !!(otherMeta && otherMeta.recommendations && otherMeta.recommendations[day] && (otherMeta.recommendations[day][String(p)] === 'T' || otherMeta.recommendations[day][String(p)] === 'P'));
             const bothExplicitlyRecommended = cardHasRecHere && otherHasRecHere;
 
             if (!areDisjointBatches && !areBothMinorsOrElectives && !isMajorAndMinorPair && !bothExplicitlyRecommended) {
@@ -1403,7 +1403,7 @@ export function generateDepartmentSchedule({
     } else if (card.type === 'T') {
       const alreadyPlacedToday = Object.keys(allocState[card.courseCode][day] || {}).length;
       const recCountToday = (card.recommendations && card.recommendations[day])
-        ? Object.values(card.recommendations[day]).filter(v => v === 'T' || v === 'M').length
+        ? Object.values(card.recommendations[day]).filter(v => v === 'T').length
         : 0;
       const maxPerDay = Math.max(recCountToday, deepRelaxed ? 3 : (isRelaxed ? 2 : 1));
       if (alreadyPlacedToday >= maxPerDay) {
@@ -1539,7 +1539,7 @@ export function generateDepartmentSchedule({
       WEEKDAYS.forEach(d => {
         const dRecs = c.recommendations?.[d] || {};
         Object.keys(dRecs).forEach(p => {
-          if (dRecs[p] === expectedType || dRecs[p] === 'M') {
+          if (dRecs[p] === expectedType) {
             totalCourseRecsCount++;
           }
         });
@@ -1660,7 +1660,7 @@ export function generateDepartmentSchedule({
           const val = String(recs[p]).toUpperCase().trim();
           if (val === 'P') {
             semesterPracticalSlots[sem][d].add(String(p));
-          } else if (val === 'T' || val === 'M') {
+          } else if (val === 'T') {
             semesterTheorySlots[sem][d].add(String(p));
           }
         });
@@ -1670,7 +1670,7 @@ export function generateDepartmentSchedule({
 
   function isTheoryDesignated(day, period, card) {
     const pStr = String(period);
-    if (card.recommendations && card.recommendations[day] && (card.recommendations[day][pStr] === 'T' || card.recommendations[day][pStr] === 'M')) {
+    if (card.recommendations && card.recommendations[day] && card.recommendations[day][pStr] === 'T') {
       return true;
     }
     return false;
@@ -1926,7 +1926,7 @@ export function generateDepartmentSchedule({
         const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
         if (isBlocked) return;
 
-        const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && (card.recommendations[day][p] === 'T' || card.recommendations[day][p] === 'M'));
+        const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'T');
 
         if (isOwnRecT) {
           // RECOMMENDED SLOTS: spread across weekdays first
@@ -1982,7 +1982,7 @@ export function generateDepartmentSchedule({
     WEEKDAYS.forEach(d => {
       const dRecs = (card.recommendations && card.recommendations[d]) || {};
       Object.keys(dRecs).forEach(p => {
-        if (dRecs[p] === 'T' || dRecs[p] === 'M') {
+        if (dRecs[p] === 'T') {
           const isOcc = allocState[card.courseCode] && allocState[card.courseCode][d] && allocState[card.courseCode][d][p] && allocState[card.courseCode][d][p].length > 0;
           if (!isOcc) unoccupiedRecSlotCount++;
         }
