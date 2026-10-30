@@ -453,7 +453,7 @@
             </div>
 
             <div class="tab-sub-nav">
-              <button class="tab-sub-item active" data-subtab="subtab-courses">Courses (<span id="count-courses">0</span>)</button>
+              <button class="tab-sub-item active" data-subtab="subtab-courses" title="Unique course code + department combinations &bull; Total class records">Courses (<span id="count-course-groups" title="Unique course code + department combinations">0</span> unique &bull; <span id="count-courses" title="Total class records (code + class + department)">0</span> classes)</button>
               <button class="tab-sub-item" data-subtab="subtab-faculty">Faculty (<span id="count-faculty">0</span>)</button>
             </div>
 
@@ -466,6 +466,12 @@
                     <button type="button" id="btn-bulk-select-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-check-double text-primary"></i> Select All</button>
                     <button type="button" id="btn-bulk-deselect-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-xmark"></i> Deselect All</button>
                     <span id="selected-courses-count" class="text-sm text-muted font-semibold ml-2">0 selected</span>
+                    <span class="text-xs text-muted" id="courses-summary-count-badge" style="margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); display: inline-flex; align-items: center; gap: 4px;">
+                      <i class="fa-solid fa-layer-group text-primary"></i>
+                      <span><strong><span id="summary-unique-courses">0</span></strong> unique course(s) (with Edit/Delete)</span>
+                      <span class="text-muted">&bull;</span>
+                      <span><strong><span id="summary-total-classes">0</span></strong> class records</span>
+                    </span>
                   </div>
                   <div>
                     <button type="button" id="btn-bulk-delete-courses" class="btn btn-danger btn-xs" disabled style="padding: 4px 12px; font-weight: 700;">

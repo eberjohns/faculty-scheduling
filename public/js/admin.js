@@ -2458,7 +2458,6 @@ function renderInspectRecords() {
   });
 
   window._visibleFilteredCourses = filteredCourses;
-  document.getElementById('count-courses').textContent = filteredCourses.length;
 
   // Group counts for action buttons per (cleanBaseCode + department)
   const groupCounts = {};
@@ -2467,6 +2466,16 @@ function renderInspectRecords() {
     const gk = `${clean}:::${(c.department || '').toUpperCase()}`;
     groupCounts[gk] = (groupCounts[gk] || 0) + 1;
   });
+
+  const uniqueCourseGroupsCount = Object.keys(groupCounts).length;
+  const countCoursesEl = document.getElementById('count-courses');
+  if (countCoursesEl) countCoursesEl.textContent = filteredCourses.length;
+  const countCourseGroupsEl = document.getElementById('count-course-groups');
+  if (countCourseGroupsEl) countCourseGroupsEl.textContent = uniqueCourseGroupsCount;
+  const summaryUniqueEl = document.getElementById('summary-unique-courses');
+  if (summaryUniqueEl) summaryUniqueEl.textContent = uniqueCourseGroupsCount;
+  const summaryClassesEl = document.getElementById('summary-total-classes');
+  if (summaryClassesEl) summaryClassesEl.textContent = filteredCourses.length;
 
   const seenGroups = new Set();
   const coursesTbody = document.querySelector('#table-manage-courses tbody');
