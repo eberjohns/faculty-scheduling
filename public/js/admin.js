@@ -4157,10 +4157,19 @@ function getRecommendedBatchForCourse(course) {
   // Building blocks: {ProgramType}{FundingType(default Aided '1')}{DeptCode}{Year(derived from Semester)}
   const program = course.programType || 'UG';
   const programCode = program === 'PG' ? 'P' : (program === 'INT' ? 'I' : 'U');
-  const fundingCode = '1'; // Default to Aided '1'
+  // Detect Self-Financed vs Aided:
+  // Departments ending with _SF or containing 'SF' / 'Self Finance' use Funding Code '2', otherwise '1' (Aided)
+  const deptRaw = (course.department || '').trim();
+  const isSF = /(_SF|\bSF\b|SELF[\s_-]*FINANCE)/i.test(deptRaw);
+  const fundingCode = isSF ? '2' : '1';
 
-  // Department Code Map Lookup
-  const mapping = state.batchDeptMappings.find(m => m.deptName.toUpperCase() === course.department.toUpperCase());
+  // Department Code Map Lookup (try exact match first, fallback to stripped base name e.g. COMMERCE_SF -> COMMERCE)
+  const cleanDeptName = deptRaw.replace(/_SF$/i, '').trim().toUpperCase();
+  const mappings = state.batchDeptMappings || [];
+  let mapping = mappings.find(m => m.deptName.trim().toUpperCase() === deptRaw.toUpperCase());
+  if (!mapping) {
+    mapping = mappings.find(m => m.deptName.trim().toUpperCase() === cleanDeptName);
+  }
   if (!mapping) return null;
   const deptCode = mapping.code;
 
