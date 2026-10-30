@@ -722,3 +722,55 @@ console.log("User Practical/Theory Split Invariant (Prac: 3h, Theory: 1h):", (ch
 
 
 
+
+
+// --- Testing Unconditional Recommended Slot Bypass of Constraints ---
+console.log("--- Testing Unconditional Recommended Slot Bypass of Constraints ---");
+
+const bypassMockDb = {
+  periods: ["1", "2", "3", "LB", "4", "5", "6"],
+  config: {
+    globalLockedPeriods: [
+      { day: "MONDAY", period: "1", label: "College Assembly" } // Global lock on Monday P1!
+    ],
+    semesterLabels: { "1": "I BSC" }
+  },
+  courses: [
+    {
+      code: "REC101-T",
+      name: "Theory With Locked & Blackout Rec Slot",
+      department: "PHYSICS",
+      semester: "1",
+      courseType: "T",
+      hours: 2,
+      recommendations: {
+        MONDAY: { "1": "T" }, // Recommended on Global Locked slot & Blackout slot!
+        TUESDAY: { "2": "T" }
+      }
+    }
+  ],
+  faculty: [
+    {
+      staffId: "STF_X",
+      name: "Prof. X",
+      code: "PX",
+      department: "PHYSICS",
+      unwantedPeriods: [{ day: "MONDAY", period: "1", reason: "Personal" }] // Blackout on Monday P1!
+    }
+  ],
+  allocations: {},
+  groupMappings: {}
+};
+
+const bypassResult = generateDepartmentSchedule({
+  db: bypassMockDb,
+  departmentName: "PHYSICS",
+  semester: "1",
+  courseFacultyMap: { "REC101-T": ["PX"] },
+  pinnedSlots: {},
+  maxConsecutiveHours: 2,
+  practicalBlockSize: 2
+});
+
+const placedMon1 = (bypassResult.allocations && bypassResult.allocations["REC101-T"] && bypassResult.allocations["REC101-T"]["MONDAY"] && bypassResult.allocations["REC101-T"]["MONDAY"]["1"]);
+console.log("Recommended Slot Bypasses Global Lock & Blackout Constraint (Monday P1):", (placedMon1 && placedMon1.includes("PX")) ? "PASSED (Placed unconditionally in recommended slot)" : "FAILED (Not placed: " + JSON.stringify(placedMon1) + ")");

@@ -451,7 +451,6 @@ export function generateDepartmentSchedule({
 
   // 3. Resolve course-to-faculty bindings
   const resolvedFacultyBindings = {};
-  let facultyWorkloadIndex = 0;
 
   targetCourses.forEach(c => {
     let facList = [];
@@ -1053,6 +1052,20 @@ export function generateDepartmentSchedule({
   }
 
   /**
+   * Returns true when ALL periods in periodsGroup are recommended for this card's type.
+   * Recommended slots ('T' or 'P') bypass ALL engine constraints and are placed unconditionally.
+   */
+  function isRecommendedSlot(card, day, periodsGroup) {
+    const recs = card.recommendations;
+    if (!recs || !recs[day]) return false;
+    const expectedVal = card.type === 'P' ? 'P' : 'T';
+    return periodsGroup.every(p => {
+      const v = recs[day][String(p)];
+      return v === expectedVal;
+    });
+  }
+
+  /**
    * Constraint Checker (Strict vs Relaxed vs DeepRelaxed)
    */
   function canPlaceCard(allocState, card, day, periodsGroup, isRelaxed = false, deepRelaxed = false) {
@@ -1072,6 +1085,12 @@ export function generateDepartmentSchedule({
           return false;
         }
       }
+    }
+
+    // RECOMMENDED SLOT BYPASS (canPlaceCard): Skip ALL constraint checks.
+    // Curriculum designer chose these slots explicitly — place unconditionally.
+    if (isRecommendedSlot(card, day, periodsGroup)) {
+      return true;
     }
 
     // 1. Admin Global Locks (with semester check & selective subject scoping) - Always strictly enforced
@@ -1260,6 +1279,13 @@ export function generateDepartmentSchedule({
       if (allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0) {
         return [];
       }
+    }
+
+    // RECOMMENDED SLOT BYPASS (getAvailableCandidatesForCard): Return full pool, no filtering.
+    // Constraints only apply to non-recommended (neutral) slots.
+    if (isRecommendedSlot(card, day, periodsGroup)) {
+      const pool = (card.facultyPool && card.facultyPool.length > 0) ? card.facultyPool : card.assignedFaculty;
+      return (pool && pool.length > 0) ? pool : [];
     }
 
     // 1. Course-level checks (Global Lock, Course Slot Block, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
