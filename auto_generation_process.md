@@ -118,20 +118,20 @@ flowchart TD
 ### Step 4: Faculty Assignment Resolution & Workload Balancing
 For each course:
 1. **Explicit Mappings**: Checks if teachers are specified in request config or saved department mappings (`subjectTeacherMapping`).
-2. **Co-Teaching Setup**: For practical courses, multiple assigned faculty are marked as **co-teachers** (assigned simultaneously to the same class and period). For theory courses, multiple teachers split the weekly hours.
-3. **Auto-Assignment Fallback**: If no faculty is assigned, the engine automatically selects the department faculty member with the lowest accumulated teaching workload.
+2. **Co-Teaching Setup**: For practical courses, multiple assigned faculty are marked as **co-teachers** (assigned simultaneously to the same class and period). For theory courses, multiple teachers split the weekly hours according to their explicit `teacherHours` mapping.
+3. **Strict Mapping Preservation**: The engine strictly respects the user's mapped faculty. If no faculty is mapped by the user for a course, the engine preserves the slot as unassigned and **NEVER** auto-assigns or invents faculty assignments.
 
 ---
 
 ### Step 5: Decomposing Courses into Lesson Cards
 The generator decomposes courses into atomic scheduling units called **Cards**:
+- **Strict User Hours Preservation**: The engine strictly allocates the exact practical and theory hours mapped by the user in `subjectTeacherMapping` (without scaling, ratio recalculation, or converting practical hours to theory).
 - **Practical Courses (`P`)**:
-  - Practical hours are strictly normalized to **even numbers** (e.g., 2 hours, 4 hours).
-  - Decomposed into **contiguous 2-hour blocks** (`duration: 2`).
-  - All assigned practical teachers are placed together (`isDistributed: false`).
-- **Theory Courses (`T`) / Multidisciplinary (`M`)**:
+  - Decomposed into 2-hour contiguous blocks (`duration: 2`), or 1-hour blocks if an odd duration is specified by the user.
+  - All assigned practical teachers are placed together simultaneously (`isDistributed: false`).
+- **Theory Courses (`T`)**:
   - Decomposed into **1-hour cards** (`duration: 1`).
-  - Distributed across individual teachers according to assigned quotas (`isDistributed: true`).
+  - Distributed strictly across mapped theory teachers adhering to their individual quotas (`card.teacherHours`).
 - **Card Tagging**: Each card is tagged as `isRecommended: true` if matching predefined slots in `course.recommendations`, or `isRecommended: false` for balance hours.
 
 ---

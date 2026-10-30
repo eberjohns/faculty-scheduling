@@ -506,6 +506,12 @@ export function generateDepartmentSchedule({
     if (!theoryTeacherHours && c.theoryTeacherHours) {
       theoryTeacherHours = c.theoryTeacherHours;
     }
+    if (facList.length === 0 && Array.isArray(c.teachers) && c.teachers.length > 0) {
+      facList = c.teachers.filter(Boolean);
+    }
+    if (facList.length === 0 && db.courseFacultyAssignments && db.courseFacultyAssignments[c.code]) {
+      facList = Array.isArray(db.courseFacultyAssignments[c.code]) ? db.courseFacultyAssignments[c.code].filter(Boolean) : [db.courseFacultyAssignments[c.code]];
+    }
 
     const isPracticalCourse = (cfg.courseType === 'P' || (savedMapping && savedMapping.courseType === 'P') || c.courseType === 'P' || (c.code && c.code.endsWith('-P')));
     if (isPracticalCourse) {
@@ -545,40 +551,10 @@ export function generateDepartmentSchedule({
         theoryTeachers: [],
         theoryTeacherHours: null
       };
-    } else if (deptFaculty.length > 0) {
-      // Pick faculty with least assigned + committed hours across the department to balance workload fairly
-      const currentDeptAlloc = db.allocations[deptUpper] || {};
-      const facLoads = deptFaculty.map(f => {
-        let count = 0;
-        Object.keys(currentDeptAlloc).forEach(cc => {
-          WEEKDAYS.forEach(d => {
-            Object.keys(currentDeptAlloc[cc]?.[d] || {}).forEach(p => {
-              if ((currentDeptAlloc[cc][d][p] || []).includes(f.code)) count++;
-            });
-          });
-        });
-        allDeptCourses.forEach(dc => {
-          const map = (db.subjectTeacherMapping && db.subjectTeacherMapping[deptUpper] && db.subjectTeacherMapping[deptUpper][dc.code]) || {};
-          const teachers = Array.from(new Set([...(map.teachers || []), ...(dc.teachers || [])]));
-          if (teachers.includes(f.code)) {
-            const h = parseInt(map.hours || dc.hours) || 4;
-            count += Math.ceil(h / Math.max(1, teachers.length));
-          }
-        });
-        return { fac: f, count };
-      }).sort((a, b) => a.count - b.count);
-
-      const assignedFac = facLoads[facultyWorkloadIndex % facLoads.length].fac;
-      const pracTeachers = isPracticalCourse ? [assignedFac.code] : [];
-      resolvedFacultyBindings[c.code] = {
-        teachers: [assignedFac.code],
-        distribute: false,
-        practicalTeachers: pracTeachers,
-        theoryTeachers: [assignedFac.code],
-        theoryTeacherHours: null
-      };
-      facultyWorkloadIndex++;
     } else {
+      // STRICT USER MAPPING ENFORCEMENT:
+      // If user has not mapped any faculty to this course, NEVER invent or auto-assign teachers.
+      // Leave teachers unassigned so user mapping is never manipulated.
       resolvedFacultyBindings[c.code] = {
         teachers: [],
         distribute: false,
@@ -605,9 +581,35 @@ export function generateDepartmentSchedule({
     const isDistributed = binding.distribute && assignedFacs.length > 1;
     const mappedBatches = (db.groupMappings && db.groupMappings[courseCode]) || [];
     
-    // Determine needed weekly hours
-    let neededHours = parseInt(cfg.hours !== undefined ? cfg.hours : (savedMapping && savedMapping.hours !== undefined ? savedMapping.hours : course.hours)) || 0;
-    if (neededHours <= 0) {
+    // Determine user-mapped explicit practical and theory hours if specified
+    const userPracSpecified = (cfg.practicalHours !== undefined && !isNaN(parseInt(cfg.practicalHours)))
+      ? parseInt(cfg.practicalHours)
+      : ((savedMapping && savedMapping.practicalHours !== undefined && !isNaN(parseInt(savedMapping.practicalHours)))
+          ? parseInt(savedMapping.practicalHours)
+          : ((typeof course.practicalHours === 'number' && !isNaN(course.practicalHours)) ? course.practicalHours : null));
+
+    const userTheorySpecified = (cfg.theoryHours !== undefined && !isNaN(parseInt(cfg.theoryHours)))
+      ? parseInt(cfg.theoryHours)
+      : ((savedMapping && savedMapping.theoryHours !== undefined && !isNaN(parseInt(savedMapping.theoryHours)))
+          ? parseInt(savedMapping.theoryHours)
+          : ((typeof course.theoryHours === 'number' && !isNaN(course.theoryHours)) ? course.theoryHours : null));
+
+    // Determine needed weekly hours from user mapping or course
+    const mapTotalHours = (cfg.hours !== undefined && !isNaN(parseInt(cfg.hours)))
+      ? parseInt(cfg.hours)
+      : ((savedMapping && savedMapping.hours !== undefined && !isNaN(parseInt(savedMapping.hours)))
+          ? parseInt(savedMapping.hours)
+          : null);
+
+    let neededHours = mapTotalHours !== null ? mapTotalHours : (parseInt(course.hours) || 0);
+
+    // If practical and theory hours are explicitly mapped, their sum is the true total hours
+    if (userPracSpecified !== null && userTheorySpecified !== null) {
+      const sumUserHours = userPracSpecified + userTheorySpecified;
+      if (sumUserHours > 0) {
+        neededHours = sumUserHours;
+      }
+    } else if (neededHours <= 0) {
       if (course.recommendations) {
         let count = 0;
         WEEKDAYS.forEach(d => {
@@ -669,36 +671,24 @@ export function generateDepartmentSchedule({
     let recTRemaining = recTSlots;
 
     if (isPractical) {
-      let practicalNeed = parseInt(cfg.practicalHours !== undefined ? cfg.practicalHours : (savedMapping && savedMapping.practicalHours !== undefined ? savedMapping.practicalHours : course.practicalHours));
-      let theoryNeed = parseInt(cfg.theoryHours !== undefined ? cfg.theoryHours : (savedMapping && savedMapping.theoryHours !== undefined ? savedMapping.theoryHours : course.theoryHours));
+      let practicalNeed = 0;
+      let theoryNeed = 0;
 
-      if (isNaN(practicalNeed) || isNaN(theoryNeed) || (practicalNeed === 0 && theoryNeed === 0) || practicalNeed % 2 !== 0) {
-        // Enforce user rule (step 1990): practical hours must be an even number.
-        // For 5 hours: 2 practical, 3 theory. For 4 hours: 2 practical, 2 theory.
-        if (remainingHours === 5) {
-          practicalNeed = 2;
-          theoryNeed = 3;
-        } else {
-          let half = Math.floor(remainingHours / 2);
-          let p = half - (half % 2);
-          if (p < 2 && remainingHours >= 2) p = 2;
-          if (p > remainingHours) p = remainingHours - (remainingHours % 2);
-          practicalNeed = p;
-          theoryNeed = Math.max(0, remainingHours - p);
-        }
+      if (userPracSpecified !== null || userTheorySpecified !== null) {
+        // STRICT USER MAPPING ENFORCEMENT:
+        // Respect user-mapped practical and theory hours without scaling, ratio changes, or converting practical to theory!
+        const rawPrac = userPracSpecified !== null ? userPracSpecified : (neededHours > 2 ? 2 : neededHours);
+        const rawTheory = userTheorySpecified !== null ? userTheorySpecified : Math.max(0, neededHours - rawPrac);
+        practicalNeed = Math.max(0, rawPrac - pinnedPCount);
+        theoryNeed = Math.max(0, rawTheory - pinnedTCount);
       } else {
-        // Enforce practical hours is an even number
-        if (practicalNeed % 2 !== 0) {
-          practicalNeed = Math.max(2, practicalNeed - 1);
-          theoryNeed = Math.max(0, remainingHours - practicalNeed);
-        }
-        const totalSpecified = practicalNeed + theoryNeed;
-        if (totalSpecified > 0 && remainingHours < totalSpecified) {
-          const ratio = remainingHours / totalSpecified;
-          practicalNeed = Math.round(practicalNeed * ratio);
-          if (practicalNeed % 2 !== 0) practicalNeed = Math.max(2, practicalNeed - 1);
-          theoryNeed = Math.max(0, remainingHours - practicalNeed);
-        }
+        // Fallback only when user has not specified practical or theory hours
+        let half = Math.floor(remainingHours / 2);
+        let p = half - (half % 2);
+        if (p < 2 && remainingHours >= 2) p = 2;
+        if (p > remainingHours) p = remainingHours - (remainingHours % 2);
+        practicalNeed = p;
+        theoryNeed = Math.max(0, remainingHours - p);
       }
 
       // Practical teachers: Co-teaching in same class and period (NO splitting)
@@ -716,8 +706,8 @@ export function generateDepartmentSchedule({
       const thDistributed = thTeachers.length > 1;
 
       const blockSize = practicalBlockSize || 2;
-      while (practicalNeed >= 2) {
-        const curDuration = blockSize;
+      while (practicalNeed > 0) {
+        const curDuration = practicalNeed >= 2 ? blockSize : practicalNeed;
         const isRecCard = (recPRemaining > 0);
         if (recPRemaining > 0) recPRemaining--;
 
@@ -740,10 +730,6 @@ export function generateDepartmentSchedule({
           isRecommended: isRecCard
         });
         practicalNeed -= curDuration;
-      }
-      if (practicalNeed > 0) {
-        theoryNeed += practicalNeed;
-        practicalNeed = 0;
       }
 
       while (theoryNeed > 0) {
@@ -771,6 +757,12 @@ export function generateDepartmentSchedule({
         theoryNeed -= 1;
       }
     } else {
+      const thTeachers = (binding.theoryTeachers && binding.theoryTeachers.length > 0)
+        ? binding.theoryTeachers
+        : (binding.teachers.length > 0 ? binding.teachers : []);
+      const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || null;
+      const thDistributed = binding.distribute && thTeachers.length > 1;
+
       while (remainingHours > 0) {
         const isRecCard = (recTRemaining > 0);
         if (recTRemaining > 0) recTRemaining--;
@@ -785,10 +777,10 @@ export function generateDepartmentSchedule({
           semester: course.semester,
           programType: course.programType || 'UG',
           category: course.category || '',
-          assignedFaculty: assignedFacs,
-          isDistributed,
-          facultyPool: assignedFacs,
-          teacherHours: binding.teacherHours || null,
+          assignedFaculty: thTeachers,
+          isDistributed: thDistributed,
+          facultyPool: thTeachers,
+          teacherHours: thTeacherHours,
           batches: mappedBatches,
           recommendations: course.recommendations || {},
           isRecommended: isRecCard
@@ -1419,10 +1411,13 @@ export function generateDepartmentSchedule({
 
     const candidates = [];
     for (const fac of pool) {
-      const specificQuota = (card.teacherHours && card.teacherHours[fac] !== undefined && !isNaN(parseInt(card.teacherHours[fac])))
+      const hasSpecificQuota = (card.teacherHours && card.teacherHours[fac] !== undefined && !isNaN(parseInt(card.teacherHours[fac])));
+      const specificQuota = hasSpecificQuota
         ? parseInt(card.teacherHours[fac])
         : fairQuota;
-      const maxQuota = deepRelaxed ? (specificQuota + 1) : specificQuota;
+      // STRICT USER MAPPING ENFORCEMENT:
+      // If user specified a specific hours quota for this teacher, NEVER relax or exceed it!
+      const maxQuota = (hasSpecificQuota || !deepRelaxed) ? specificQuota : (specificQuota + 1);
       const currentHours = (courseFacultyHoursState[card.courseCode] && courseFacultyHoursState[card.courseCode][fac]) || 0;
       if (currentHours + card.duration > maxQuota) {
         continue;
@@ -1694,8 +1689,8 @@ export function generateDepartmentSchedule({
    * 4. In Phase 2: Balance/overflow cards pick neutral slots that do not clash with practical/theory slots.
    */
   function getPrioritizedCandidatePlacements(allocState, card, isRelaxed = false, deepRelaxed = false, phase = 2) {
-    const isPractical = (card.duration > 1);
-    const candidateSlots = isPractical ? validSlotsPractical : validSlots1Hour;
+    const isPractical = (card.type === 'P' || card.duration > 1);
+    const candidateSlots = (card.duration === 1) ? validSlots1Hour : validSlotsPractical;
     
     // 1. Count existing hours for this course on each weekday
     const placedOnDays = {};

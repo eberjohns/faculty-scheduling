@@ -607,6 +607,118 @@ console.log("PHY101-T Compulsory Recommendations Placed (Expected 3/3):", phy101
 console.log("PHY101-P Practical Block Recommendations Placed (Expected 2/2):", phy101PMatches === 2 ? "PASSED (100% matched)" : "FAILED (" + phy101PMatches + "/2)");
 console.log("PHY102-M (Type 'M') Theory Recommendations Placed (Expected 2/2):", phy102MMatches === 2 ? "PASSED (100% matched without M-mismatch)" : "FAILED (" + phy102MMatches + "/2)");
 
+console.log("\n--- Testing Strict User Subject Mapping and Hour Allocation Invariance ---");
+const strictDb = {
+  faculty: [
+    { code: "TA", name: "Teacher A", department: "CHEMISTRY" },
+    { code: "TB", name: "Teacher B", department: "CHEMISTRY" },
+    { code: "TC", name: "Teacher C", department: "CHEMISTRY" }
+  ],
+  courses: [
+    {
+      code: "CH101-T",
+      name: "Inorganic Chemistry",
+      department: "CHEMISTRY",
+      semester: "1",
+      courseType: "T",
+      hours: 4
+    },
+    {
+      code: "CH102-P",
+      name: "Organic Lab and Theory",
+      department: "CHEMISTRY",
+      semester: "1",
+      courseType: "P",
+      hours: 4,
+      practicalHours: 3,
+      theoryHours: 1
+    },
+    {
+      code: "CH103-T",
+      name: "Polymer Chemistry",
+      department: "CHEMISTRY",
+      semester: "1",
+      courseType: "T",
+      hours: 2
+    }
+  ],
+  subjectTeacherMapping: {
+    "CHEMISTRY": {
+      "CH101-T": {
+        teachers: ["TA", "TB"],
+        teacherHours: { "TA": 3, "TB": 1 },
+        distribute: true
+      },
+      "CH102-P": {
+        practicalTeachers: ["TC"],
+        theoryTeachers: ["TA"],
+        practicalHours: 3,
+        theoryHours: 1
+      }
+    }
+  },
+  allocations: { "CHEMISTRY": {} },
+  config: {
+    periods: ["1", "2", "3", "LB", "4", "5", "6"],
+    globalLockedPeriods: []
+  }
+};
+
+const strictResult = generateDepartmentSchedule({
+  db: strictDb,
+  departmentName: "CHEMISTRY",
+  semester: "1",
+  courseFacultyConfig: {
+    "CH101-T": {
+      teachers: ["TA", "TB"],
+      teacherHours: { "TA": 3, "TB": 1 },
+      distribute: true
+    },
+    "CH102-P": {
+      practicalTeachers: ["TC"],
+      theoryTeachers: ["TA"],
+      practicalHours: 3,
+      theoryHours: 1
+    }
+  }
+});
+
+let taHours = 0;
+let tbHours = 0;
+let unassignedTeachersCount = 0;
+let ch102PracticalSlots = 0;
+let ch102TheorySlots = 0;
+
+if (strictResult.success && strictResult.allocations) {
+  const ch101 = strictResult.allocations["CH101-T"] || {};
+  Object.values(ch101).forEach(dObj => {
+    Object.values(dObj).forEach(facs => {
+      if (facs.includes("TA")) taHours++;
+      if (facs.includes("TB")) tbHours++;
+    });
+  });
+
+  const ch103 = strictResult.allocations["CH103-T"] || {};
+  Object.values(ch103).forEach(dObj => {
+    Object.values(dObj).forEach(facs => {
+      if (facs.length === 0) unassignedTeachersCount++;
+    });
+  });
+
+  const ch102 = strictResult.allocations["CH102-P"] || {};
+  Object.values(ch102).forEach(dObj => {
+    Object.keys(dObj).forEach(p => {
+      const facs = dObj[p] || [];
+      if (facs.includes("TC")) ch102PracticalSlots++;
+      if (facs.includes("TA")) ch102TheorySlots++;
+    });
+  });
+}
+
+console.log("User Teacher Hours Invariant (TA=3, TB=1):", (taHours === 3 && tbHours === 1) ? "PASSED (TA: 3, TB: 1 strictly preserved)" : "FAILED (TA: " + taHours + ", TB: " + tbHours + ")");
+console.log("Unassigned Course Teacher Invariant (No auto-assignment):", unassignedTeachersCount === 2 ? "PASSED (0 teachers invented, 2 unassigned slots)" : "FAILED (" + unassignedTeachersCount + "/2 unassigned)");
+console.log("User Practical/Theory Split Invariant (Prac: 3h, Theory: 1h):", (ch102PracticalSlots === 3 && ch102TheorySlots === 1) ? "PASSED (Prac: 3, Theory: 1 strictly preserved)" : "FAILED (Prac: " + ch102PracticalSlots + ", Theory: " + ch102TheorySlots + ")");
+
 
 
 
