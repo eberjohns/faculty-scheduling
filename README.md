@@ -289,6 +289,7 @@ JWT_SECRET=your-secure-random-secret-key-here
 
 ## Related Documentation
 
+- [**Audit System Architecture & Operational Guide**](file:///e:/git_repos/college_time_table/audit_system_architecture_and_management.md): Comprehensive reference for event auditing, dual-tier buffering, automatic rotation (5 MB) & retention pruning (30 days/10 files), and CSV export capabilities.
 - [**Deployment & Version Management Guide**](file:///e:/git_repos/college_time_table/deployment_and_version_management.md): Architecture of runtime Git metadata extraction, remote server status verification proxy, and production update procedures.
 - [**Database Architecture & Data Management Guide**](file:///e:/git_repos/college_time_table/database_architecture_and_data_management.md): Detailed relational schema, SQLite/PostgreSQL drivers, import/export formats, and data integrity specifications.
 - [**Manual Period Allocation Features Guide**](file:///e:/git_repos/college_time_table/manual_period_allocation_features.md): Comprehensive reference for all department coordinator UI capabilities and workflows.

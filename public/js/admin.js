@@ -503,6 +503,7 @@ async function initAdmin() {
   bindSearchEvents();
   initInspectMultiSelects();
   initExportRecordsEvents();
+  initAuditLogs();
   initImportRecordsModal();
   initEditDeptModal();
   bindCustomModals();
@@ -1068,6 +1069,8 @@ async function showTab(tabId) {
     renderWorkloadSummary();
   } else if (tabId === 'tab-admin-free-faculty') {
     renderFreeFacultySection();
+  } else if (tabId === 'tab-admin-audit-logs') {
+    loadAuditLogs();
   }
 }
 
@@ -7220,3 +7223,270 @@ async function runRemoteDeploymentCheck() {
 }
 
 
+
+// -------------------------------------------------------------
+// System Audit Logs Client Engine
+// -------------------------------------------------------------
+const auditState = {
+  page: 1,
+  pageSize: 25,
+  search: '',
+  category: '',
+  status: '',
+  total: 0,
+  loading: false
+};
+
+let auditLogsInitialized = false;
+function initAuditLogs() {
+  if (auditLogsInitialized) return;
+  auditLogsInitialized = true;
+
+  const searchInput = document.getElementById('audit-search-input');
+  const catSelect = document.getElementById('audit-select-category');
+  const statSelect = document.getElementById('audit-select-status');
+  const btnRefresh = document.getElementById('btn-refresh-audit-logs');
+  const btnDownload = document.getElementById('btn-download-audit-log');
+  const btnPrune = document.getElementById('btn-prune-audit-logs');
+  const btnPrev = document.getElementById('btn-audit-prev-page');
+  const btnNext = document.getElementById('btn-audit-next-page');
+
+  if (searchInput) {
+    let debounceTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        auditState.search = searchInput.value.trim();
+        auditState.page = 1;
+        loadAuditLogs();
+      }, 250);
+    });
+  }
+
+  if (catSelect) {
+    catSelect.addEventListener('change', () => {
+      auditState.category = catSelect.value;
+      auditState.page = 1;
+      loadAuditLogs();
+    });
+  }
+
+  if (statSelect) {
+    statSelect.addEventListener('change', () => {
+      auditState.status = statSelect.value;
+      auditState.page = 1;
+      loadAuditLogs();
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      btnRefresh.disabled = true;
+      btnRefresh.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
+      loadAuditLogs().finally(() => {
+        btnRefresh.disabled = false;
+        btnRefresh.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh';
+      });
+    });
+  }
+
+  if (btnDownload) {
+    btnDownload.addEventListener('click', () => {
+      const token = sessionStorage.getItem('adminToken') || '';
+      window.location.href = `${API_BASE}/admin/audit-logs/download?format=csv&token=${encodeURIComponent(token)}`;
+    });
+  }
+
+  if (btnPrune) {
+    btnPrune.addEventListener('click', () => {
+      showModalConfirm(
+        'Prune Archived Logs?',
+        'This will clean up rotated log archives older than 30 days and retain the most recent 5 archive files. Active log entries will remain preserved. Proceed with pruning?',
+        async () => {
+          try {
+            const token = sessionStorage.getItem('adminToken') || '';
+            const res = await fetch(`${API_BASE}/admin/audit-logs/prune`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': token },
+              body: JSON.stringify({ olderThanDays: 30, keepLastCount: 5 })
+            });
+            const result = await res.json();
+            if (res.ok) {
+              showToast(result.message || 'Archived logs pruned successfully.', 'success');
+              loadAuditLogs();
+            } else {
+              showModalAlert('Prune Failed', result.message || 'Could not prune logs.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error while pruning logs.', 'danger');
+          }
+        }
+      );
+    });
+  }
+
+  if (btnPrev) {
+    btnPrev.addEventListener('click', () => {
+      if (auditState.page > 1) {
+        auditState.page--;
+        loadAuditLogs();
+      }
+    });
+  }
+
+  if (btnNext) {
+    btnNext.addEventListener('click', () => {
+      const maxPage = Math.ceil(auditState.total / auditState.pageSize) || 1;
+      if (auditState.page < maxPage) {
+        auditState.page++;
+        loadAuditLogs();
+      }
+    });
+  }
+}
+
+async function loadAuditLogs() {
+  if (auditState.loading) return;
+  auditState.loading = true;
+
+  const tbody = document.querySelector('#table-audit-logs tbody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading audit trail...</td></tr>';
+  }
+
+  try {
+    const token = sessionStorage.getItem('adminToken') || '';
+    const offset = (auditState.page - 1) * auditState.pageSize;
+    const params = new URLSearchParams({
+      limit: String(auditState.pageSize),
+      offset: String(offset),
+      search: auditState.search,
+      category: auditState.category,
+      status: auditState.status
+    });
+
+    const res = await fetch(`${API_BASE}/admin/audit-logs?${params.toString()}`, {
+      headers: { 'Authorization': token }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-danger"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(data.message || 'Failed to load logs.')}</td></tr>`;
+      return;
+    }
+
+    auditState.total = data.total || 0;
+    renderAuditLogsTable(data.logs || []);
+    renderAuditStats(data.stats || {});
+    renderAuditPagination();
+  } catch (err) {
+    console.error('Failed to fetch audit logs:', err);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-danger"><i class="fa-solid fa-circle-exclamation"></i> Network connection error while loading audit logs.</td></tr>';
+  } finally {
+    auditState.loading = false;
+  }
+}
+
+function renderAuditLogsTable(logs) {
+  const tbody = document.querySelector('#table-audit-logs tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-muted"><i class="fa-solid fa-inbox" style="font-size: 24px; display: block; margin-bottom: 8px;"></i> No audit records found matching the active filter criteria.</td></tr>';
+    return;
+  }
+
+  const categoryColorMap = {
+    AUTH: { bg: '#e0f2fe', text: '#0369a1', icon: 'fa-shield-halved' },
+    SCHEDULING: { bg: '#f3e8ff', text: '#6b21a8', icon: 'fa-calendar-days' },
+    DATA: { bg: '#d1fae5', text: '#047857', icon: 'fa-database' },
+    SYSTEM: { bg: '#f1f5f9', text: '#334155', icon: 'fa-server' },
+    SECURITY: { bg: '#fee2e2', text: '#b91c1c', icon: 'fa-triangle-exclamation' }
+  };
+
+  logs.forEach(item => {
+    const tr = document.createElement('tr');
+    
+    // Format timestamp nicely
+    const dateObj = new Date(item.timestamp);
+    const dateFormatted = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : item.timestamp;
+
+    // Category badge
+    const catStyle = categoryColorMap[item.category] || { bg: '#f1f5f9', text: '#475569', icon: 'fa-tag' };
+    const catBadge = `<span class="badge" style="background: ${catStyle.bg}; color: ${catStyle.text}; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid ${catStyle.icon}"></i> ${escapeHtml(item.category)}</span>`;
+
+    // Status pill
+    let statusPill = `<span class="badge badge-success" style="font-weight: 700; font-size: 10.5px;">SUCCESS</span>`;
+    if (item.status === 'WARNING') {
+      statusPill = `<span class="badge badge-warning" style="font-weight: 700; font-size: 10.5px; background: #fef3c7; color: #b45309;">WARNING</span>`;
+    } else if (item.status === 'FAILURE') {
+      statusPill = `<span class="badge badge-danger" style="font-weight: 700; font-size: 10.5px; background: #fee2e2; color: #b91c1c;">FAILURE</span>`;
+    }
+
+    // Role pill
+    const rolePill = item.role === 'ADMIN'
+      ? `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; margin-left: 4px; border-radius: 3px;">ADMIN</span>`
+      : `<span class="badge" style="background: #f1f5f9; color: #475569; font-size: 10px; margin-left: 4px; border-radius: 3px;">DEPT</span>`;
+
+    tr.innerHTML = `
+      <td style="font-size: 12px; color: var(--text-muted); font-family: monospace; white-space: nowrap;">
+        <i class="fa-regular fa-clock" style="margin-right: 4px;"></i>${escapeHtml(dateFormatted)}
+      </td>
+      <td>${catBadge}</td>
+      <td>
+        <strong style="font-size: 12.5px; color: var(--text); font-family: monospace;">${escapeHtml(item.action)}</strong>
+      </td>
+      <td>
+        <span style="font-weight: 600; font-size: 12.5px;">${escapeHtml(item.actor)}</span>
+        ${rolePill}
+      </td>
+      <td style="font-size: 12.5px; color: var(--text); line-height: 1.45;">
+        ${escapeHtml(item.details)}
+      </td>
+      <td style="font-size: 11.5px; font-family: monospace; color: var(--text-muted);">
+        ${escapeHtml(item.ip || '-')}
+      </td>
+      <td style="text-align: center;">${statusPill}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderAuditStats(stats) {
+  const elTotal = document.getElementById('audit-stat-total');
+  const elAuth = document.getElementById('audit-stat-auth');
+  const elData = document.getElementById('audit-stat-data');
+  const elWarn = document.getElementById('audit-stat-warnings');
+  const elDiskSize = document.getElementById('audit-disk-size');
+  const elDiskFiles = document.getElementById('audit-disk-files');
+
+  if (elTotal) elTotal.textContent = stats.totalBuffered ?? 0;
+  if (elAuth) elAuth.textContent = stats.authCount ?? 0;
+  if (elData) elData.textContent = stats.dataCount ?? 0;
+  if (elWarn) elWarn.textContent = stats.warningCount ?? 0;
+
+  if (stats.diskInfo) {
+    if (elDiskSize) elDiskSize.textContent = `${stats.diskInfo.totalMb} MB`;
+    if (elDiskFiles) elDiskFiles.textContent = stats.diskInfo.fileCount;
+  }
+}
+
+function renderAuditPagination() {
+  const maxPage = Math.ceil(auditState.total / auditState.pageSize) || 1;
+  const elInfo = document.getElementById('audit-pagination-info');
+  const elCurrent = document.getElementById('audit-current-page');
+  const btnPrev = document.getElementById('btn-audit-prev-page');
+  const btnNext = document.getElementById('btn-audit-next-page');
+
+  const start = auditState.total === 0 ? 0 : (auditState.page - 1) * auditState.pageSize + 1;
+  const end = Math.min(auditState.total, auditState.page * auditState.pageSize);
+
+  if (elInfo) elInfo.textContent = `Showing ${start} - ${end} of ${auditState.total} event(s)`;
+  if (elCurrent) elCurrent.textContent = `Page ${auditState.page} of ${maxPage}`;
+  if (btnPrev) btnPrev.disabled = (auditState.page <= 1);
+  if (btnNext) btnNext.disabled = (auditState.page >= maxPage);
+}

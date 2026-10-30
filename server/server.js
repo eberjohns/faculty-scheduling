@@ -21,6 +21,7 @@ import {
   sanitizeExcelRows
 } from './security.js';
 import { getVersionInfo } from './version.js';
+import { initAuditLogger, logAudit, getClientIp, getAuditLogs, getActiveLogContent, manualClearLogs, getLogsDiskUsage } from './audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -508,8 +509,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         writeDb(db);
       }
       const token = generateToken({ role: 'admin' });
+      logAudit({ action: 'ADMIN_LOGIN_SUCCESS', category: 'AUTH', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: 'Administrator signed in successfully' });
       return res.json({ success: true, token, user: { role: 'admin' } });
     }
+    logAudit({ action: 'ADMIN_LOGIN_FAILURE', category: 'AUTH', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'FAILURE', details: 'Invalid administrator password attempt' });
     return res.status(401).json({ success: false, message: 'Invalid Admin password' });
   } else if (role === 'department') {
     if (!departmentName) {
@@ -549,12 +552,14 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         writeDb(db);
       }
       const token = generateToken({ role: 'department', departmentName: deptKey });
+      logAudit({ action: 'DEPT_LOGIN_SUCCESS', category: 'AUTH', actor: deptKey, role: 'COORDINATOR', ip: getClientIp(req), status: 'SUCCESS', details: `Coordinator signed in for department '${deptKey}'` });
       return res.json({
         success: true,
         token,
         user: { role: 'department', departmentName: deptKey }
       });
     }
+    logAudit({ action: 'DEPT_LOGIN_FAILURE', category: 'AUTH', actor: departmentName || 'unknown', role: 'COORDINATOR', ip: getClientIp(req), status: 'FAILURE', details: `Invalid password attempt for department '${departmentName || 'unknown'}'` });
     return res.status(401).json({ success: false, message: 'Invalid Department password' });
   }
 
@@ -585,6 +590,7 @@ app.post('/api/config', requireAdmin, (req, res) => {
   if (semesterLabels) db.config.semesterLabels = semesterLabels;
   
   writeDb(db);
+  logAudit({ action: 'ACADEMIC_CONFIG_UPDATED', category: 'DATA', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: `Updated academic settings: Year=${academicYear || '-'}, SemType=${semesterType || '-'}` });
   res.json({ success: true, message: 'Academic configuration updated.' });
 });
 
@@ -723,6 +729,16 @@ app.post('/api/department/change-password', (req, res) => {
   db.departments[targetKey].password = encryptDeptPasscode(newPassword.trim());
   writeDb(db);
 
+  logAudit({
+    action: 'DEPT_PASSWORD_CHANGED',
+    category: 'AUTH',
+    actor: targetKey,
+    role: 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Department '${targetKey}' password changed successfully`
+  });
+
   res.json({ success: true, message: `Password changed successfully for department ${targetKey}.` });
 });
 
@@ -739,6 +755,17 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
   }
   db.departments[existingKey].password = encryptDeptPasscode(password.trim());
   writeDb(db);
+
+  logAudit({
+    action: 'DEPT_PASSWORD_UPDATED',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Administrator updated passcode for department '${existingKey}'`
+  });
+
   res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
 
@@ -756,6 +783,17 @@ app.post('/api/admin/departments/reset-password', requireAdmin, (req, res) => {
   const defaultPassword = '123456';
   db.departments[existingKey].password = encryptDeptPasscode(defaultPassword);
   writeDb(db);
+
+  logAudit({
+    action: 'DEPT_PASSWORD_RESET',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Administrator reset passcode for department '${existingKey}' to default`
+  });
+
   res.json({
     success: true,
     message: `Password for Department ${existingKey} has been reset to default (${defaultPassword}).`,
@@ -943,6 +981,16 @@ function handleDepartmentRename(req, res) {
 
   // Persist changes and run normalized tables migration
   writeDb(db);
+
+  logAudit({
+    action: 'DEPARTMENT_RENAME_CASCADE',
+    category: 'DATA',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Cascading rename of department '${oldTrim}' to '${newTrim}' (${coursesUpdated} courses, ${facultyUpdated} faculty, ${batchMappingsUpdated} batch mappings)`
+  });
 
   res.json({
     success: true,
@@ -1346,6 +1394,7 @@ app.get('/api/admin/backup', requireAdmin, (req, res) => {
     const db = readDb();
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     res.setHeader('Content-Disposition', `attachment; filename="timetable_backup_${dateStr}.json"`);
+    logAudit({ action: 'DATABASE_BACKUP_DOWNLOADED', category: 'SYSTEM', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: 'Full JSON database backup downloaded' });
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(db, null, 2));
   } catch (err) {
@@ -1403,6 +1452,16 @@ app.post('/api/admin/restore', requireAdmin, (req, res, next) => {
       if (!result.success) {
         return res.status(500).json({ success: false, message: result.message || 'Database restore failed.' });
       }
+
+      logAudit({
+        action: 'DATABASE_RESTORED',
+        category: 'SYSTEM',
+        actor: 'admin',
+        role: 'ADMIN',
+        ip: getClientIp(req),
+        status: 'SUCCESS',
+        details: 'Database restored from JSON backup archive'
+      });
 
       return res.json({ 
         success: true, 
@@ -1547,6 +1606,83 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// Audit Log Administration Routes
+// -------------------------------------------------------------
+app.get('/api/admin/audit-logs', requireAdmin, (req, res) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { search, category, status, actor } = req.query;
+
+    const data = getAuditLogs({ limit, offset, search, category, status, actor });
+    res.json({ success: true, ...data });
+  } catch (err) {
+    console.error('Audit logs retrieval failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to retrieve audit logs.' });
+  }
+});
+
+app.get('/api/admin/audit-logs/download', requireAdmin, (req, res) => {
+  try {
+    const format = String(req.query.format || 'log').toLowerCase();
+    const content = getActiveLogContent();
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+    if (format === 'csv') {
+      const lines = content.split('\n').filter(l => l.trim().length > 0);
+      const csvRows = [
+        ['ID', 'Timestamp', 'Category', 'Action', 'Actor', 'Role', 'IP Address', 'Status', 'Details'].map(h => `"${h}"`).join(',')
+      ];
+      lines.forEach(line => {
+        try {
+          const item = JSON.parse(line);
+          csvRows.push([
+            item.id || '',
+            item.timestamp || '',
+            item.category || '',
+            item.action || '',
+            item.actor || '',
+            item.role || '',
+            item.ip || '',
+            item.status || '',
+            (item.details || '').replace(/"/g, '""')
+          ].map(val => `"${val}"`).join(','));
+        } catch (e) {}
+      });
+
+      res.setHeader('Content-Disposition', `attachment; filename="audit_log_${dateStr}.csv"`);
+      res.setHeader('Content-Type', 'text/csv');
+      res.send(csvRows.join('\r\n'));
+    } else {
+      res.setHeader('Content-Disposition', `attachment; filename="audit_log_${dateStr}.log"`);
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(content);
+    }
+  } catch (err) {
+    console.error('Audit log download failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to download audit logs.' });
+  }
+});
+
+app.post('/api/admin/audit-logs/prune', requireAdmin, (req, res) => {
+  try {
+    const olderThanDays = parseInt(req.body.olderThanDays, 10) || 0;
+    const keepLastCount = parseInt(req.body.keepLastCount, 10) || 5;
+    const result = manualClearLogs({ olderThanDays, keepLastCount });
+
+    res.json({
+      success: true,
+      message: `Pruned ${result.prunedCount} archive log file(s). ${result.retainedCount} archive file(s) retained.`,
+      prunedCount: result.prunedCount,
+      retainedCount: result.retainedCount
+    });
+  } catch (err) {
+    console.error('Audit log prune failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to prune audit logs.' });
+  }
+});
+
 // Excel Import Routes
 // -------------------------------------------------------------
 app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) => {
@@ -2438,6 +2574,15 @@ app.delete('/api/admin/courses/:code', requireAdmin, (req, res) => {
   }
 
   writeDb(db);
+  logAudit({
+    action: 'COURSE_DELETED',
+    category: 'DATA',
+    actor: req.user?.role === 'admin' ? 'admin' : (dept || 'coordinator'),
+    role: req.user?.role === 'admin' ? 'ADMIN' : 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Deleted course '${code}'${dept ? ` from department '${dept}'` : ''}`
+  });
   res.json({ success: true, message: 'Course deleted successfully.' });
 });
 
@@ -2610,6 +2755,15 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
 
   if (addedCount > 0 || updatedCount > 0) {
     writeDb(db);
+    logAudit({
+      action: 'COURSES_BATCH_SAVED',
+      category: 'DATA',
+      actor: 'admin',
+      role: 'ADMIN',
+      ip: getClientIp(req),
+      status: 'SUCCESS',
+      details: `Batch courses update: ${addedCount} added, ${updatedCount} updated (${courses.length} processed)`
+    });
   }
 
   res.json({
@@ -2680,6 +2834,15 @@ app.post('/api/admin/faculty/batch', requireAdmin, (req, res) => {
 
   if (addedCount > 0 || updatedCount > 0) {
     writeDb(db);
+    logAudit({
+      action: 'FACULTY_BATCH_SAVED',
+      category: 'DATA',
+      actor: 'admin',
+      role: 'ADMIN',
+      ip: getClientIp(req),
+      status: 'SUCCESS',
+      details: `Batch faculty update: ${addedCount} added, ${updatedCount} updated (${faculty.length} processed)`
+    });
   }
 
   res.json({
@@ -2719,6 +2882,15 @@ app.delete('/api/admin/faculty/:staffId', requireAdmin, (req, res) => {
   });
   
   writeDb(db);
+  logAudit({
+    action: 'FACULTY_DELETED',
+    category: 'DATA',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Deleted faculty member '${facultyObj.name}' (${facultyObj.code}, Staff ID: ${staffId}) from '${facultyObj.department}'`
+  });
   res.json({ success: true, message: 'Faculty member deleted successfully.' });
 });
 
@@ -3374,6 +3546,22 @@ app.post('/api/submissions/status', requireDepartment, (req, res) => {
   db.submissions[deptUpper].comments = comments || '';
   
   writeDb(db);
+
+  let auditAction = 'TIMETABLE_STATUS_CHANGE';
+  if (status === 'Submitted') auditAction = 'TIMETABLE_SUBMIT';
+  else if (status === 'Approved') auditAction = 'TIMETABLE_APPROVE';
+  else if (status === 'Draft') auditAction = 'TIMETABLE_RETURN';
+
+  logAudit({
+    action: auditAction,
+    category: 'SCHEDULING',
+    actor: req.user?.role === 'admin' ? 'admin' : deptUpper,
+    role: req.user?.role === 'admin' ? 'ADMIN' : 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Timetable status for department '${deptUpper}' set to '${status}'. ${comments ? `Comments: ${comments}` : ''}`.trim()
+  });
+
   res.json({ success: true, message: `Status updated to ${status} for department ${deptUpper}.` });
 });
 
@@ -4016,6 +4204,7 @@ app.post('/api/admin/clear-database', requireAdmin, (req, res) => {
   db.periods = ["1", "2", "3", "LB", "4", "5", "6"];
   
   writeDb(db);
+  logAudit({ action: 'DATABASE_CLEARED', category: 'SYSTEM', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'WARNING', details: 'Complete database clear executed by administrator' });
   res.json({ success: true, message: 'Database cleared successfully.' });
 });
 
@@ -4039,6 +4228,17 @@ app.post('/api/admin/change-password', requireAdmin, (req, res) => {
 
   db.config.adminPassword = hashPassword(newPassword.trim());
   writeDb(db);
+
+  logAudit({
+    action: 'ADMIN_PASSWORD_CHANGED',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: 'Administrator master password changed successfully'
+  });
+
   res.json({ success: true, message: 'Administrator password changed successfully.' });
 });
 
@@ -4567,6 +4767,7 @@ app.use((err, req, res, next) => {
 
 // Start Server
 initDb().then(() => {
+  initAuditLogger();
   app.listen(PORT, () => {
     console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
 

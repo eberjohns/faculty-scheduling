@@ -81,6 +81,7 @@
             <button class="nav-item" data-tab="tab-admin-export"><i class="fa-solid fa-file-excel"></i> Export Timetable</button>
             <button class="nav-item" data-tab="tab-admin-workload"><i class="fa-solid fa-users-viewfinder"></i> Workload Summary</button>
             <button class="nav-item" data-tab="tab-admin-free-faculty"><i class="fa-solid fa-mug-hot"></i> Free Faculty</button>
+            <button class="nav-item" data-tab="tab-admin-audit-logs"><i class="fa-solid fa-clipboard-list"></i> Audit Logs</button>
           </nav>
         </aside>
 
@@ -1332,7 +1333,106 @@
 
           </div>
 
-        </section>
+          <!-- TAB: Audit Logs -->
+          <div id="tab-admin-audit-logs" class="tab-pane hidden">
+            <div class="content-header">
+              <h1><i class="fa-solid fa-clipboard-list text-primary"></i> System Audit Logs</h1>
+              <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
+                <button type="button" id="btn-refresh-audit-logs" class="btn btn-outline btn-sm" title="Refresh audit logs"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                <button type="button" id="btn-download-audit-log" class="btn btn-primary btn-sm" title="Download raw audit log file in CSV format"><i class="fa-solid fa-download"></i> Download CSV</button>
+                <button type="button" id="btn-prune-audit-logs" class="btn btn-outline btn-sm text-danger" title="Prune older rotated log archives"><i class="fa-solid fa-broom"></i> Prune Archives</button>
+              </div>
+            </div>
+
+            <!-- Audit Summary Metrics -->
+            <div class="metrics-grid mb-3" style="margin-top: 15px;">
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(99, 102, 241, 0.12); color: var(--primary);"><i class="fa-solid fa-list-check"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Total Buffered Events</span>
+                  <h3 class="metric-value" id="audit-stat-total">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--success);"><i class="fa-solid fa-shield-halved"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Auth Events</span>
+                  <h3 class="metric-value" id="audit-stat-auth">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(14, 165, 233, 0.12); color: var(--info);"><i class="fa-solid fa-database"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Data Modifications</span>
+                  <h3 class="metric-value" id="audit-stat-data">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(245, 158, 11, 0.12); color: var(--warning);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Warnings & Alerts</span>
+                  <h3 class="metric-value" id="audit-stat-warnings">0</h3>
+                </div>
+              </div>
+            </div>
+
+            <!-- Log Filter Toolbar -->
+            <div class="card">
+              <div class="p-3 flex-row gap-2" style="border-bottom: 1.5px solid var(--border); background: var(--surface); flex-wrap: wrap; align-items: center; justify-content: space-between;">
+                <div class="flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
+                  <input type="text" id="audit-search-input" class="form-control" placeholder="Search by action, actor, details, IP..." style="max-width: 280px; font-size: 13px;">
+                  <select id="audit-select-category" class="form-control width-auto" style="font-size: 13px;">
+                    <option value="">All Categories</option>
+                    <option value="AUTH">Authentication (AUTH)</option>
+                    <option value="SCHEDULING">Scheduling (SCHEDULING)</option>
+                    <option value="DATA">Data Management (DATA)</option>
+                    <option value="SYSTEM">System & Backup (SYSTEM)</option>
+                    <option value="SECURITY">Security (SECURITY)</option>
+                  </select>
+                  <select id="audit-select-status" class="form-control width-auto" style="font-size: 13px;">
+                    <option value="">All Statuses</option>
+                    <option value="SUCCESS">Success</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="FAILURE">Failure</option>
+                  </select>
+                </div>
+                <div class="text-muted text-xs flex-row items-center gap-2" id="audit-disk-info-badge">
+                  <i class="fa-solid fa-hard-drive"></i>
+                  <span>Logs Disk Usage: <strong id="audit-disk-size">0 MB</strong> (<span id="audit-disk-files">0</span> log file(s))</span>
+                </div>
+              </div>
+
+              <!-- Table of Logs -->
+              <div class="table-responsive">
+                <table class="table" id="table-audit-logs">
+                  <thead>
+                    <tr>
+                      <th style="width: 170px;">Timestamp</th>
+                      <th style="width: 120px;">Category</th>
+                      <th style="width: 200px;">Action</th>
+                      <th style="width: 140px;">Actor / Role</th>
+                      <th>Details & Target</th>
+                      <th style="width: 110px;">IP Address</th>
+                      <th style="width: 90px; text-align: center;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Rendered dynamically -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Pagination Footer -->
+              <div class="p-3 flex-row justify-between items-center" style="border-top: 1px solid var(--border); background: var(--surface);">
+                <span class="text-xs text-muted" id="audit-pagination-info">Showing 0 of 0 logs</span>
+                <div class="flex-row gap-2">
+                  <button type="button" id="btn-audit-prev-page" class="btn btn-outline btn-xs" disabled><i class="fa-solid fa-chevron-left"></i> Previous</button>
+                  <span id="audit-current-page" class="text-xs font-semibold" style="display: flex; align-items: center; padding: 0 6px;">Page 1</span>
+                  <button type="button" id="btn-audit-next-page" class="btn btn-outline btn-xs" disabled>Next <i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
       </div>
     </main>
 

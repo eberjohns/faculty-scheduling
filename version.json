@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "05e59a1",
-  "commitFull": "05e59a1588381c646bb54d8d92ff6a49ad46423e",
+  "commit": "f03c02c",
+  "commitFull": "f03c02cb0be78445f0ce0b36836fee8cedf646d9",
   "branch": "main",
-  "commitDate": "2026-10-30 23:50:26 +0530",
-  "commitMessage": "multi filter, export option in inspect records",
-  "builtAt": "2026-10-30T18:32:17.612Z",
+  "commitDate": "2026-10-31 00:03:07 +0530",
+  "commitMessage": "removed academic config's semester mapping",
+  "builtAt": "2026-10-30T18:47:06.180Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"
