@@ -2918,7 +2918,7 @@ app.post('/api/allocations', requireDepartment, (req, res) => {
   testAllocations[deptUpper] = allocations;
   
   const clashes = findAllocationClashes(testAllocations);
-  if (clashes.length > 0) {
+  if (clashes.length > 0 && req.body.isSubmission) {
     return res.status(400).json({
       success: false,
       message: 'Timetable submission has faculty clashes. Save aborted.',
