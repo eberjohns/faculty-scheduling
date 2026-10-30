@@ -1889,7 +1889,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
 
     // Seed default semester label mappings
     const semestersSet = new Set(mergedCourses.map(c => c.semester));
-    const roman = { '1': 'I BSC', '2': 'II BSC', '3': 'III BSC', '4': 'IV BSC', '5': 'V BSC', '6': 'VI BSC' };
+    const roman = { '1': 'I Sem', '2': 'II Sem', '3': 'III Sem', '4': 'IV Sem', '5': 'V Sem', '6': 'VI Sem' };
     semestersSet.forEach(sem => {
       if (!db.config.semesterLabels[sem]) {
         db.config.semesterLabels[sem] = roman[sem] || `${sem} Sem`;
@@ -4009,9 +4009,9 @@ app.post('/api/admin/clear-database', requireAdmin, (req, res) => {
   db.batchDeptMappings = [];
   db.groupMappings = {};
   db.config.semesterLabels = {
-    "1": "I BSC",
-    "3": "III BSC",
-    "5": "V BSC"
+    "1": "I Sem",
+    "3": "III Sem",
+    "5": "V Sem"
   };
   db.periods = ["1", "2", "3", "LB", "4", "5", "6"];
   

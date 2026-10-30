@@ -93,9 +93,9 @@ function parseDbData(rawData) {
       academicYear: "2026-2027",
       semesterType: "Odd",
       semesterLabels: {
-        "1": "I BSC",
-        "3": "III BSC",
-        "5": "V BSC"
+        "1": "I Sem",
+        "3": "III Sem",
+        "5": "V Sem"
       },
       adminPassword: "admin",
       excludedBatches: []

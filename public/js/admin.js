@@ -1170,50 +1170,35 @@ window.promptReturnDept = function(deptName) {
 
 // Config Settings Form
 function renderConfigForm() {
-  document.getElementById('config-year').value = state.config.academicYear;
-  document.getElementById('config-sem-type').value = state.config.semesterType;
-  
-  const container = document.getElementById('semester-labels-container');
-  container.innerHTML = '';
-  
-  Object.keys(state.config.semesterLabels).forEach(sem => {
-    const div = document.createElement('div');
-    div.className = 'form-group flex-row gap-2 mt-2';
-    div.innerHTML = `
-      <span class="badge badge-info" style="min-width: 60px;">Sem ${sem}</span>
-      <i class="fa-solid fa-arrow-right text-muted"></i>
-      <input type="text" class="form-control sem-mapping-input" data-sem="${sem}" value="${state.config.semesterLabels[sem]}" style="max-width: 200px;">
-    `;
-    container.appendChild(div);
-  });
+  const yearInput = document.getElementById('config-year');
+  const semTypeInput = document.getElementById('config-sem-type');
+  if (yearInput) yearInput.value = state.config.academicYear || '';
+  if (semTypeInput) semTypeInput.value = state.config.semesterType || 'Odd';
 }
 
 function bindConfigEvents() {
-  document.getElementById('config-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const academicYear = document.getElementById('config-year').value;
-    const semesterType = document.getElementById('config-sem-type').value;
-    
-    const semesterLabels = {};
-    document.querySelectorAll('.sem-mapping-input').forEach(input => {
-      const sem = input.getAttribute('data-sem');
-      semesterLabels[sem] = input.value.trim();
-    });
-    
-    try {
-      const res = await fetch(`${API_BASE}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ academicYear, semesterType, semesterLabels })
-      });
-      if (res.ok) {
-        showModalAlert('Success', 'Academic configuration updated.', 'success');
-        await fetchGlobalData();
+  const form = document.getElementById('config-form');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const academicYear = (document.getElementById('config-year')?.value || '').trim();
+      const semesterType = document.getElementById('config-sem-type')?.value || 'Odd';
+      
+      try {
+        const res = await fetch(`${API_BASE}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ academicYear, semesterType })
+        });
+        if (res.ok) {
+          showModalAlert('Success', 'Academic configuration updated.', 'success');
+          await fetchGlobalData();
+        }
+      } catch (err) {
+        console.error(err);
       }
-    } catch (err) {
-      console.error(err);
-    }
-  });
+    });
+  }
 
   // Clear Database button and confirmation modal bindings
   const btnClearDb = document.getElementById('btn-clear-db');
@@ -3496,19 +3481,19 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
-  const semLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[course.semester]) || `${course.semester} Sem`;
+  const romanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
+  const semNum = parseInt(course.semester, 10);
+  const semLabel = (!isNaN(semNum) && romanMap[semNum]) ? `${romanMap[semNum]} Sem` : (course.semester ? `Sem ${course.semester}` : '');
   const catStr = formatCategory(course.category);
   
-  if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
-    return `${semLabel} ${catStr}`;
-  }
-  
-  const isPg = course.code.toUpperCase().includes('MSC') || 
+  const isPg = (course.code && course.code.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
                course.programType === 'PG';
-  const progLabel = isPg ? 'MSC' : 'BSC';
-  return `${semLabel} ${progLabel} ${catStr}`;
+  const isInt = course.programType === 'INT';
+  const progLabel = isPg ? 'PG' : (isInt ? 'INT' : '');
+  
+  return [semLabel, progLabel, catStr].filter(Boolean).join(' ');
 }
 
 // Universal Slot Type Resolver: determines if an assigned or recommended slot is Theory ('T'), Practical ('P'), or MDC ('M')

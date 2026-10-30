@@ -217,27 +217,21 @@
                 <form id="config-form">
                   <div class="row">
                     <div class="col-md-6 form-group">
-                      <label for="config-year">Academic Year</label>
+                      <label for="config-year" style="font-weight: 600;">Academic Year</label>
                       <input type="text" id="config-year" class="form-control" placeholder="e.g. 2026-2027" required>
+                      <small class="text-muted" style="display: block; margin-top: 4px;">Institutional academic year printed on official reports, exports, and timetable sheets.</small>
                     </div>
                     <div class="col-md-6 form-group">
-                      <label for="config-sem-type">Active Semester Type</label>
+                      <label for="config-sem-type" style="font-weight: 600;">Active Semester Type</label>
                       <select id="config-sem-type" class="form-control" required>
                         <option value="Odd">Odd Semester</option>
                         <option value="Even">Even Semester</option>
                       </select>
-                    </div>
-                  </div>
-                  
-                  <div class="form-group mt-3">
-                    <label>Semester Display Mappings (Label Mappings)</label>
-                    <p class="text-muted text-sm">Define labels representing semesters.</p>
-                    <div id="semester-labels-container" class="mt-2">
-                      <!-- Rendered dynamically -->
+                      <small class="text-muted" style="display: block; margin-top: 4px;">Displayed in headers of teacher workload reports and timetable views.</small>
                     </div>
                   </div>
 
-                  <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-save"></i> Save Configuration</button>
+                  <button type="submit" class="btn btn-primary mt-3" style="font-weight: 600;"><i class="fa-solid fa-save"></i> Save Configuration</button>
                 </form>
                 <div id="config-success" class="alert alert-success hidden mt-3"></div>
               </div>

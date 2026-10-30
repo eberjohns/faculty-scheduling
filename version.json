@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "c45440c",
-  "commitFull": "c45440c05dc5501e8f4c7ddb94ea5ab961c9d7ae",
+  "commit": "05e59a1",
+  "commitFull": "05e59a1588381c646bb54d8d92ff6a49ad46423e",
   "branch": "main",
-  "commitDate": "2026-10-30 23:35:24 +0530",
-  "commitMessage": "departments editing in inspect records",
-  "builtAt": "2026-10-30T18:18:29.944Z",
+  "commitDate": "2026-10-30 23:50:26 +0530",
+  "commitMessage": "multi filter, export option in inspect records",
+  "builtAt": "2026-10-30T18:32:17.612Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"
