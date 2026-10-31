@@ -939,8 +939,10 @@ app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
     // Remove existing "Blocked" locks for this department's semester
     db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
       const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+      const lDept = String(l.department || '').trim().toUpperCase();
       const isBlockedLabel = (l.label || '').toUpperCase().startsWith('BLOCKED');
-      return !(lSem === semStr && isBlockedLabel);
+      const deptMatch = !lDept || lDept === deptUpper;
+      return !(lSem === semStr && isBlockedLabel && deptMatch);
     });
 
     // Add new blocks
@@ -950,6 +952,7 @@ app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
           day: b.day.toUpperCase(),
           period: String(b.period),
           semester: semStr,
+          department: deptUpper,
           label: 'Blocked'
         });
       }
@@ -1016,8 +1019,10 @@ app.post('/api/curriculum-slots/reset', requireDepartment, (req, res) => {
     if (db.config.globalLockedPeriods) {
       db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
         const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        const lDept = String(l.department || '').trim().toUpperCase();
         const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
-        return !(lSem === semStr && isBlocked);
+        const deptMatch = !lDept || lDept === deptUpper;
+        return !(lSem === semStr && isBlocked && deptMatch);
       });
     }
   }

@@ -189,7 +189,7 @@ function generateMultiCohortSchedule({
     cohortMap.get(key).push(c);
   });
 
-  // Prioritize cohorts: higher semesters first (Sem 5 > Sem 3 > Sem 1), UG before PG
+  // Prioritize cohorts: ascending semester order (Sem 1 -> Sem 2 -> Sem 3 -> Sem 4 -> Sem 5 -> Sem 6 -> PG), UG before PG
   const sortedCohorts = Array.from(cohortMap.entries()).sort((a, b) => {
     const [semA, progA] = a[0].split('_');
     const [semB, progB] = b[0].split('_');
@@ -198,7 +198,7 @@ function generateMultiCohortSchedule({
     if (progA !== progB) {
       return progA === 'UG' ? -1 : 1;
     }
-    return numB - numA;
+    return numA - numB;
   });
 
   // Initialize cumulative allocations
@@ -996,6 +996,11 @@ export function generateDepartmentSchedule({
       if (lockSem && lockSem !== 'all' && cSem && lockSem !== cSem) {
         return false;
       }
+      if (lock.department && courseObj && courseObj.department) {
+        const lDept = String(lock.department).trim().toUpperCase();
+        const cDept = String(courseObj.department).trim().toUpperCase();
+        if (lDept && cDept && lDept !== cDept) return false;
+      }
       return true;
     });
   }
@@ -1087,13 +1092,7 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // RECOMMENDED SLOT BYPASS (canPlaceCard): Skip ALL constraint checks.
-    // Curriculum designer chose these slots explicitly — place unconditionally.
-    if (isRecommendedSlot(card, day, periodsGroup)) {
-      return true;
-    }
-
-    // 1. Admin Global Locks (with semester check & selective subject scoping) - Always strictly enforced
+    // 1. Admin Global Locks & Semester Blocked Periods - Strictly enforced
     const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
     for (const p of periodsGroup) {
       if (isGlobalLocked(day, p, card.semester, courseObj)) {
@@ -1102,16 +1101,20 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // 2. Teacher Unavailability / Blackout Slots
-    if (!deepRelaxed) {
-      for (const fac of card.assignedFaculty) {
-        for (const p of periodsGroup) {
-          if (isTeacherUnavailable(fac, day, p)) {
-            recordRejection('TEACHER_UNAVAILABLE', card, fac);
-            return false;
-          }
+    // 2. Teacher Unavailability / Blackout Slots - Strictly enforced (hard constraint)
+    for (const fac of card.assignedFaculty) {
+      for (const p of periodsGroup) {
+        if (isTeacherUnavailable(fac, day, p)) {
+          recordRejection('TEACHER_UNAVAILABLE', card, fac);
+          return false;
         }
       }
+    }
+
+    // RECOMMENDED SLOT BYPASS (canPlaceCard): Skip remaining soft constraint checks.
+    // Curriculum designer chose these slots explicitly — place if not blocked and faculty available.
+    if (isRecommendedSlot(card, day, periodsGroup)) {
+      return true;
     }
 
     // 3. Faculty Clashes & Fatigue Limits
@@ -1281,15 +1284,7 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // RECOMMENDED SLOT BYPASS (getAvailableCandidatesForCard): Return full pool, no filtering.
-    // Constraints only apply to non-recommended (neutral) slots.
-    if (isRecommendedSlot(card, day, periodsGroup)) {
-      const pool = (card.facultyPool && card.facultyPool.length > 0) ? card.facultyPool : card.assignedFaculty;
-      return (pool && pool.length > 0) ? pool : [];
-    }
-
-    // 1. Course-level checks (Global Lock, Course Slot Block, Batch Cohort Clash, Daily Stacking, Anti-Mono-Period, Shift Balance)
-    const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+    // 0b. Course-specific slot block ('B') - Strictly enforced
     const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
     if (cardRecs && cardRecs[day]) {
       for (const p of periodsGroup) {
@@ -1299,19 +1294,31 @@ export function generateDepartmentSchedule({
         }
       }
     }
+
+    // 1. Course-level checks: Global Lock & Semester Blocked Periods - Strictly enforced
+    const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+    for (const p of periodsGroup) {
+      if (isGlobalLocked(day, p, card.semester, courseObj)) {
+        recordRejection('GLOBAL_LOCK', card);
+        return [];
+      }
+    }
+
+    // RECOMMENDED SLOT BYPASS (getAvailableCandidatesForCard): Return faculty pool who are not in blackout
+    if (isRecommendedSlot(card, day, periodsGroup)) {
+      const pool = (card.facultyPool && card.facultyPool.length > 0) ? card.facultyPool : card.assignedFaculty;
+      const availableFromPool = (pool || []).filter(fac => {
+        return !periodsGroup.some(p => isTeacherUnavailable(fac, day, p));
+      });
+      return (availableFromPool && availableFromPool.length > 0) ? availableFromPool : [];
+    }
+
     if (card.type === 'P') {
       const has2 = periodsGroup.includes('2');
       const has3 = periodsGroup.includes('3');
       const has4 = periodsGroup.includes('4');
       if ((has2 && has3) || (has3 && has4) || periodsGroup.includes('3')) {
         recordRejection('INTERVAL_CROSSING', card);
-        return [];
-      }
-    }
-
-    for (const p of periodsGroup) {
-      if (isGlobalLocked(day, p, card.semester, courseObj)) {
-        recordRejection('GLOBAL_LOCK', card);
         return [];
       }
     }
@@ -1449,18 +1456,16 @@ export function generateDepartmentSchedule({
         continue;
       }
 
-      // Check teacher unwanted / blackout periods
-      if (!deepRelaxed) {
-        let isUnavail = false;
-        for (const p of periodsGroup) {
-          if (isTeacherUnavailable(fac, day, p)) {
-            isUnavail = true;
-            recordRejection('TEACHER_UNAVAILABLE', card, fac);
-            break;
-          }
+      // Check teacher unwanted / blackout periods (hard constraint)
+      let isUnavail = false;
+      for (const p of periodsGroup) {
+        if (isTeacherUnavailable(fac, day, p)) {
+          isUnavail = true;
+          recordRejection('TEACHER_UNAVAILABLE', card, fac);
+          break;
         }
-        if (isUnavail) continue;
       }
+      if (isUnavail) continue;
 
       // Check external cross-dept clash
       let hasExternalClash = false;
@@ -1867,9 +1872,15 @@ export function generateDepartmentSchedule({
           const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
           if (isAlreadyOccupied) return;
 
-          // Course-specific slot block: strictly skip blocked periods
-          const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+          // Course-specific slot block: strictly skip blocked periods for this course
+          const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+          const isBlocked = slotGroup.some(p => cardRecs && cardRecs[day] && cardRecs[day][String(p)] === 'B');
           if (isBlocked) return;
+
+          // Global locked or semester blocked period: strictly skip for all courses in this semester
+          const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+          const isLocked = slotGroup.some(p => isGlobalLocked(day, p, card.semester, courseObj));
+          if (isLocked) return;
 
           const isOwnRecP = slotGroup.every(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'P');
 
@@ -1943,9 +1954,15 @@ export function generateDepartmentSchedule({
         const isAlreadyOccupied = slotGroup.some(p => allocState[card.courseCode] && allocState[card.courseCode][day] && allocState[card.courseCode][day][p] && allocState[card.courseCode][day][p].length > 0);
         if (isAlreadyOccupied) return;
 
-        // Course-specific slot block: strictly skip blocked periods
-        const isBlocked = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'B');
+        // Course-specific slot block: strictly skip blocked periods for this course
+        const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
+        const isBlocked = slotGroup.some(p => cardRecs && cardRecs[day] && cardRecs[day][String(p)] === 'B');
         if (isBlocked) return;
+
+        // Global locked or semester blocked period: strictly skip for all courses in this semester
+        const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
+        const isLocked = slotGroup.some(p => isGlobalLocked(day, p, card.semester, courseObj));
+        if (isLocked) return;
 
         const isOwnRecT = slotGroup.some(p => card.recommendations && card.recommendations[day] && card.recommendations[day][p] === 'T');
 

@@ -1473,8 +1473,8 @@ function renderAllocationMatrix() {
   // Synchronize open print previews or teacher timetables if visible
   syncPrintViewsIfActive();
 
-  // Synchronize manual allocations into Subject Teacher Mapping in real time
-  syncAllocationsToSubjectMapping();
+  // Do NOT reverse-sync allocations into Subject Teacher Mapping
+  // (Preserves user's configured hours, teachers, and practical/theory splits intact)
 }
 
 // Merges data representation of -T and -P suffixes
@@ -5420,6 +5420,16 @@ function syncAllocationsToSubjectMapping(targetCourseCode = null) {
     coursesToSync.forEach(course => {
       const cCode = course.code || '';
       const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+
+      // INVARIANT: If this course already has configured hours or teachers in Subject Teacher Mapping,
+      // NEVER allow grid allocations to overwrite, drop teachers, or tamper with the practical/theory split!
+      const existingSaved = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && (state.subjectTeacherMapping[deptUpper][cCode] || state.subjectTeacherMapping[deptUpper][baseCode]));
+      const existingLocal = localSubjectMappings[cCode] || localSubjectMappings[baseCode];
+      const hasConfiguredMapping = (existingSaved && (existingSaved.theoryHours !== undefined || existingSaved.practicalHours !== undefined || (existingSaved.teachers && existingSaved.teachers.length > 0))) ||
+                                   (existingLocal && (existingLocal.theoryHours !== undefined || existingLocal.practicalHours !== undefined || (existingLocal.teachers && existingLocal.teachers.length > 0)));
+      if (hasConfiguredMapping) {
+        return; // Preserve user's configured subject mapping completely intact!
+      }
       const classMatch = cCode.match(/(_C|_G)(\d+)/);
       const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
 
@@ -5721,9 +5731,7 @@ function initLocalSubjectMappings() {
     }
   });
 
-  // Automatically reflect any active manual allocations into the mappings
-  syncAllocationsToSubjectMapping();
-
+  // Retain pristine user subject mappings without reverse-sync overwrite
   if (savedSubjectMappingsSnapshot === null) {
     updateSubjectMappingsSnapshot();
   }
@@ -6498,6 +6506,21 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
           localSubjectMappings[cCode].practicalHours = defSplit.practical;
           localSubjectMappings[cCode].theoryHours = defSplit.theory;
         }
+        const pVal = localSubjectMappings[cCode].practicalHours || 2;
+        const tVal = localSubjectMappings[cCode].theoryHours !== undefined ? localSubjectMappings[cCode].theoryHours : Math.max(0, totalHrs - pVal);
+
+        const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+        if (pracBox) {
+          pracBox.style.display = pVal > 0 ? 'block' : 'none';
+          const headerSpan = pracBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
+        }
+        const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+        if (thBox) {
+          thBox.style.display = tVal > 0 ? 'block' : 'none';
+          const headerSpan = thBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+        }
       }
       syncAutoGenConfigForCourse(cCode);
     });
@@ -6568,6 +6591,20 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].theoryHours = tVal;
       localSubjectMappings[cCode].practicalHours = pVal;
+
+      // Update practical & theory boxes visibility and headers
+      const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+      if (pracBox) {
+        pracBox.style.display = pVal > 0 ? 'block' : 'none';
+        const headerSpan = pracBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
+      }
+      const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+      if (thBox) {
+        thBox.style.display = tVal > 0 ? 'block' : 'none';
+        const headerSpan = thBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+      }
 
       // Re-split theory hours among theory teachers
       const thTeachers = localSubjectMappings[cCode].theoryTeachers || [];
@@ -9008,13 +9045,73 @@ function getCurriculumDeptCourses(sem = null) {
 }
 
 function getCourseHourTargets(baseCode, semCourses) {
-  // 1. Check localSubjectMappings if user explicitly configured hours in Subject Mapping tab
-  if (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[baseCode]) {
-    const map = localSubjectMappings[baseCode];
-    const th = map.theoryHours !== undefined ? parseInt(map.theoryHours) : null;
-    const pr = map.practicalHours !== undefined ? parseInt(map.practicalHours) : null;
-    if (th !== null && pr !== null && !isNaN(th) && !isNaN(pr)) {
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  const savedMappings = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptName]) || {};
+
+  // Helper to fetch mapping for a specific code from localSubjectMappings or savedMappings
+  const getMappingForCode = (code) => {
+    if (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[code]) {
+      return localSubjectMappings[code];
+    }
+    if (savedMappings[code]) {
+      return savedMappings[code];
+    }
+    return null;
+  };
+
+  // 1. Direct check on baseCode in Subject Teacher Mapping
+  const directMap = getMappingForCode(baseCode);
+  if (directMap) {
+    const isPrac = (directMap.courseType === 'P');
+    const totalH = parseInt(directMap.hours) || 4;
+    const th = directMap.theoryHours !== undefined && directMap.theoryHours !== null 
+      ? parseInt(directMap.theoryHours) 
+      : (isPrac ? 0 : totalH);
+    const pr = directMap.practicalHours !== undefined && directMap.practicalHours !== null 
+      ? parseInt(directMap.practicalHours) 
+      : (isPrac ? totalH : 0);
+    if (!isNaN(th) && !isNaN(pr)) {
       return { thTarget: th, prTarget: pr, total: th + pr };
+    }
+  }
+
+  // 1b. Check if separate -T and -P mappings exist for this baseCode in Subject Teacher Mapping
+  const tMap = getMappingForCode(`${baseCode}-T`);
+  const pMap = getMappingForCode(`${baseCode}-P`);
+  if (tMap || pMap) {
+    let th = 0;
+    let pr = 0;
+    if (tMap) {
+      th = tMap.theoryHours !== undefined ? parseInt(tMap.theoryHours) : (parseInt(tMap.hours) || 2);
+    }
+    if (pMap) {
+      pr = pMap.practicalHours !== undefined ? parseInt(pMap.practicalHours) : (parseInt(pMap.hours) || 2);
+    }
+    const finalTh = isNaN(th) ? 0 : th;
+    const finalPr = isNaN(pr) ? 0 : pr;
+    return { thTarget: finalTh, prTarget: finalPr, total: finalTh + finalPr };
+  }
+
+  // 1c. Check any course in semCourses matching this baseCode for saved Subject Teacher Mappings
+  const matchingCourses = (semCourses || []).filter(c => {
+    const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    return b === baseCode;
+  });
+
+  for (const c of matchingCourses) {
+    const cMap = getMappingForCode(c.code);
+    if (cMap) {
+      const isPrac = (cMap.courseType === 'P' || c.code.endsWith('-P') || c.courseType === 'P');
+      const totalH = parseInt(cMap.hours || c.hours) || 4;
+      const th = cMap.theoryHours !== undefined && cMap.theoryHours !== null 
+        ? parseInt(cMap.theoryHours) 
+        : (isPrac ? 0 : totalH);
+      const pr = cMap.practicalHours !== undefined && cMap.practicalHours !== null 
+        ? parseInt(cMap.practicalHours) 
+        : (isPrac ? totalH : 0);
+      if (!isNaN(th) && !isNaN(pr)) {
+        return { thTarget: th, prTarget: pr, total: th + pr };
+      }
     }
   }
 
@@ -9115,28 +9212,29 @@ function getPracticalPeriodPair(period) {
 // Finds if clicked period is already part of a Practical pair for the given subject
 function findAssignedPracticalPair(day, period, targetBaseCode, semCourses) {
   const pStr = String(period).trim();
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
   let isP = false;
-  semCourses.forEach(c => {
-    const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-    if (b === targetBaseCode) {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pStr] === 'P') {
+  let detectedBase = targetBaseCode;
+
+  for (const c of semCourses) {
+    const b = cleanBase(c.code);
+    const rec = localCurriculumCourseRecs[c.code]?.[day]?.[pStr];
+    if (rec === 'P') {
+      if (!targetBaseCode || targetBaseCode === 'ALL' || b === targetBaseCode) {
         isP = true;
+        detectedBase = b;
+        break;
       }
     }
-  });
+  }
   if (!isP) return null;
 
   const checkSlotIsP = (pCheck) => {
-    let match = false;
-    semCourses.forEach(c => {
-      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-      if (b === targetBaseCode) {
-        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pCheck] === 'P') {
-          match = true;
-        }
-      }
+    return semCourses.some(c => {
+      const b = cleanBase(c.code);
+      return b === detectedBase && localCurriculumCourseRecs[c.code]?.[day]?.[String(pCheck)] === 'P';
     });
-    return match;
   };
 
   // Only valid pairs: ['1', '2'], ['4', '5'], ['5', '6']
@@ -9146,11 +9244,12 @@ function findAssignedPracticalPair(day, period, targetBaseCode, semCourses) {
   if (pStr === '5') {
     if (checkSlotIsP('4')) return ['4', '5'];
     if (checkSlotIsP('6')) return ['5', '6'];
+    return ['4', '5'];
   }
   if (pStr === '6' && checkSlotIsP('5')) return ['5', '6'];
   if (pStr === '3') return ['3'];
 
-  return getPracticalPeriodPair(pStr);
+  return getPracticalPeriodPair(pStr) || [pStr];
 }
 
 function populateCurriculumSemesterDropdown() {
@@ -9254,6 +9353,9 @@ function populateCurriculumCourseDropdowns() {
 }
 
 function renderCurriculumSlotAllocator() {
+  if (typeof initLocalSubjectMappings === 'function') {
+    initLocalSubjectMappings();
+  }
   initCurriculumSemesterData();
   populateCurriculumSemesterDropdown();
   populateCurriculumCourseDropdowns();
@@ -9491,16 +9593,44 @@ function handleCurriculumSlotCellClick(day, period) {
   const deptCourses = getCurriculumDeptCourses(curriculumSelectedSem);
   const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
   const assignSelect = document.getElementById('curriculum-target-subject-select');
-  const targetBaseCode = assignSelect ? assignSelect.value : 'ALL';
+  let targetBaseCode = assignSelect ? assignSelect.value : 'ALL';
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
+  // -------------------------------------------------------------
+  // D. Check Entire Semester Block
+  // If the slot is an entire semester block:
+  // - Clicking with 'B' or 'CLEAR' unblocks the semester.
+  // - Clicking with 'T' or 'P' warns that the semester is completely blocked.
+  // -------------------------------------------------------------
+  const existingSemBlockIdx = localCurriculumSemesterBlocks.findIndex(b => {
+    const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+    return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
+  });
+
+  if (existingSemBlockIdx !== -1) {
+    if (curriculumActiveToolMode === 'B' || curriculumActiveToolMode === 'CLEAR') {
+      localCurriculumSemesterBlocks.splice(existingSemBlockIdx, 1);
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+      return;
+    } else {
+      showModalAlert(
+        'Semester Blocked',
+        `This period is completely blocked for <strong>Semester ${escapeHtml(activeSemStr)}</strong>.<br><span class="text-muted text-xs">Use the Block tool or Clear tool to unblock the semester before assigning a course.</span>`,
+        'warning'
+      );
+      return;
+    }
+  }
+
+  // -------------------------------------------------------------
   // 1. Tool: Block Slot ('B')
+  // Course-specific Block vs Entire Semester Block
+  // -------------------------------------------------------------
   if (curriculumActiveToolMode === 'B') {
     if (targetBaseCode && targetBaseCode !== 'ALL') {
-      // Block/unblock ONLY the selected course!
-      const targetCourses = deptCourses.filter(c => {
-        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return base === targetBaseCode;
-      });
+      // Course-specific block: ONLY the selected course is blocked on this day/period
+      const targetCourses = deptCourses.filter(c => cleanBase(c.code) === targetBaseCode);
 
       const isAlreadyBlocked = targetCourses.some(c => 
         localCurriculumCourseRecs[c.code] && 
@@ -9509,14 +9639,14 @@ function handleCurriculumSlotCellClick(day, period) {
       );
 
       if (isAlreadyBlocked) {
-        // Toggle OFF (unblock this course)
+        // Toggle OFF (unblock this specific course)
         targetCourses.forEach(c => {
           if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
             delete localCurriculumCourseRecs[c.code][day][period];
           }
         });
       } else {
-        // Toggle ON (block this course in this slot)
+        // Toggle ON (block this specific course only - other courses in semester remain unblocked)
         targetCourses.forEach(c => {
           if (!localCurriculumCourseRecs[c.code]) localCurriculumCourseRecs[c.code] = {};
           if (!localCurriculumCourseRecs[c.code][day]) localCurriculumCourseRecs[c.code][day] = {};
@@ -9524,29 +9654,20 @@ function handleCurriculumSlotCellClick(day, period) {
         });
       }
     } else {
-      // Entire Semester Block: Toggle semester-wide blackout
-      // Clear any course recommendations/blocks for this day & period in this semester
+      // Entire Semester Block: Completely blocks ALL courses in this semester
+      // Clear individual recommendations/blocks for this day & period in this semester first
       deptCourses.forEach(c => {
         if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
           delete localCurriculumCourseRecs[c.code][day][period];
         }
       });
 
-      const existingIdx = localCurriculumSemesterBlocks.findIndex(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
+      localCurriculumSemesterBlocks.push({
+        day,
+        period: String(period),
+        semester: activeSemStr,
+        label: 'Blocked'
       });
-
-      if (existingIdx !== -1) {
-        localCurriculumSemesterBlocks.splice(existingIdx, 1);
-      } else {
-        localCurriculumSemesterBlocks.push({
-          day,
-          period: String(period),
-          semester: activeSemStr,
-          label: 'Blocked'
-        });
-      }
     }
 
     renderCurriculumSlotMatrix();
@@ -9554,14 +9675,13 @@ function handleCurriculumSlotCellClick(day, period) {
     return;
   }
 
+  // -------------------------------------------------------------
   // 2. Tool: Clear Slot ('CLEAR')
+  // -------------------------------------------------------------
   if (curriculumActiveToolMode === 'CLEAR') {
     if (targetBaseCode && targetBaseCode !== 'ALL') {
       // Clear ONLY for the selected course
-      const targetCourses = deptCourses.filter(c => {
-        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return base === targetBaseCode;
-      });
+      const targetCourses = deptCourses.filter(c => cleanBase(c.code) === targetBaseCode);
       targetCourses.forEach(c => {
         if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
           delete localCurriculumCourseRecs[c.code][day][period];
@@ -9638,10 +9758,14 @@ function handleCurriculumSlotCellClick(day, period) {
       return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
     });
 
-    // Clear ANY existing course recommendation in this slot for this semester first
+    // Clear existing Theory/Practical teaching recommendations in this slot for this semester
+    // (Preserve course-specific 'B' blocked slots of other courses)
     deptCourses.forEach(c => {
       if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        delete localCurriculumCourseRecs[c.code][day][period];
+        const val = localCurriculumCourseRecs[c.code][day][period];
+        if (val === 'T' || val === 'P') {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
       }
     });
 
@@ -9716,11 +9840,15 @@ function handleCurriculumSlotCellClick(day, period) {
       return !(b.day === day && pairToAssign.includes(String(b.period)) && bSem === activeSemStr);
     });
 
-    // Clear ANY existing course recommendation on both periods in pairToAssign
+    // Clear existing Theory/Practical recommendations on both periods in pairToAssign
+    // (Preserve course-specific 'B' blocked slots of other courses)
     deptCourses.forEach(c => {
       if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
         pairToAssign.forEach(p => {
-          delete localCurriculumCourseRecs[c.code][day][p];
+          const val = localCurriculumCourseRecs[c.code][day][p];
+          if (val === 'T' || val === 'P') {
+            delete localCurriculumCourseRecs[c.code][day][p];
+          }
         });
       }
     });
@@ -9776,8 +9904,7 @@ function renderCurriculumHoursBreakdown() {
     const thAssigned = assigned.thAssigned;
     const prAssigned = assigned.prAssigned;
 
-    const isSelected = (curriculumSelectedFilterCourse === u.baseCode);
-    const borderStyle = isSelected ? 'border: 2px solid var(--primary); background: #f0fdf4;' : 'border: 1px solid var(--border); background: #ffffff;';
+
 
     const thFull = (thAssigned >= u.thTarget);
     const prFull = (u.prTarget === 0 || prAssigned >= u.prTarget);
@@ -9806,9 +9933,8 @@ function renderCurriculumHoursBreakdown() {
 
     html += `
       <div class="curriculum-hours-chip" 
-           style="${borderStyle}; cursor: pointer; transition: all 0.15s ease;" 
-           onclick="selectCurriculumSubjectForEdit('${u.baseCode}')"
-           title="Click to select ${escapeHtml(u.baseCode)} for editing. Assigning recommended slots is optional; remaining balance hours will be auto-scheduled anywhere.">
+           style="border: 1px solid var(--border); background: #ffffff; cursor: default; user-select: none;" 
+           title="${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)} (Target: ${u.thTarget}h Theory${u.prTarget > 0 ? ', ' + u.prTarget + 'h Practical' : ''})">
         <div style="font-weight: 700; font-size: 11.5px; margin-right: 8px;">
           ${escapeHtml(u.baseCode)}
         </div>
