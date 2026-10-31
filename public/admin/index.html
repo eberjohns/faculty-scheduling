@@ -81,6 +81,7 @@
             <button class="nav-item" data-tab="tab-admin-export"><i class="fa-solid fa-file-excel"></i> Export Timetable</button>
             <button class="nav-item" data-tab="tab-admin-workload"><i class="fa-solid fa-users-viewfinder"></i> Workload Summary</button>
             <button class="nav-item" data-tab="tab-admin-free-faculty"><i class="fa-solid fa-mug-hot"></i> Free Faculty</button>
+            <button class="nav-item" data-tab="tab-admin-audit-logs"><i class="fa-solid fa-clipboard-list"></i> Audit Logs</button>
           </nav>
         </aside>
 
@@ -217,27 +218,21 @@
                 <form id="config-form">
                   <div class="row">
                     <div class="col-md-6 form-group">
-                      <label for="config-year">Academic Year</label>
+                      <label for="config-year" style="font-weight: 600;">Academic Year</label>
                       <input type="text" id="config-year" class="form-control" placeholder="e.g. 2026-2027" required>
+                      <small class="text-muted" style="display: block; margin-top: 4px;">Institutional academic year printed on official reports, exports, and timetable sheets.</small>
                     </div>
                     <div class="col-md-6 form-group">
-                      <label for="config-sem-type">Active Semester Type</label>
+                      <label for="config-sem-type" style="font-weight: 600;">Active Semester Type</label>
                       <select id="config-sem-type" class="form-control" required>
                         <option value="Odd">Odd Semester</option>
                         <option value="Even">Even Semester</option>
                       </select>
-                    </div>
-                  </div>
-                  
-                  <div class="form-group mt-3">
-                    <label>Semester Display Mappings (Label Mappings)</label>
-                    <p class="text-muted text-sm">Define labels representing semesters.</p>
-                    <div id="semester-labels-container" class="mt-2">
-                      <!-- Rendered dynamically -->
+                      <small class="text-muted" style="display: block; margin-top: 4px;">Displayed in headers of teacher workload reports and timetable views.</small>
                     </div>
                   </div>
 
-                  <button type="submit" class="btn btn-primary mt-3"><i class="fa-solid fa-save"></i> Save Configuration</button>
+                  <button type="submit" class="btn btn-primary mt-3" style="font-weight: 600;"><i class="fa-solid fa-save"></i> Save Configuration</button>
                 </form>
                 <div id="config-success" class="alert alert-success hidden mt-3"></div>
               </div>
@@ -430,31 +425,141 @@
             <div class="content-header">
               <h1>Inspect Academic Records</h1>
               <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
-                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 220px;">
-                <select id="data-select-dept" class="form-control width-auto">
-                  <option value="">All Departments</option>
-                </select>
-                <select id="data-select-program" class="form-control width-auto">
-                  <option value="">All Programs</option>
-                  <option value="UG">UG</option>
-                  <option value="PG">PG</option>
-                  <option value="INT">INT</option>
-                </select>
-                <select id="data-select-semester" class="form-control width-auto">
-                  <option value="">All Semesters</option>
-                </select>
-                <select id="data-select-category" class="form-control width-auto">
-                  <option value="">All Categories</option>
-                </select>
+                <input type="text" id="data-search-input" class="form-control" placeholder="Search by name, code..." style="max-width: 200px;">
+
+                <!-- MULTI-SELECT: DEPARTMENT -->
+                <div class="dropdown-multiselect" id="ms-container-dept">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-dept" title="Filter by Department">
+                    <span class="ms-label-text" id="ms-label-dept">All Departments</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-dept">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-dept" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-dept" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-search-wrap">
+                      <input type="text" class="form-control form-control-sm" id="ms-search-dept" placeholder="Filter departments..." style="font-size: 11.5px; padding: 4px 8px;">
+                    </div>
+                    <div class="ms-options-list" id="ms-options-dept">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: PROGRAM -->
+                <div class="dropdown-multiselect" id="ms-container-program">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-program" title="Filter by Program">
+                    <span class="ms-label-text" id="ms-label-program">All Programs</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-program">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-program" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-program" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-program">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: SEMESTER -->
+                <div class="dropdown-multiselect" id="ms-container-semester">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-semester" title="Filter by Semester">
+                    <span class="ms-label-text" id="ms-label-semester">All Semesters</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-semester">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-semester" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-semester" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-semester">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MULTI-SELECT: CATEGORY -->
+                <div class="dropdown-multiselect" id="ms-container-category">
+                  <button type="button" class="dropdown-multiselect-trigger" id="ms-trigger-category" title="Filter by Category">
+                    <span class="ms-label-text" id="ms-label-category">All Categories</span>
+                    <i class="fa-solid fa-chevron-down text-muted" style="font-size: 10px;"></i>
+                  </button>
+                  <div class="dropdown-multiselect-menu hidden" id="ms-menu-category">
+                    <div class="ms-toolbar">
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-select-all-category" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-check-double text-primary"></i> Select All
+                      </button>
+                      <button type="button" class="btn btn-outline btn-xs" id="ms-deselect-all-category" style="padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                        <i class="fa-solid fa-xmark text-danger"></i> Deselect All
+                      </button>
+                    </div>
+                    <div class="ms-options-list" id="ms-options-category">
+                      <!-- Rendered dynamically -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Hidden inputs to retain backward compatibility with any other scripts -->
+                <input type="hidden" id="data-select-dept" value="">
+                <input type="hidden" id="data-select-program" value="">
+                <input type="hidden" id="data-select-semester" value="">
+                <input type="hidden" id="data-select-category" value="">
+
+                <!-- ACTION: Import / Add Records -->
                 <button type="button" id="btn-open-import-records-modal" class="btn btn-primary btn-sm" style="font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;">
                   <i class="fa-solid fa-file-import"></i> Import / Add Records
                 </button>
+
+                <!-- ACTION: Export Excel (Split Button) -->
+                <div class="dropdown" style="position: relative; display: inline-flex;">
+                  <button type="button" id="btn-export-records-excel" class="btn btn-success btn-sm" style="font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0;" title="Export current filtered records as Excel (.xlsx)">
+                    <i class="fa-solid fa-file-excel"></i> <span id="export-records-btn-text">Export Courses (.xlsx)</span>
+                  </button>
+                  <button type="button" id="btn-export-records-menu" class="btn btn-success btn-sm" style="padding: 4px 8px; border-left: 1px solid rgba(255,255,255,0.3); border-top-left-radius: 0; border-bottom-left-radius: 0;" title="More Export Options">
+                    <i class="fa-solid fa-caret-down"></i>
+                  </button>
+                  <div class="export-dropdown-menu hidden" id="menu-export-records">
+                    <button type="button" class="export-menu-item" id="export-opt-active">
+                      <i class="fa-solid fa-file-excel text-success"></i>
+                      <span id="export-opt-active-text">Export Visible Courses (.xlsx)</span>
+                    </button>
+                    <button type="button" class="export-menu-item" id="export-opt-courses">
+                      <i class="fa-solid fa-book text-primary"></i>
+                      <span>Export Visible Courses (.xlsx)</span>
+                    </button>
+                    <button type="button" class="export-menu-item" id="export-opt-faculty">
+                      <i class="fa-solid fa-user-tie text-info"></i>
+                      <span>Export Visible Faculty (.xlsx)</span>
+                    </button>
+                    <div style="border-top: 1px solid var(--border); margin: 3px 0;"></div>
+                    <button type="button" class="export-menu-item" id="export-opt-both" style="font-weight: 600;">
+                      <i class="fa-solid fa-table-cells text-warning"></i>
+                      <span>Export All (Courses & Faculty Sheets)</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
             <div class="tab-sub-nav">
-              <button class="tab-sub-item active" data-subtab="subtab-courses">Courses (<span id="count-courses">0</span>)</button>
+              <button class="tab-sub-item active" data-subtab="subtab-courses" title="Unique course code + department combinations &bull; Total class records">Courses (<span id="count-course-groups" title="Unique course code + department combinations">0</span> unique &bull; <span id="count-courses" title="Total class records (code + class + department)">0</span> classes)</button>
               <button class="tab-sub-item" data-subtab="subtab-faculty">Faculty (<span id="count-faculty">0</span>)</button>
+              <button class="tab-sub-item" data-subtab="subtab-departments">Departments (<span id="count-departments">0</span>)</button>
             </div>
 
             <!-- Courses list -->
@@ -466,6 +571,12 @@
                     <button type="button" id="btn-bulk-select-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-check-double text-primary"></i> Select All</button>
                     <button type="button" id="btn-bulk-deselect-all" class="btn btn-outline btn-xs" style="padding: 4px 10px; font-weight: 600;"><i class="fa-solid fa-xmark"></i> Deselect All</button>
                     <span id="selected-courses-count" class="text-sm text-muted font-semibold ml-2">0 selected</span>
+                    <span class="text-xs text-muted" id="courses-summary-count-badge" style="margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); display: inline-flex; align-items: center; gap: 4px;">
+                      <i class="fa-solid fa-layer-group text-primary"></i>
+                      <span><strong><span id="summary-unique-courses">0</span></strong> unique course(s) (with Edit/Delete)</span>
+                      <span class="text-muted">&bull;</span>
+                      <span><strong><span id="summary-total-classes">0</span></strong> class records</span>
+                    </span>
                   </div>
                   <div>
                     <button type="button" id="btn-bulk-delete-courses" class="btn btn-danger btn-xs" disabled style="padding: 4px 12px; font-weight: 700;">
@@ -513,6 +624,28 @@
                     </thead>
                     <tbody>
                       <!-- Rendered Dynamically (Read Only) -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Departments list -->
+            <div id="subtab-departments" class="subtab-pane hidden">
+              <div class="card mt-2">
+                <div class="table-responsive">
+                  <table class="table" id="table-manage-departments">
+                    <thead>
+                      <tr>
+                        <th>Department Name</th>
+                        <th>Programs Offered</th>
+                        <th>Courses</th>
+                        <th>Faculty</th>
+                        <th style="text-align: center;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <!-- Rendered Dynamically -->
                     </tbody>
                   </table>
                 </div>
@@ -1200,7 +1333,106 @@
 
           </div>
 
-        </section>
+          <!-- TAB: Audit Logs -->
+          <div id="tab-admin-audit-logs" class="tab-pane hidden">
+            <div class="content-header">
+              <h1><i class="fa-solid fa-clipboard-list text-primary"></i> System Audit Logs</h1>
+              <div class="header-search-bar flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
+                <button type="button" id="btn-refresh-audit-logs" class="btn btn-outline btn-sm" title="Refresh audit logs"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                <button type="button" id="btn-download-audit-log" class="btn btn-primary btn-sm" title="Download raw audit log file in CSV format"><i class="fa-solid fa-download"></i> Download CSV</button>
+                <button type="button" id="btn-prune-audit-logs" class="btn btn-outline btn-sm text-danger" title="Prune older rotated log archives"><i class="fa-solid fa-broom"></i> Prune Archives</button>
+              </div>
+            </div>
+
+            <!-- Audit Summary Metrics -->
+            <div class="metrics-grid mb-3" style="margin-top: 15px;">
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(99, 102, 241, 0.12); color: var(--primary);"><i class="fa-solid fa-list-check"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Total Buffered Events</span>
+                  <h3 class="metric-value" id="audit-stat-total">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--success);"><i class="fa-solid fa-shield-halved"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Auth Events</span>
+                  <h3 class="metric-value" id="audit-stat-auth">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(14, 165, 233, 0.12); color: var(--info);"><i class="fa-solid fa-database"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Data Modifications</span>
+                  <h3 class="metric-value" id="audit-stat-data">0</h3>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-icon" style="background: rgba(245, 158, 11, 0.12); color: var(--warning);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="metric-info">
+                  <span class="metric-label">Warnings & Alerts</span>
+                  <h3 class="metric-value" id="audit-stat-warnings">0</h3>
+                </div>
+              </div>
+            </div>
+
+            <!-- Log Filter Toolbar -->
+            <div class="card">
+              <div class="p-3 flex-row gap-2" style="border-bottom: 1.5px solid var(--border); background: var(--surface); flex-wrap: wrap; align-items: center; justify-content: space-between;">
+                <div class="flex-row gap-2" style="flex-wrap: wrap; align-items: center;">
+                  <input type="text" id="audit-search-input" class="form-control" placeholder="Search by action, actor, details, IP..." style="max-width: 280px; font-size: 13px;">
+                  <select id="audit-select-category" class="form-control width-auto" style="font-size: 13px;">
+                    <option value="">All Categories</option>
+                    <option value="AUTH">Authentication (AUTH)</option>
+                    <option value="SCHEDULING">Scheduling (SCHEDULING)</option>
+                    <option value="DATA">Data Management (DATA)</option>
+                    <option value="SYSTEM">System & Backup (SYSTEM)</option>
+                    <option value="SECURITY">Security (SECURITY)</option>
+                  </select>
+                  <select id="audit-select-status" class="form-control width-auto" style="font-size: 13px;">
+                    <option value="">All Statuses</option>
+                    <option value="SUCCESS">Success</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="FAILURE">Failure</option>
+                  </select>
+                </div>
+                <div class="text-muted text-xs flex-row items-center gap-2" id="audit-disk-info-badge">
+                  <i class="fa-solid fa-hard-drive"></i>
+                  <span>Logs Disk Usage: <strong id="audit-disk-size">0 MB</strong> (<span id="audit-disk-files">0</span> log file(s))</span>
+                </div>
+              </div>
+
+              <!-- Table of Logs -->
+              <div class="table-responsive">
+                <table class="table" id="table-audit-logs">
+                  <thead>
+                    <tr>
+                      <th style="width: 170px;">Timestamp</th>
+                      <th style="width: 120px;">Category</th>
+                      <th style="width: 200px;">Action</th>
+                      <th style="width: 140px;">Actor / Role</th>
+                      <th>Details & Target</th>
+                      <th style="width: 110px;">IP Address</th>
+                      <th style="width: 90px; text-align: center;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Rendered dynamically -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Pagination Footer -->
+              <div class="p-3 flex-row justify-between items-center" style="border-top: 1px solid var(--border); background: var(--surface);">
+                <span class="text-xs text-muted" id="audit-pagination-info">Showing 0 of 0 logs</span>
+                <div class="flex-row gap-2">
+                  <button type="button" id="btn-audit-prev-page" class="btn btn-outline btn-xs" disabled><i class="fa-solid fa-chevron-left"></i> Previous</button>
+                  <span id="audit-current-page" class="text-xs font-semibold" style="display: flex; align-items: center; padding: 0 6px;">Page 1</span>
+                  <button type="button" id="btn-audit-next-page" class="btn btn-outline btn-xs" disabled>Next <i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
       </div>
     </main>
 
@@ -1434,6 +1666,39 @@
         <div class="actions flex-row justify-end gap-2 mt-4">
           <button id="btn-save-course-details" class="btn btn-primary">Save Changes</button>
           <button id="btn-close-course-modal" class="btn btn-outline">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: EDIT DEPARTMENT -->
+    <div id="modal-edit-dept" class="modal flex-center hidden no-print">
+      <div class="modal-content modal-md" style="max-width: 480px; width: 100%; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border);">
+          <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-pen-to-square text-primary"></i> Edit Department Name
+          </h2>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0;">
+          <input type="hidden" id="edit-dept-old-name">
+          <div class="form-group mb-3">
+            <label for="edit-dept-current-display" style="font-weight: 600; font-size: 12.5px;">Current Department Name</label>
+            <input type="text" id="edit-dept-current-display" class="form-control" readonly disabled style="background: #f1f5f9; font-weight: 700; color: #334155;">
+          </div>
+          <div class="form-group mb-3">
+            <label for="edit-dept-new-name" style="font-weight: 700; font-size: 13px;">New Department Name <span class="text-danger">*</span></label>
+            <input type="text" id="edit-dept-new-name" class="form-control" placeholder="e.g. COMPUTER SCIENCE" required style="text-transform: uppercase;">
+            <small class="text-muted" style="display: block; margin-top: 4px; font-size: 11px;">
+              Enter the updated official name for this department.
+            </small>
+          </div>
+          <div class="alert alert-info mt-3" style="font-size: 12px; padding: 10px 12px; margin-bottom: 0; line-height: 1.45;">
+            <i class="fa-solid fa-circle-info text-primary" style="margin-right: 4px;"></i>
+            <strong>Cascading Update:</strong> Renaming this department will automatically update the name everywhere: across all associated <strong>faculty profiles</strong>, <strong>course catalogs</strong>, <strong>timetable allocations</strong>, <strong>batch mappings</strong>, and <strong>coordinator login credentials</strong>.
+          </div>
+        </div>
+        <div class="actions flex-row justify-end gap-2 mt-4">
+          <button type="button" id="btn-save-dept-name" class="btn btn-primary" style="font-weight: 600;"><i class="fa-solid fa-check"></i> Save & Update Everywhere</button>
+          <button type="button" id="btn-close-dept-modal" class="btn btn-outline">Cancel</button>
         </div>
       </div>
     </div>

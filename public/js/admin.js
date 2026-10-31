@@ -501,7 +501,11 @@ async function initAdmin() {
   bindConfigEvents();
   bindImportEvents();
   bindSearchEvents();
+  initInspectMultiSelects();
+  initExportRecordsEvents();
+  initAuditLogs();
   initImportRecordsModal();
+  initEditDeptModal();
   bindCustomModals();
   initDeploymentVersionInfo();
   bindResetDeptPasswordEvents();
@@ -1065,6 +1069,8 @@ async function showTab(tabId) {
     renderWorkloadSummary();
   } else if (tabId === 'tab-admin-free-faculty') {
     renderFreeFacultySection();
+  } else if (tabId === 'tab-admin-audit-logs') {
+    loadAuditLogs();
   }
 }
 
@@ -1167,50 +1173,35 @@ window.promptReturnDept = function(deptName) {
 
 // Config Settings Form
 function renderConfigForm() {
-  document.getElementById('config-year').value = state.config.academicYear;
-  document.getElementById('config-sem-type').value = state.config.semesterType;
-  
-  const container = document.getElementById('semester-labels-container');
-  container.innerHTML = '';
-  
-  Object.keys(state.config.semesterLabels).forEach(sem => {
-    const div = document.createElement('div');
-    div.className = 'form-group flex-row gap-2 mt-2';
-    div.innerHTML = `
-      <span class="badge badge-info" style="min-width: 60px;">Sem ${sem}</span>
-      <i class="fa-solid fa-arrow-right text-muted"></i>
-      <input type="text" class="form-control sem-mapping-input" data-sem="${sem}" value="${state.config.semesterLabels[sem]}" style="max-width: 200px;">
-    `;
-    container.appendChild(div);
-  });
+  const yearInput = document.getElementById('config-year');
+  const semTypeInput = document.getElementById('config-sem-type');
+  if (yearInput) yearInput.value = state.config.academicYear || '';
+  if (semTypeInput) semTypeInput.value = state.config.semesterType || 'Odd';
 }
 
 function bindConfigEvents() {
-  document.getElementById('config-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const academicYear = document.getElementById('config-year').value;
-    const semesterType = document.getElementById('config-sem-type').value;
-    
-    const semesterLabels = {};
-    document.querySelectorAll('.sem-mapping-input').forEach(input => {
-      const sem = input.getAttribute('data-sem');
-      semesterLabels[sem] = input.value.trim();
-    });
-    
-    try {
-      const res = await fetch(`${API_BASE}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ academicYear, semesterType, semesterLabels })
-      });
-      if (res.ok) {
-        showModalAlert('Success', 'Academic configuration updated.', 'success');
-        await fetchGlobalData();
+  const form = document.getElementById('config-form');
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const academicYear = (document.getElementById('config-year')?.value || '').trim();
+      const semesterType = document.getElementById('config-sem-type')?.value || 'Odd';
+      
+      try {
+        const res = await fetch(`${API_BASE}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ academicYear, semesterType })
+        });
+        if (res.ok) {
+          showModalAlert('Success', 'Academic configuration updated.', 'success');
+          await fetchGlobalData();
+        }
+      } catch (err) {
+        console.error(err);
       }
-    } catch (err) {
-      console.error(err);
-    }
-  });
+    });
+  }
 
   // Clear Database button and confirmation modal bindings
   const btnClearDb = document.getElementById('btn-clear-db');
@@ -1739,16 +1730,7 @@ function updateBulkCoursesUI() {
 
 function bindSearchEvents() {
   const searchInput = document.getElementById('data-search-input');
-  const deptFilter = document.getElementById('data-select-dept');
-  const progFilter = document.getElementById('data-select-program');
-  const semFilter = document.getElementById('data-select-semester');
-  const catFilter = document.getElementById('data-select-category');
-  
   if (searchInput) searchInput.addEventListener('input', () => renderInspectRecords());
-  if (deptFilter) deptFilter.addEventListener('change', () => renderInspectRecords());
-  if (progFilter) progFilter.addEventListener('change', () => renderInspectRecords());
-  if (semFilter) semFilter.addEventListener('change', () => renderInspectRecords());
-  if (catFilter) catFilter.addEventListener('change', () => renderInspectRecords());
 
   // Bulk actions buttons
   const btnSelectAll = document.getElementById('btn-bulk-select-all');
@@ -2336,105 +2318,602 @@ function initImportRecordsModal() {
   }
 }
 
-function renderInspectRecords() {
-  const query = document.getElementById('data-search-input').value.toLowerCase().trim();
-  const selectedDept = document.getElementById('data-select-dept').value;
-  const progFilter = document.getElementById('data-select-program');
-  const semFilter = document.getElementById('data-select-semester');
-  const catFilter = document.getElementById('data-select-category');
-  const selectedProgram = progFilter ? progFilter.value : '';
-  const selectedSemester = semFilter ? semFilter.value : '';
-  const selectedCategory = catFilter ? catFilter.value : '';
+// -------------------------------------------------------------
+// Multi-Select Filter Engine for Inspect Records
+// -------------------------------------------------------------
+const inspectMultiSelects = {
+  dept: {
+    containerId: 'ms-container-dept',
+    triggerId: 'ms-trigger-dept',
+    labelId: 'ms-label-dept',
+    menuId: 'ms-menu-dept',
+    optionsId: 'ms-options-dept',
+    searchId: 'ms-search-dept',
+    selectAllId: 'ms-select-all-dept',
+    deselectAllId: 'ms-deselect-all-dept',
+    defaultLabel: 'All Departments',
+    entityName: 'Departments',
+    allSelected: true,
+    selected: new Set(),
+    availableOptions: [],
+    rendered: false
+  },
+  program: {
+    containerId: 'ms-container-program',
+    triggerId: 'ms-trigger-program',
+    labelId: 'ms-label-program',
+    menuId: 'ms-menu-program',
+    optionsId: 'ms-options-program',
+    searchId: null,
+    selectAllId: 'ms-select-all-program',
+    deselectAllId: 'ms-deselect-all-program',
+    defaultLabel: 'All Programs',
+    entityName: 'Programs',
+    allSelected: true,
+    selected: new Set(),
+    availableOptions: ['UG', 'PG', 'INT'],
+    rendered: false
+  },
+  semester: {
+    containerId: 'ms-container-semester',
+    triggerId: 'ms-trigger-semester',
+    labelId: 'ms-label-semester',
+    menuId: 'ms-menu-semester',
+    optionsId: 'ms-options-semester',
+    searchId: null,
+    selectAllId: 'ms-select-all-semester',
+    deselectAllId: 'ms-deselect-all-semester',
+    defaultLabel: 'All Semesters',
+    entityName: 'Semesters',
+    allSelected: true,
+    selected: new Set(),
+    availableOptions: [],
+    rendered: false
+  },
+  category: {
+    containerId: 'ms-container-category',
+    triggerId: 'ms-trigger-category',
+    labelId: 'ms-label-category',
+    menuId: 'ms-menu-category',
+    optionsId: 'ms-options-category',
+    searchId: null,
+    selectAllId: 'ms-select-all-category',
+    deselectAllId: 'ms-deselect-all-category',
+    defaultLabel: 'All Categories',
+    entityName: 'Categories',
+    allSelected: true,
+    selected: new Set(),
+    availableOptions: [],
+    rendered: false
+  }
+};
 
-  const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
-  if (progFilter) progFilter.style.display = isCourses ? '' : 'none';
-  if (semFilter) semFilter.style.display = isCourses ? '' : 'none';
-  if (catFilter) catFilter.style.display = isCourses ? '' : 'none';
+let inspectMultiSelectsInitialized = false;
+function initInspectMultiSelects() {
+  if (inspectMultiSelectsInitialized) return;
+  inspectMultiSelectsInitialized = true;
 
-  // Initialize and synchronize department filter dropdown options
-  const deptFilter = document.getElementById('data-select-dept');
-  if (deptFilter) {
-    const currentVal = deptFilter.value;
-    const deptSet = new Set();
-    state.courses.forEach(c => c.department && deptSet.add(c.department));
-    state.faculty.forEach(f => f.department && deptSet.add(f.department));
-    const sortedDepts = Array.from(deptSet).sort();
-    const existingOptions = Array.from(deptFilter.options).slice(1).map(o => o.value);
-    const optionsChanged = sortedDepts.length !== existingOptions.length || sortedDepts.some((d, idx) => d !== existingOptions[idx]);
+  Object.keys(inspectMultiSelects).forEach(type => {
+    const ms = inspectMultiSelects[type];
+    const trigger = document.getElementById(ms.triggerId);
+    const menu = document.getElementById(ms.menuId);
+    const container = document.getElementById(ms.containerId);
+    const btnSelectAll = document.getElementById(ms.selectAllId);
+    const btnDeselectAll = document.getElementById(ms.deselectAllId);
 
-    if (optionsChanged) {
-      deptFilter.innerHTML = '<option value="">All Departments</option>';
-      sortedDepts.forEach(name => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        if (name === currentVal) opt.selected = true;
-        deptFilter.appendChild(opt);
+    if (trigger && menu) {
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close other open multi-selects
+        Object.keys(inspectMultiSelects).forEach(otherType => {
+          if (otherType !== type) {
+            const otherMenu = document.getElementById(inspectMultiSelects[otherType].menuId);
+            const otherCont = document.getElementById(inspectMultiSelects[otherType].containerId);
+            if (otherMenu) otherMenu.classList.add('hidden');
+            if (otherCont) otherCont.classList.remove('open');
+          }
+        });
+
+        // Close export menu if open
+        const exportMenu = document.getElementById('menu-export-records');
+        if (exportMenu) exportMenu.classList.add('hidden');
+
+        const isHidden = menu.classList.contains('hidden');
+        if (isHidden) {
+          menu.classList.remove('hidden');
+          if (container) container.classList.add('open');
+          if (ms.searchId) {
+            const searchInput = document.getElementById(ms.searchId);
+            if (searchInput) {
+              searchInput.value = '';
+              setTimeout(() => searchInput.focus(), 50);
+              const items = document.querySelectorAll(`#${ms.optionsId} .ms-option-item`);
+              items.forEach(it => it.style.display = 'flex');
+            }
+          }
+        } else {
+          menu.classList.add('hidden');
+          if (container) container.classList.remove('open');
+        }
       });
     }
-  }
 
-  // Initialize and synchronize semester filter dropdown options
-  if (semFilter) {
-    const currentVal = semFilter.value;
-    const semSet = new Set();
-    state.courses.forEach(c => {
-      if (c.semester !== undefined && c.semester !== null && c.semester !== '') {
-        semSet.add(String(c.semester));
+    if (btnSelectAll) {
+      btnSelectAll.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ms.allSelected = true;
+        ms.selected = new Set(ms.availableOptions);
+        const optionsList = document.getElementById(ms.optionsId);
+        if (optionsList) {
+          optionsList.querySelectorAll('.ms-checkbox').forEach(cb => cb.checked = true);
+        }
+        updateTriggerLabel(type);
+        renderInspectRecords();
+      });
+    }
+
+    if (btnDeselectAll) {
+      btnDeselectAll.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ms.allSelected = false;
+        ms.selected.clear();
+        const optionsList = document.getElementById(ms.optionsId);
+        if (optionsList) {
+          optionsList.querySelectorAll('.ms-checkbox').forEach(cb => cb.checked = false);
+        }
+        updateTriggerLabel(type);
+        renderInspectRecords();
+      });
+    }
+
+    if (ms.searchId) {
+      const searchInput = document.getElementById(ms.searchId);
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          const items = document.querySelectorAll(`#${ms.optionsId} .ms-option-item`);
+          items.forEach(item => {
+            const val = (item.getAttribute('data-val') || '').toLowerCase();
+            item.style.display = val.includes(q) ? 'flex' : 'none';
+          });
+        });
+      }
+    }
+  });
+
+  // Global click outside listener to close menus
+  document.addEventListener('click', (e) => {
+    Object.keys(inspectMultiSelects).forEach(type => {
+      const ms = inspectMultiSelects[type];
+      const container = document.getElementById(ms.containerId);
+      const menu = document.getElementById(ms.menuId);
+      if (container && menu && !container.contains(e.target)) {
+        menu.classList.add('hidden');
+        container.classList.remove('open');
       }
     });
-    const sortedSems = Array.from(semSet).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
-    const existingOptions = Array.from(semFilter.options).slice(1).map(o => o.value);
-    const optionsChanged = sortedSems.length !== existingOptions.length || sortedSems.some((s, idx) => s !== existingOptions[idx]);
 
-    if (optionsChanged) {
-      semFilter.innerHTML = '<option value="">All Semesters</option>';
-      sortedSems.forEach(sem => {
-        const opt = document.createElement('option');
-        opt.value = sem;
-        opt.textContent = `Semester ${sem}`;
-        if (sem === currentVal) opt.selected = true;
-        semFilter.appendChild(opt);
-      });
+    const exportMenu = document.getElementById('menu-export-records');
+    const exportBtnGroup = document.getElementById('btn-export-records-menu');
+    if (exportMenu && !exportMenu.contains(e.target) && exportBtnGroup && !exportBtnGroup.contains(e.target)) {
+      exportMenu.classList.add('hidden');
     }
+  });
+}
+
+function syncMultiSelectOptions(type, newOptions) {
+  const ms = inspectMultiSelects[type];
+  if (!ms) return;
+
+  const prev = ms.availableOptions;
+  const isChanged = newOptions.length !== prev.length || newOptions.some((v, i) => v !== prev[i]);
+  if (!isChanged && ms.rendered) return;
+
+  ms.availableOptions = [...newOptions];
+  ms.rendered = true;
+
+  if (ms.allSelected) {
+    ms.selected = new Set(newOptions);
+  } else {
+    ms.selected = new Set(Array.from(ms.selected).filter(x => newOptions.includes(x)));
   }
 
-  // Initialize and synchronize category filter dropdown options
-  if (catFilter) {
-    const currentVal = catFilter.value;
-    const catSet = new Set();
-    state.courses.forEach(c => {
-      if (c.category) catSet.add(String(c.category).trim());
+  renderMultiSelectOptions(type);
+}
+
+function renderMultiSelectOptions(type) {
+  const ms = inspectMultiSelects[type];
+  const listEl = document.getElementById(ms.optionsId);
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+
+  if (ms.availableOptions.length === 0) {
+    listEl.innerHTML = '<div style="padding: 10px 14px; font-size: 12px; color: var(--text-muted); text-align: center;">No options available</div>';
+    updateTriggerLabel(type);
+    return;
+  }
+
+  ms.availableOptions.forEach(opt => {
+    const isChecked = ms.allSelected || ms.selected.has(opt);
+    const label = document.createElement('label');
+    label.className = 'ms-option-item';
+    label.setAttribute('data-val', opt);
+
+    const displayLabel = type === 'semester' ? `Semester ${opt}` : opt;
+
+    label.innerHTML = `
+      <input type="checkbox" class="ms-checkbox" value="${escapeHtml(opt)}" ${isChecked ? 'checked' : ''}>
+      <span class="ms-item-name">${escapeHtml(displayLabel)}</span>
+    `;
+
+    const cb = label.querySelector('.ms-checkbox');
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        ms.selected.add(opt);
+      } else {
+        ms.selected.delete(opt);
+      }
+
+      ms.allSelected = (ms.selected.size === ms.availableOptions.length);
+      updateTriggerLabel(type);
+      renderInspectRecords();
     });
-    const sortedCats = Array.from(catSet).sort();
-    const existingOptions = Array.from(catFilter.options).slice(1).map(o => o.value);
-    const optionsChanged = sortedCats.length !== existingOptions.length || sortedCats.some((c, idx) => c !== existingOptions[idx]);
 
-    if (optionsChanged) {
-      catFilter.innerHTML = '<option value="">All Categories</option>';
-      sortedCats.forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        if (cat === currentVal) opt.selected = true;
-        catFilter.appendChild(opt);
-      });
+    listEl.appendChild(label);
+  });
+
+  updateTriggerLabel(type);
+}
+
+function updateTriggerLabel(type) {
+  const ms = inspectMultiSelects[type];
+  const labelEl = document.getElementById(ms.labelId);
+  const hiddenInput = document.getElementById(`data-select-${type}`);
+
+  if (ms.allSelected) {
+    if (labelEl) labelEl.textContent = ms.defaultLabel;
+    if (hiddenInput) hiddenInput.value = '';
+  } else if (ms.selected.size === 0) {
+    if (labelEl) labelEl.textContent = `${ms.entityName} (0)`;
+    if (hiddenInput) hiddenInput.value = '';
+  } else if (ms.selected.size === 1) {
+    const singleVal = Array.from(ms.selected)[0];
+    if (labelEl) labelEl.textContent = type === 'semester' ? `Sem ${singleVal}` : singleVal;
+    if (hiddenInput) hiddenInput.value = singleVal;
+  } else {
+    if (labelEl) labelEl.textContent = `${ms.entityName} (${ms.selected.size})`;
+    if (hiddenInput) hiddenInput.value = '';
+  }
+}
+
+// -------------------------------------------------------------
+// Excel Export Engine for Inspect Records
+// -------------------------------------------------------------
+function updateExportButtonLabel() {
+  const activeSubtab = state.selectedDataSubtab || 'subtab-courses';
+  const label = document.getElementById('export-records-btn-text');
+  const activeOptLabel = document.getElementById('export-opt-active-text');
+  if (!label) return;
+
+  if (activeSubtab === 'subtab-faculty') {
+    label.textContent = 'Export Faculty (.xlsx)';
+    if (activeOptLabel) activeOptLabel.textContent = 'Export Visible Faculty (.xlsx)';
+  } else if (activeSubtab === 'subtab-departments') {
+    label.textContent = 'Export Depts (.xlsx)';
+    if (activeOptLabel) activeOptLabel.textContent = 'Export Visible Departments (.xlsx)';
+  } else {
+    label.textContent = 'Export Courses (.xlsx)';
+    if (activeOptLabel) activeOptLabel.textContent = 'Export Visible Courses (.xlsx)';
+  }
+}
+
+let exportRecordsEventsInitialized = false;
+function initExportRecordsEvents() {
+  if (exportRecordsEventsInitialized) return;
+  exportRecordsEventsInitialized = true;
+
+  const btnExport = document.getElementById('btn-export-records-excel');
+  const btnExportMenu = document.getElementById('btn-export-records-menu');
+  const exportMenu = document.getElementById('menu-export-records');
+  const optActive = document.getElementById('export-opt-active');
+  const optCourses = document.getElementById('export-opt-courses');
+  const optFaculty = document.getElementById('export-opt-faculty');
+  const optBoth = document.getElementById('export-opt-both');
+
+  if (btnExportMenu && exportMenu) {
+    btnExportMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.classList.toggle('hidden');
+    });
+  }
+
+  const doExport = (mode) => {
+    if (exportMenu) exportMenu.classList.add('hidden');
+    const activeSubtab = state.selectedDataSubtab || 'subtab-courses';
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    if (mode === 'active') {
+      if (activeSubtab === 'subtab-faculty') {
+        mode = 'faculty';
+      } else if (activeSubtab === 'subtab-departments') {
+        mode = 'departments';
+      } else {
+        mode = 'courses';
+      }
     }
+
+    if (mode === 'courses') {
+      const courses = window._visibleFilteredCourses || [];
+      if (courses.length === 0) {
+        showToast('No courses to export with the current filter settings.', 'warning');
+        return;
+      }
+      exportCoursesExcel(courses, `courses_export_${dateStr}.xlsx`);
+    } else if (mode === 'faculty') {
+      const faculty = window._visibleFilteredFaculty || [];
+      if (faculty.length === 0) {
+        showToast('No faculty to export with the current filter settings.', 'warning');
+        return;
+      }
+      exportFacultyExcel(faculty, `faculty_export_${dateStr}.xlsx`);
+    } else if (mode === 'departments') {
+      const depts = window._visibleFilteredDepartments || [];
+      if (depts.length === 0) {
+        showToast('No departments to export with the current filter settings.', 'warning');
+        return;
+      }
+      exportDepartmentsExcel(depts, `departments_export_${dateStr}.xlsx`);
+    } else if (mode === 'both') {
+      const courses = window._visibleFilteredCourses || [];
+      const faculty = window._visibleFilteredFaculty || [];
+      if (courses.length === 0 && faculty.length === 0) {
+        showToast('No records to export with the current filter settings.', 'warning');
+        return;
+      }
+      exportCombinedExcel(courses, faculty, `academic_records_export_${dateStr}.xlsx`);
+    }
+  };
+
+  if (btnExport) btnExport.addEventListener('click', () => doExport('active'));
+  if (optActive) optActive.addEventListener('click', () => doExport('active'));
+  if (optCourses) optCourses.addEventListener('click', () => doExport('courses'));
+  if (optFaculty) optFaculty.addEventListener('click', () => doExport('faculty'));
+  if (optBoth) optBoth.addEventListener('click', () => doExport('both'));
+}
+
+function exportCoursesExcel(courses, filename) {
+  if (typeof XLSX === 'undefined') {
+    showToast('XLSX library not loaded. Please check your connection.', 'danger');
+    return;
   }
 
-  // Filter Courses
-  let filteredCourses = state.courses;
-  if (selectedDept) {
-    filteredCourses = filteredCourses.filter(c => c.department === selectedDept);
+  const slotHeaders = [];
+  ['MON', 'TUE', 'WED', 'THU', 'FRI'].forEach(d => {
+    ['1', '2', '3', '4', '5', '6'].forEach(p => {
+      slotHeaders.push(`${d}-${p}`);
+    });
+  });
+
+  const headers = [
+    'Course Code', 'Course Name', 'Type', 'Class', 'Semester', 'Program', 'Category', 'Visual Alias', 'Department', 'Hours',
+    ...slotHeaders
+  ];
+
+  const rows = [headers];
+
+  courses.forEach(c => {
+    // 1. Clean Course Code (strictly remove _C0, _C1, _G1, -(T|P) suffixes)
+    const cleanCode = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
+    // 2. Class/Group column (extract number, or from c.class / c.group)
+    const m = (c.code || '').match(/(_G|_C)(\d+)/);
+    const classNum = m ? parseInt(m[2], 10) : (c.class !== undefined ? c.class : (c.group !== undefined ? c.group : 0));
+
+    const name = c.name || '';
+    const type = c.courseType || 'T';
+    const semester = c.semester !== undefined && c.semester !== null ? c.semester : '';
+    const program = (c.programType || 'UG').toUpperCase();
+    const category = (c.category || 'MAJOR').toUpperCase();
+    const alias = c.alias || '';
+    const department = c.department || '';
+    const hours = c.hours || 0;
+
+    const slotCols = [];
+    ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'].forEach(day => {
+      ['1', '2', '3', '4', '5', '6'].forEach(p => {
+        const rec = (c.recommendations && c.recommendations[day] && c.recommendations[day][p]) ||
+                    (c.masterRecommendations && c.masterRecommendations[day] && c.masterRecommendations[day][p]) || '';
+        slotCols.push(rec);
+      });
+    });
+
+    rows.push([cleanCode, name, type, classNum, semester, program, category, alias, department, hours, ...slotCols]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  ws['!cols'] = [
+    { wch: 18 }, { wch: 45 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 25 }, { wch: 8 },
+    ...Array(30).fill({ wch: 6 })
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Courses');
+  XLSX.writeFile(wb, filename);
+  showToast(`Exported ${courses.length} courses to ${filename}`, 'success');
+}
+
+function exportFacultyExcel(faculty, filename) {
+  if (typeof XLSX === 'undefined') {
+    showToast('XLSX library not loaded. Please check your connection.', 'danger');
+    return;
   }
-  if (selectedProgram) {
-    filteredCourses = filteredCourses.filter(c => String(c.programType || 'UG').trim().toUpperCase() === selectedProgram.trim().toUpperCase());
+
+  const headers = ['Staff ID', 'Name', 'Visual Initials Code', 'Department'];
+  const rows = [headers];
+
+  faculty.forEach(f => {
+    rows.push([f.staffId || '', f.name || '', f.code || '', f.department || '']);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 15 }, { wch: 32 }, { wch: 20 }, { wch: 28 }];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Faculty');
+  XLSX.writeFile(wb, filename);
+  showToast(`Exported ${faculty.length} faculty members to ${filename}`, 'success');
+}
+
+function exportCombinedExcel(courses, faculty, filename) {
+  if (typeof XLSX === 'undefined') {
+    showToast('XLSX library not loaded. Please check your connection.', 'danger');
+    return;
   }
-  if (selectedSemester) {
-    filteredCourses = filteredCourses.filter(c => String(c.semester) === String(selectedSemester));
+
+  const wb = XLSX.utils.book_new();
+
+  // 1. Courses Sheet
+  const slotHeaders = [];
+  ['MON', 'TUE', 'WED', 'THU', 'FRI'].forEach(d => {
+    ['1', '2', '3', '4', '5', '6'].forEach(p => {
+      slotHeaders.push(`${d}-${p}`);
+    });
+  });
+  const courseHeaders = [
+    'Course Code', 'Course Name', 'Type', 'Class', 'Semester', 'Program', 'Category', 'Visual Alias', 'Department', 'Hours',
+    ...slotHeaders
+  ];
+  const courseRows = [courseHeaders];
+  courses.forEach(c => {
+    const cleanCode = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const m = (c.code || '').match(/(_G|_C)(\d+)/);
+    const classNum = m ? parseInt(m[2], 10) : (c.class !== undefined ? c.class : (c.group !== undefined ? c.group : 0));
+    const slotCols = [];
+    ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'].forEach(day => {
+      ['1', '2', '3', '4', '5', '6'].forEach(p => {
+        const rec = (c.recommendations && c.recommendations[day] && c.recommendations[day][p]) ||
+                    (c.masterRecommendations && c.masterRecommendations[day] && c.masterRecommendations[day][p]) || '';
+        slotCols.push(rec);
+      });
+    });
+    courseRows.push([
+      cleanCode, c.name || '', c.courseType || 'T', classNum,
+      c.semester !== undefined && c.semester !== null ? c.semester : '',
+      (c.programType || 'UG').toUpperCase(), (c.category || 'MAJOR').toUpperCase(),
+      c.alias || '', c.department || '', c.hours || 0, ...slotCols
+    ]);
+  });
+  const wsCourses = XLSX.utils.aoa_to_sheet(courseRows);
+  wsCourses['!cols'] = [
+    { wch: 18 }, { wch: 45 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 25 }, { wch: 8 },
+    ...Array(30).fill({ wch: 6 })
+  ];
+  XLSX.utils.book_append_sheet(wb, wsCourses, 'Courses');
+
+  // 2. Faculty Sheet
+  const facultyHeaders = ['Staff ID', 'Name', 'Visual Initials Code', 'Department'];
+  const facultyRows = [facultyHeaders];
+  faculty.forEach(f => {
+    facultyRows.push([f.staffId || '', f.name || '', f.code || '', f.department || '']);
+  });
+  const wsFaculty = XLSX.utils.aoa_to_sheet(facultyRows);
+  wsFaculty['!cols'] = [{ wch: 15 }, { wch: 32 }, { wch: 20 }, { wch: 28 }];
+  XLSX.utils.book_append_sheet(wb, wsFaculty, 'Faculty');
+
+  XLSX.writeFile(wb, filename);
+  showToast(`Exported ${courses.length} courses and ${faculty.length} faculty to ${filename}`, 'success');
+}
+
+function exportDepartmentsExcel(departments, filename) {
+  if (typeof XLSX === 'undefined') {
+    showToast('XLSX library not loaded. Please check your connection.', 'danger');
+    return;
   }
-  if (selectedCategory) {
-    filteredCourses = filteredCourses.filter(c => String(c.category || '').trim().toUpperCase() === String(selectedCategory).trim().toUpperCase());
+
+  const headers = ['Department Name', 'Programs Offered', 'Unique Courses', 'Total Classes', 'Faculty Count'];
+  const rows = [headers];
+
+  departments.forEach(dName => {
+    const deptCourses = (state.courses || []).filter(c => (c.department || '').trim().toLowerCase() === dName.toLowerCase());
+    const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toLowerCase() === dName.toLowerCase());
+    const progSet = new Set(deptCourses.map(c => String(c.programType || 'UG').toUpperCase()));
+    const progs = Array.from(progSet).sort().join(', ') || '-';
+    const uniqueCourses = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, ''))).size;
+    const totalClasses = deptCourses.length;
+    const facCount = deptFaculty.length;
+
+    rows.push([dName, progs, uniqueCourses, totalClasses, facCount]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Departments');
+  XLSX.writeFile(wb, filename);
+  showToast(`Exported ${departments.length} departments to ${filename}`, 'success');
+}
+
+function renderInspectRecords() {
+  const query = (document.getElementById('data-search-input')?.value || '').toLowerCase().trim();
+
+  // Determine active subtab and toggle filter visibility
+  const isCourses = (!state.selectedDataSubtab || state.selectedDataSubtab === 'subtab-courses');
+  const progContainer = document.getElementById('ms-container-program');
+  const semContainer = document.getElementById('ms-container-semester');
+  const catContainer = document.getElementById('ms-container-category');
+  if (progContainer) progContainer.style.display = isCourses ? '' : 'none';
+  if (semContainer) semContainer.style.display = isCourses ? '' : 'none';
+  if (catContainer) catContainer.style.display = isCourses ? '' : 'none';
+
+  updateExportButtonLabel();
+
+  // 1. Synchronize department filter options
+  const deptSet = new Set();
+  (state.departments || []).forEach(d => {
+    const name = typeof d === 'string' ? d : d.name;
+    if (name) deptSet.add(name.trim().toUpperCase());
+  });
+  (state.courses || []).forEach(c => c.department && deptSet.add(c.department.trim().toUpperCase()));
+  (state.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim().toUpperCase()));
+  const sortedDepts = Array.from(deptSet).sort();
+  syncMultiSelectOptions('dept', sortedDepts);
+
+  // 2. Synchronize program filter options
+  syncMultiSelectOptions('program', ['UG', 'PG', 'INT']);
+
+  // 3. Synchronize semester filter options
+  const semSet = new Set();
+  (state.courses || []).forEach(c => {
+    if (c.semester !== undefined && c.semester !== null && c.semester !== '') {
+      semSet.add(String(c.semester));
+    }
+  });
+  const sortedSems = Array.from(semSet).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+  syncMultiSelectOptions('semester', sortedSems);
+
+  // 4. Synchronize category filter options
+  const catSet = new Set();
+  (state.courses || []).forEach(c => {
+    if (c.category) catSet.add(String(c.category).trim().toUpperCase());
+  });
+  const sortedCats = Array.from(catSet).sort();
+  syncMultiSelectOptions('category', sortedCats);
+
+  // Filter Courses with active Multi-Select filters & Query
+  let filteredCourses = state.courses || [];
+  if (!inspectMultiSelects.dept.allSelected) {
+    filteredCourses = filteredCourses.filter(c => inspectMultiSelects.dept.selected.has((c.department || '').trim().toUpperCase()));
+  }
+  if (!inspectMultiSelects.program.allSelected) {
+    filteredCourses = filteredCourses.filter(c => inspectMultiSelects.program.selected.has(String(c.programType || 'UG').toUpperCase()));
+  }
+  if (!inspectMultiSelects.semester.allSelected) {
+    filteredCourses = filteredCourses.filter(c => inspectMultiSelects.semester.selected.has(String(c.semester)));
+  }
+  if (!inspectMultiSelects.category.allSelected) {
+    filteredCourses = filteredCourses.filter(c => inspectMultiSelects.category.selected.has(String(c.category || '').toUpperCase()));
   }
   if (query) {
     filteredCourses = filteredCourses.filter(c => 
@@ -2458,7 +2937,6 @@ function renderInspectRecords() {
   });
 
   window._visibleFilteredCourses = filteredCourses;
-  document.getElementById('count-courses').textContent = filteredCourses.length;
 
   // Group counts for action buttons per (cleanBaseCode + department)
   const groupCounts = {};
@@ -2467,6 +2945,16 @@ function renderInspectRecords() {
     const gk = `${clean}:::${(c.department || '').toUpperCase()}`;
     groupCounts[gk] = (groupCounts[gk] || 0) + 1;
   });
+
+  const uniqueCourseGroupsCount = Object.keys(groupCounts).length;
+  const countCoursesEl = document.getElementById('count-courses');
+  if (countCoursesEl) countCoursesEl.textContent = filteredCourses.length;
+  const countCourseGroupsEl = document.getElementById('count-course-groups');
+  if (countCourseGroupsEl) countCourseGroupsEl.textContent = uniqueCourseGroupsCount;
+  const summaryUniqueEl = document.getElementById('summary-unique-courses');
+  if (summaryUniqueEl) summaryUniqueEl.textContent = uniqueCourseGroupsCount;
+  const summaryClassesEl = document.getElementById('summary-total-classes');
+  if (summaryClassesEl) summaryClassesEl.textContent = filteredCourses.length;
 
   const seenGroups = new Set();
   const coursesTbody = document.querySelector('#table-manage-courses tbody');
@@ -2599,18 +3087,20 @@ function renderInspectRecords() {
 
   updateBulkCoursesUI();
 
-  // Filter Faculty
-  let filteredFaculty = state.faculty;
-  if (selectedDept) {
-    filteredFaculty = filteredFaculty.filter(f => f.department === selectedDept);
+  // Filter Faculty with active Department Multi-Select & Query
+  let filteredFaculty = state.faculty || [];
+  if (!inspectMultiSelects.dept.allSelected) {
+    filteredFaculty = filteredFaculty.filter(f => inspectMultiSelects.dept.selected.has((f.department || '').trim().toUpperCase()));
   }
   if (query) {
     filteredFaculty = filteredFaculty.filter(f => 
       f.name.toLowerCase().includes(query) || 
       f.staffId.toLowerCase().includes(query) || 
-      f.code.toLowerCase().includes(query)
+      f.code.toLowerCase().includes(query) ||
+      (f.department && f.department.toLowerCase().includes(query))
     );
   }
+  window._visibleFilteredFaculty = filteredFaculty;
 
   document.getElementById('count-faculty').textContent = filteredFaculty.length;
 
@@ -2652,6 +3142,194 @@ function renderInspectRecords() {
     });
     facultyTbody.appendChild(tr);
   });
+
+  // Filter & Render Departments
+  const deptsTable = document.querySelector('#table-manage-departments tbody');
+  if (deptsTable) {
+    deptsTable.innerHTML = '';
+
+    // Collect all active unique departments from state.departments, courses, and faculty
+    const deptSet = new Set();
+    (state.departments || []).forEach(d => d.name && deptSet.add(d.name.trim()));
+    (state.courses || []).forEach(c => c.department && deptSet.add(c.department.trim()));
+    (state.faculty || []).forEach(f => f.department && deptSet.add(f.department.trim()));
+    let allDepts = Array.from(deptSet).sort();
+
+    if (!inspectMultiSelects.dept.allSelected) {
+      allDepts = allDepts.filter(d => inspectMultiSelects.dept.selected.has(d.trim().toUpperCase()));
+    }
+    if (query) {
+      allDepts = allDepts.filter(d => d.toLowerCase().includes(query));
+    }
+    window._visibleFilteredDepartments = allDepts;
+
+    const countDeptsEl = document.getElementById('count-departments');
+    if (countDeptsEl) countDeptsEl.textContent = allDepts.length;
+
+    if (allDepts.length === 0) {
+      deptsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted p-4">No matching departments found.</td></tr>';
+    } else {
+      allDepts.forEach(dName => {
+        const tr = document.createElement('tr');
+
+        // Programs for this department
+        const deptCourses = (state.courses || []).filter(c => (c.department || '').trim().toLowerCase() === dName.toLowerCase());
+        const deptFaculty = (state.faculty || []).filter(f => (f.department || '').trim().toLowerCase() === dName.toLowerCase());
+
+        const progSet = new Set();
+        deptCourses.forEach(c => {
+          progSet.add(String(c.programType || 'UG').toUpperCase());
+        });
+        const progBadges = Array.from(progSet).sort().map(p => {
+          const color = (p === 'PG') ? '#0284c7' : (p === 'INT' ? '#7c3aed' : '#059669');
+          return `<span class="badge" style="background-color: ${color}; color: white; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 4px; margin-right: 4px;">${escapeHtml(p)}</span>`;
+        }).join('') || '<span class="text-muted text-xs">-</span>';
+
+        // Count unique base courses vs total class records
+        const uniqueCourses = new Set(deptCourses.map(c => c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, ''))).size;
+        const totalClasses = deptCourses.length;
+        const coursesInfo = totalClasses > 0
+          ? `<strong>${uniqueCourses}</strong> unique <span class="text-muted text-xs">(${totalClasses} class${totalClasses === 1 ? '' : 'es'})</span>`
+          : '<span class="text-muted text-xs">0 courses</span>';
+
+        const facCount = deptFaculty.length;
+        const facInfo = facCount > 0
+          ? `<strong>${facCount}</strong> faculty`
+          : '<span class="text-muted text-xs">0 faculty</span>';
+
+        tr.innerHTML = `
+          <td>
+            <strong style="font-size: 13.5px; color: var(--text);">${escapeHtml(dName)}</strong>
+          </td>
+          <td>${progBadges}</td>
+          <td>${coursesInfo}</td>
+          <td>${facInfo}</td>
+          <td style="text-align: center;">
+            <button type="button" class="btn btn-outline btn-sm btn-edit-dept-name" data-dept="${escapeHtml(dName)}" style="padding: 3px 10px; font-weight: 600;" title="Edit and rename ${escapeHtml(dName)} everywhere">
+              <i class="fa-solid fa-pen-to-square text-primary"></i> Edit Name
+            </button>
+          </td>
+        `;
+
+        tr.querySelector('.btn-edit-dept-name').addEventListener('click', () => {
+          openEditDeptModal(dName);
+        });
+
+        deptsTable.appendChild(tr);
+      });
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// Edit Department Modal Handlers
+// -------------------------------------------------------------
+function openEditDeptModal(deptName) {
+  const modal = document.getElementById('modal-edit-dept');
+  const oldInput = document.getElementById('edit-dept-old-name');
+  const displayInput = document.getElementById('edit-dept-current-display');
+  const newInput = document.getElementById('edit-dept-new-name');
+
+  if (!modal || !oldInput || !displayInput || !newInput) return;
+
+  oldInput.value = deptName;
+  displayInput.value = deptName;
+  newInput.value = deptName;
+
+  modal.classList.remove('hidden');
+  setTimeout(() => {
+    newInput.focus();
+    newInput.select();
+  }, 50);
+}
+
+let editDeptModalInitialized = false;
+function initEditDeptModal() {
+  if (editDeptModalInitialized) return;
+  editDeptModalInitialized = true;
+
+  const modal = document.getElementById('modal-edit-dept');
+  const btnClose = document.getElementById('btn-close-dept-modal');
+  const btnSave = document.getElementById('btn-save-dept-name');
+  const oldInput = document.getElementById('edit-dept-old-name');
+  const newInput = document.getElementById('edit-dept-new-name');
+
+  if (btnClose) {
+    btnClose.addEventListener('click', () => {
+      if (modal) modal.classList.add('hidden');
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+  }
+
+  if (newInput) {
+    newInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnSave) btnSave.click();
+      } else if (e.key === 'Escape') {
+        if (modal) modal.classList.add('hidden');
+      }
+    });
+  }
+
+  if (btnSave) {
+    btnSave.addEventListener('click', async () => {
+      const oldName = (oldInput?.value || '').trim();
+      const newName = (newInput?.value || '').trim().toUpperCase();
+
+      if (!newName) {
+        showToast('Please enter a valid department name.', 'warning');
+        if (newInput) newInput.focus();
+        return;
+      }
+
+      if (oldName.toUpperCase() === newName.toUpperCase()) {
+        showToast('The new department name is the same as the current name.', 'info');
+        if (modal) modal.classList.add('hidden');
+        return;
+      }
+
+      btnSave.disabled = true;
+      btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Renaming Everywhere...';
+
+      try {
+        const token = sessionStorage.getItem('adminToken') || '';
+        const res = await fetch(`${API_BASE}/admin/departments/rename`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token
+          },
+          body: JSON.stringify({ oldName, newName })
+        });
+
+        const result = await res.json();
+        if (res.ok) {
+          if (modal) modal.classList.add('hidden');
+          showToast(result.message || `Department renamed to ${newName} successfully.`, 'success');
+          await fetchGlobalData();
+          renderInspectRecords();
+          renderAdminDepartments();
+          if (typeof populateResetDeptPasswordDropdown === 'function') {
+            populateResetDeptPasswordDropdown();
+          }
+        } else {
+          showModalAlert('Rename Failed', result.message || 'Could not rename department.', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        showModalAlert('Connection Error', 'Network error while attempting to rename department.', 'danger');
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = '<i class="fa-solid fa-check"></i> Save & Update Everywhere';
+      }
+    });
+  }
 }
 
 // -------------------------------------------------------------
@@ -2806,19 +3484,19 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
-  const semLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[course.semester]) || `${course.semester} Sem`;
+  const romanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
+  const semNum = parseInt(course.semester, 10);
+  const semLabel = (!isNaN(semNum) && romanMap[semNum]) ? `${romanMap[semNum]} Sem` : (course.semester ? `Sem ${course.semester}` : '');
   const catStr = formatCategory(course.category);
   
-  if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
-    return `${semLabel} ${catStr}`;
-  }
-  
-  const isPg = course.code.toUpperCase().includes('MSC') || 
+  const isPg = (course.code && course.code.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
                course.programType === 'PG';
-  const progLabel = isPg ? 'MSC' : 'BSC';
-  return `${semLabel} ${progLabel} ${catStr}`;
+  const isInt = course.programType === 'INT';
+  const progLabel = isPg ? 'PG' : (isInt ? 'INT' : '');
+  
+  return [semLabel, progLabel, catStr].filter(Boolean).join(' ');
 }
 
 // Universal Slot Type Resolver: determines if an assigned or recommended slot is Theory ('T'), Practical ('P'), or MDC ('M')
@@ -4148,10 +4826,19 @@ function getRecommendedBatchForCourse(course) {
   // Building blocks: {ProgramType}{FundingType(default Aided '1')}{DeptCode}{Year(derived from Semester)}
   const program = course.programType || 'UG';
   const programCode = program === 'PG' ? 'P' : (program === 'INT' ? 'I' : 'U');
-  const fundingCode = '1'; // Default to Aided '1'
+  // Detect Self-Financed vs Aided:
+  // Departments ending with _SF or containing 'SF' / 'Self Finance' use Funding Code '2', otherwise '1' (Aided)
+  const deptRaw = (course.department || '').trim();
+  const isSF = /(_SF|\bSF\b|SELF[\s_-]*FINANCE)/i.test(deptRaw);
+  const fundingCode = isSF ? '2' : '1';
 
-  // Department Code Map Lookup
-  const mapping = state.batchDeptMappings.find(m => m.deptName.toUpperCase() === course.department.toUpperCase());
+  // Department Code Map Lookup (try exact match first, fallback to stripped base name e.g. COMMERCE_SF -> COMMERCE)
+  const cleanDeptName = deptRaw.replace(/_SF$/i, '').trim().toUpperCase();
+  const mappings = state.batchDeptMappings || [];
+  let mapping = mappings.find(m => m.deptName.trim().toUpperCase() === deptRaw.toUpperCase());
+  if (!mapping) {
+    mapping = mappings.find(m => m.deptName.trim().toUpperCase() === cleanDeptName);
+  }
   if (!mapping) return null;
   const deptCode = mapping.code;
 
@@ -6536,3 +7223,270 @@ async function runRemoteDeploymentCheck() {
 }
 
 
+
+// -------------------------------------------------------------
+// System Audit Logs Client Engine
+// -------------------------------------------------------------
+const auditState = {
+  page: 1,
+  pageSize: 25,
+  search: '',
+  category: '',
+  status: '',
+  total: 0,
+  loading: false
+};
+
+let auditLogsInitialized = false;
+function initAuditLogs() {
+  if (auditLogsInitialized) return;
+  auditLogsInitialized = true;
+
+  const searchInput = document.getElementById('audit-search-input');
+  const catSelect = document.getElementById('audit-select-category');
+  const statSelect = document.getElementById('audit-select-status');
+  const btnRefresh = document.getElementById('btn-refresh-audit-logs');
+  const btnDownload = document.getElementById('btn-download-audit-log');
+  const btnPrune = document.getElementById('btn-prune-audit-logs');
+  const btnPrev = document.getElementById('btn-audit-prev-page');
+  const btnNext = document.getElementById('btn-audit-next-page');
+
+  if (searchInput) {
+    let debounceTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        auditState.search = searchInput.value.trim();
+        auditState.page = 1;
+        loadAuditLogs();
+      }, 250);
+    });
+  }
+
+  if (catSelect) {
+    catSelect.addEventListener('change', () => {
+      auditState.category = catSelect.value;
+      auditState.page = 1;
+      loadAuditLogs();
+    });
+  }
+
+  if (statSelect) {
+    statSelect.addEventListener('change', () => {
+      auditState.status = statSelect.value;
+      auditState.page = 1;
+      loadAuditLogs();
+    });
+  }
+
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      btnRefresh.disabled = true;
+      btnRefresh.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
+      loadAuditLogs().finally(() => {
+        btnRefresh.disabled = false;
+        btnRefresh.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh';
+      });
+    });
+  }
+
+  if (btnDownload) {
+    btnDownload.addEventListener('click', () => {
+      const token = sessionStorage.getItem('adminToken') || '';
+      window.location.href = `${API_BASE}/admin/audit-logs/download?format=csv&token=${encodeURIComponent(token)}`;
+    });
+  }
+
+  if (btnPrune) {
+    btnPrune.addEventListener('click', () => {
+      showModalConfirm(
+        'Prune Archived Logs?',
+        'This will clean up rotated log archives older than 30 days and retain the most recent 5 archive files. Active log entries will remain preserved. Proceed with pruning?',
+        async () => {
+          try {
+            const token = sessionStorage.getItem('adminToken') || '';
+            const res = await fetch(`${API_BASE}/admin/audit-logs/prune`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': token },
+              body: JSON.stringify({ olderThanDays: 30, keepLastCount: 5 })
+            });
+            const result = await res.json();
+            if (res.ok) {
+              showToast(result.message || 'Archived logs pruned successfully.', 'success');
+              loadAuditLogs();
+            } else {
+              showModalAlert('Prune Failed', result.message || 'Could not prune logs.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error while pruning logs.', 'danger');
+          }
+        }
+      );
+    });
+  }
+
+  if (btnPrev) {
+    btnPrev.addEventListener('click', () => {
+      if (auditState.page > 1) {
+        auditState.page--;
+        loadAuditLogs();
+      }
+    });
+  }
+
+  if (btnNext) {
+    btnNext.addEventListener('click', () => {
+      const maxPage = Math.ceil(auditState.total / auditState.pageSize) || 1;
+      if (auditState.page < maxPage) {
+        auditState.page++;
+        loadAuditLogs();
+      }
+    });
+  }
+}
+
+async function loadAuditLogs() {
+  if (auditState.loading) return;
+  auditState.loading = true;
+
+  const tbody = document.querySelector('#table-audit-logs tbody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-muted"><i class="fa-solid fa-spinner fa-spin"></i> Loading audit trail...</td></tr>';
+  }
+
+  try {
+    const token = sessionStorage.getItem('adminToken') || '';
+    const offset = (auditState.page - 1) * auditState.pageSize;
+    const params = new URLSearchParams({
+      limit: String(auditState.pageSize),
+      offset: String(offset),
+      search: auditState.search,
+      category: auditState.category,
+      status: auditState.status
+    });
+
+    const res = await fetch(`${API_BASE}/admin/audit-logs?${params.toString()}`, {
+      headers: { 'Authorization': token }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center p-4 text-danger"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(data.message || 'Failed to load logs.')}</td></tr>`;
+      return;
+    }
+
+    auditState.total = data.total || 0;
+    renderAuditLogsTable(data.logs || []);
+    renderAuditStats(data.stats || {});
+    renderAuditPagination();
+  } catch (err) {
+    console.error('Failed to fetch audit logs:', err);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-danger"><i class="fa-solid fa-circle-exclamation"></i> Network connection error while loading audit logs.</td></tr>';
+  } finally {
+    auditState.loading = false;
+  }
+}
+
+function renderAuditLogsTable(logs) {
+  const tbody = document.querySelector('#table-audit-logs tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4 text-muted"><i class="fa-solid fa-inbox" style="font-size: 24px; display: block; margin-bottom: 8px;"></i> No audit records found matching the active filter criteria.</td></tr>';
+    return;
+  }
+
+  const categoryColorMap = {
+    AUTH: { bg: '#e0f2fe', text: '#0369a1', icon: 'fa-shield-halved' },
+    SCHEDULING: { bg: '#f3e8ff', text: '#6b21a8', icon: 'fa-calendar-days' },
+    DATA: { bg: '#d1fae5', text: '#047857', icon: 'fa-database' },
+    SYSTEM: { bg: '#f1f5f9', text: '#334155', icon: 'fa-server' },
+    SECURITY: { bg: '#fee2e2', text: '#b91c1c', icon: 'fa-triangle-exclamation' }
+  };
+
+  logs.forEach(item => {
+    const tr = document.createElement('tr');
+    
+    // Format timestamp nicely
+    const dateObj = new Date(item.timestamp);
+    const dateFormatted = !isNaN(dateObj.getTime())
+      ? dateObj.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      : item.timestamp;
+
+    // Category badge
+    const catStyle = categoryColorMap[item.category] || { bg: '#f1f5f9', text: '#475569', icon: 'fa-tag' };
+    const catBadge = `<span class="badge" style="background: ${catStyle.bg}; color: ${catStyle.text}; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid ${catStyle.icon}"></i> ${escapeHtml(item.category)}</span>`;
+
+    // Status pill
+    let statusPill = `<span class="badge badge-success" style="font-weight: 700; font-size: 10.5px;">SUCCESS</span>`;
+    if (item.status === 'WARNING') {
+      statusPill = `<span class="badge badge-warning" style="font-weight: 700; font-size: 10.5px; background: #fef3c7; color: #b45309;">WARNING</span>`;
+    } else if (item.status === 'FAILURE') {
+      statusPill = `<span class="badge badge-danger" style="font-weight: 700; font-size: 10.5px; background: #fee2e2; color: #b91c1c;">FAILURE</span>`;
+    }
+
+    // Role pill
+    const rolePill = item.role === 'ADMIN'
+      ? `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-size: 10px; margin-left: 4px; border-radius: 3px;">ADMIN</span>`
+      : `<span class="badge" style="background: #f1f5f9; color: #475569; font-size: 10px; margin-left: 4px; border-radius: 3px;">DEPT</span>`;
+
+    tr.innerHTML = `
+      <td style="font-size: 12px; color: var(--text-muted); font-family: monospace; white-space: nowrap;">
+        <i class="fa-regular fa-clock" style="margin-right: 4px;"></i>${escapeHtml(dateFormatted)}
+      </td>
+      <td>${catBadge}</td>
+      <td>
+        <strong style="font-size: 12.5px; color: var(--text); font-family: monospace;">${escapeHtml(item.action)}</strong>
+      </td>
+      <td>
+        <span style="font-weight: 600; font-size: 12.5px;">${escapeHtml(item.actor)}</span>
+        ${rolePill}
+      </td>
+      <td style="font-size: 12.5px; color: var(--text); line-height: 1.45;">
+        ${escapeHtml(item.details)}
+      </td>
+      <td style="font-size: 11.5px; font-family: monospace; color: var(--text-muted);">
+        ${escapeHtml(item.ip || '-')}
+      </td>
+      <td style="text-align: center;">${statusPill}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderAuditStats(stats) {
+  const elTotal = document.getElementById('audit-stat-total');
+  const elAuth = document.getElementById('audit-stat-auth');
+  const elData = document.getElementById('audit-stat-data');
+  const elWarn = document.getElementById('audit-stat-warnings');
+  const elDiskSize = document.getElementById('audit-disk-size');
+  const elDiskFiles = document.getElementById('audit-disk-files');
+
+  if (elTotal) elTotal.textContent = stats.totalBuffered ?? 0;
+  if (elAuth) elAuth.textContent = stats.authCount ?? 0;
+  if (elData) elData.textContent = stats.dataCount ?? 0;
+  if (elWarn) elWarn.textContent = stats.warningCount ?? 0;
+
+  if (stats.diskInfo) {
+    if (elDiskSize) elDiskSize.textContent = `${stats.diskInfo.totalMb} MB`;
+    if (elDiskFiles) elDiskFiles.textContent = stats.diskInfo.fileCount;
+  }
+}
+
+function renderAuditPagination() {
+  const maxPage = Math.ceil(auditState.total / auditState.pageSize) || 1;
+  const elInfo = document.getElementById('audit-pagination-info');
+  const elCurrent = document.getElementById('audit-current-page');
+  const btnPrev = document.getElementById('btn-audit-prev-page');
+  const btnNext = document.getElementById('btn-audit-next-page');
+
+  const start = auditState.total === 0 ? 0 : (auditState.page - 1) * auditState.pageSize + 1;
+  const end = Math.min(auditState.total, auditState.page * auditState.pageSize);
+
+  if (elInfo) elInfo.textContent = `Showing ${start} - ${end} of ${auditState.total} event(s)`;
+  if (elCurrent) elCurrent.textContent = `Page ${auditState.page} of ${maxPage}`;
+  if (btnPrev) btnPrev.disabled = (auditState.page <= 1);
+  if (btnNext) btnNext.disabled = (auditState.page >= maxPage);
+}

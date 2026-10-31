@@ -6,7 +6,7 @@ import multer from 'multer';
 import xlsx from 'xlsx';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH } from './db.js';
+import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH, getSqliteDb } from './db.js';
 import { generateDepartmentSchedule } from './scheduler.js';
 import {
   hashPassword,
@@ -21,6 +21,7 @@ import {
   sanitizeExcelRows
 } from './security.js';
 import { getVersionInfo } from './version.js';
+import { initAuditLogger, logAudit, getClientIp, getAuditLogs, getActiveLogContent, manualClearLogs, getLogsDiskUsage } from './audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -508,8 +509,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         writeDb(db);
       }
       const token = generateToken({ role: 'admin' });
+      logAudit({ action: 'ADMIN_LOGIN_SUCCESS', category: 'AUTH', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: 'Administrator signed in successfully' });
       return res.json({ success: true, token, user: { role: 'admin' } });
     }
+    logAudit({ action: 'ADMIN_LOGIN_FAILURE', category: 'AUTH', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'FAILURE', details: 'Invalid administrator password attempt' });
     return res.status(401).json({ success: false, message: 'Invalid Admin password' });
   } else if (role === 'department') {
     if (!departmentName) {
@@ -549,12 +552,14 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
         writeDb(db);
       }
       const token = generateToken({ role: 'department', departmentName: deptKey });
+      logAudit({ action: 'DEPT_LOGIN_SUCCESS', category: 'AUTH', actor: deptKey, role: 'COORDINATOR', ip: getClientIp(req), status: 'SUCCESS', details: `Coordinator signed in for department '${deptKey}'` });
       return res.json({
         success: true,
         token,
         user: { role: 'department', departmentName: deptKey }
       });
     }
+    logAudit({ action: 'DEPT_LOGIN_FAILURE', category: 'AUTH', actor: departmentName || 'unknown', role: 'COORDINATOR', ip: getClientIp(req), status: 'FAILURE', details: `Invalid password attempt for department '${departmentName || 'unknown'}'` });
     return res.status(401).json({ success: false, message: 'Invalid Department password' });
   }
 
@@ -585,6 +590,7 @@ app.post('/api/config', requireAdmin, (req, res) => {
   if (semesterLabels) db.config.semesterLabels = semesterLabels;
   
   writeDb(db);
+  logAudit({ action: 'ACADEMIC_CONFIG_UPDATED', category: 'DATA', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: `Updated academic settings: Year=${academicYear || '-'}, SemType=${semesterType || '-'}` });
   res.json({ success: true, message: 'Academic configuration updated.' });
 });
 
@@ -723,6 +729,16 @@ app.post('/api/department/change-password', (req, res) => {
   db.departments[targetKey].password = encryptDeptPasscode(newPassword.trim());
   writeDb(db);
 
+  logAudit({
+    action: 'DEPT_PASSWORD_CHANGED',
+    category: 'AUTH',
+    actor: targetKey,
+    role: 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Department '${targetKey}' password changed successfully`
+  });
+
   res.json({ success: true, message: `Password changed successfully for department ${targetKey}.` });
 });
 
@@ -739,6 +755,17 @@ app.post('/api/departments/password', requireAdmin, (req, res) => {
   }
   db.departments[existingKey].password = encryptDeptPasscode(password.trim());
   writeDb(db);
+
+  logAudit({
+    action: 'DEPT_PASSWORD_UPDATED',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Administrator updated passcode for department '${existingKey}'`
+  });
+
   res.json({ success: true, message: `Password updated for department ${existingKey}.` });
 });
 
@@ -756,6 +783,17 @@ app.post('/api/admin/departments/reset-password', requireAdmin, (req, res) => {
   const defaultPassword = '123456';
   db.departments[existingKey].password = encryptDeptPasscode(defaultPassword);
   writeDb(db);
+
+  logAudit({
+    action: 'DEPT_PASSWORD_RESET',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Administrator reset passcode for department '${existingKey}' to default`
+  });
+
   res.json({
     success: true,
     message: `Password for Department ${existingKey} has been reset to default (${defaultPassword}).`,
@@ -791,6 +829,180 @@ app.get('/api/admin/departments', requireAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// Rename Department with full cascading updates across courses, faculty, allocations, batch mappings & credentials
+app.post(['/api/admin/departments/rename', '/api/admin/departments/update-name'], requireAdmin, handleDepartmentRename);
+app.put('/api/admin/departments/rename', requireAdmin, handleDepartmentRename);
+
+function handleDepartmentRename(req, res) {
+  const { oldName, newName } = req.body;
+  if (!oldName || !newName) {
+    return res.status(400).json({ success: false, message: 'Both current (oldName) and new department (newName) names are required.' });
+  }
+
+  const oldTrim = String(oldName).trim();
+  const newTrim = String(newName).trim().toUpperCase();
+
+  if (!oldTrim || !newTrim) {
+    return res.status(400).json({ success: false, message: 'Department names cannot be blank.' });
+  }
+
+  const db = readDb();
+  const activeDepts = getActiveDepartments(db);
+
+  // Check if old department exists
+  const oldExists = Array.from(activeDepts).some(d => d.toLowerCase() === oldTrim.toLowerCase()) ||
+                    (db.departments && Object.keys(db.departments).some(k => k.trim().toLowerCase() === oldTrim.toLowerCase()));
+  if (!oldExists) {
+    return res.status(404).json({ success: false, message: `Department '${oldTrim}' not found in active records.` });
+  }
+
+  // Prevent conflicting rename to another existing department
+  const isConflict = Array.from(activeDepts).some(d => d.toLowerCase() === newTrim.toLowerCase() && d.toLowerCase() !== oldTrim.toLowerCase()) ||
+                     (db.departments && Object.keys(db.departments).some(k => k.trim().toLowerCase() === newTrim.toLowerCase() && k.trim().toLowerCase() !== oldTrim.toLowerCase()));
+  if (isConflict) {
+    return res.status(400).json({ success: false, message: `A department named '${newTrim}' already exists.` });
+  }
+
+  // 1. Cascading update in db.courses
+  let coursesUpdated = 0;
+  (db.courses || []).forEach(c => {
+    if ((c.department || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+      c.department = newTrim;
+      coursesUpdated++;
+    }
+  });
+
+  // 2. Cascading update in db.faculty
+  let facultyUpdated = 0;
+  (db.faculty || []).forEach(f => {
+    if ((f.department || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+      f.department = newTrim;
+      facultyUpdated++;
+    }
+  });
+
+  // 3. Cascading update in db.departments
+  if (db.departments) {
+    const matchingKeys = Object.keys(db.departments).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedPasscode = null;
+    matchingKeys.forEach(k => {
+      if (!savedPasscode && db.departments[k]?.password) {
+        savedPasscode = db.departments[k].password;
+      }
+      delete db.departments[k];
+    });
+    db.departments[newTrim] = { password: savedPasscode || encryptDeptPasscode('123456') };
+  }
+
+  // 4. Cascading update in db.submissions
+  if (db.submissions) {
+    const matchingSubKeys = Object.keys(db.submissions).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedSub = null;
+    matchingSubKeys.forEach(k => {
+      if (!savedSub && db.submissions[k]) savedSub = db.submissions[k];
+      delete db.submissions[k];
+    });
+    if (savedSub) {
+      db.submissions[newTrim] = savedSub;
+    }
+  }
+
+  // 5. Cascading update in db.allocations
+  if (db.allocations) {
+    const matchingAllocKeys = Object.keys(db.allocations).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let mergedAlloc = {};
+    matchingAllocKeys.forEach(k => {
+      mergedAlloc = { ...mergedAlloc, ...(db.allocations[k] || {}) };
+      delete db.allocations[k];
+    });
+    if (Object.keys(mergedAlloc).length > 0) {
+      db.allocations[newTrim] = mergedAlloc;
+    }
+  }
+
+  // 6. Cascading update in db.timetables
+  if (db.timetables) {
+    const matchingTtKeys = Object.keys(db.timetables).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedTt = null;
+    matchingTtKeys.forEach(k => {
+      if (!savedTt && db.timetables[k]) savedTt = db.timetables[k];
+      delete db.timetables[k];
+    });
+    if (savedTt) {
+      db.timetables[newTrim] = savedTt;
+    }
+  }
+
+  // 7. Cascading update in db.subjectTeacherMapping
+  if (db.subjectTeacherMapping) {
+    const matchingSmKeys = Object.keys(db.subjectTeacherMapping).filter(k => k.trim().toLowerCase() === oldTrim.toLowerCase());
+    let savedSm = null;
+    matchingSmKeys.forEach(k => {
+      if (!savedSm && db.subjectTeacherMapping[k]) savedSm = db.subjectTeacherMapping[k];
+      delete db.subjectTeacherMapping[k];
+    });
+    if (savedSm) {
+      db.subjectTeacherMapping[newTrim] = savedSm;
+    }
+  }
+
+  // 8. Cascading update in db.batchDeptMappings
+  let batchMappingsUpdated = 0;
+  if (Array.isArray(db.batchDeptMappings)) {
+    db.batchDeptMappings.forEach(m => {
+      if ((m.deptName || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        m.deptName = newTrim;
+        batchMappingsUpdated++;
+      }
+    });
+  }
+
+  // 9. Cascading update in db.crossDepartmentRequests
+  if (Array.isArray(db.crossDepartmentRequests)) {
+    db.crossDepartmentRequests.forEach(r => {
+      if ((r.requestingDepartment || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        r.requestingDepartment = newTrim;
+      }
+      if ((r.targetDepartment || '').trim().toLowerCase() === oldTrim.toLowerCase()) {
+        r.targetDepartment = newTrim;
+      }
+    });
+  }
+
+  // 10. Update SQLite normalized departments table directly
+  const sDb = getSqliteDb();
+  if (sDb) {
+    try {
+      sDb.prepare('UPDATE departments SET name = ? WHERE UPPER(name) = UPPER(?)').run(newTrim, oldTrim);
+    } catch (e) {
+      console.warn('[Rename Dept] SQLite direct update notice:', e.message);
+    }
+  }
+
+  // Persist changes and run normalized tables migration
+  writeDb(db);
+
+  logAudit({
+    action: 'DEPARTMENT_RENAME_CASCADE',
+    category: 'DATA',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Cascading rename of department '${oldTrim}' to '${newTrim}' (${coursesUpdated} courses, ${facultyUpdated} faculty, ${batchMappingsUpdated} batch mappings)`
+  });
+
+  res.json({
+    success: true,
+    message: `Department '${oldTrim}' successfully renamed to '${newTrim}' everywhere (${coursesUpdated} courses, ${facultyUpdated} faculty, ${batchMappingsUpdated} batch mappings updated).`,
+    oldName: oldTrim,
+    newName: newTrim,
+    coursesUpdated,
+    facultyUpdated,
+    batchMappingsUpdated
+  });
+}
+
 // Course & Faculty Administration Endpoints
 // -------------------------------------------------------------
 function isDepartmentLocked(db, departmentName) {
@@ -1187,6 +1399,7 @@ app.get('/api/admin/backup', requireAdmin, (req, res) => {
     const db = readDb();
     const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     res.setHeader('Content-Disposition', `attachment; filename="timetable_backup_${dateStr}.json"`);
+    logAudit({ action: 'DATABASE_BACKUP_DOWNLOADED', category: 'SYSTEM', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'SUCCESS', details: 'Full JSON database backup downloaded' });
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(db, null, 2));
   } catch (err) {
@@ -1244,6 +1457,16 @@ app.post('/api/admin/restore', requireAdmin, (req, res, next) => {
       if (!result.success) {
         return res.status(500).json({ success: false, message: result.message || 'Database restore failed.' });
       }
+
+      logAudit({
+        action: 'DATABASE_RESTORED',
+        category: 'SYSTEM',
+        actor: 'admin',
+        role: 'ADMIN',
+        ip: getClientIp(req),
+        status: 'SUCCESS',
+        details: 'Database restored from JSON backup archive'
+      });
 
       return res.json({ 
         success: true, 
@@ -1388,6 +1611,83 @@ app.get('/api/admin/template/:type', requireAdmin, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// -------------------------------------------------------------
+// Audit Log Administration Routes
+// -------------------------------------------------------------
+app.get('/api/admin/audit-logs', requireAdmin, (req, res) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { search, category, status, actor } = req.query;
+
+    const data = getAuditLogs({ limit, offset, search, category, status, actor });
+    res.json({ success: true, ...data });
+  } catch (err) {
+    console.error('Audit logs retrieval failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to retrieve audit logs.' });
+  }
+});
+
+app.get('/api/admin/audit-logs/download', requireAdmin, (req, res) => {
+  try {
+    const format = String(req.query.format || 'log').toLowerCase();
+    const content = getActiveLogContent();
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+    if (format === 'csv') {
+      const lines = content.split('\n').filter(l => l.trim().length > 0);
+      const csvRows = [
+        ['ID', 'Timestamp', 'Category', 'Action', 'Actor', 'Role', 'IP Address', 'Status', 'Details'].map(h => `"${h}"`).join(',')
+      ];
+      lines.forEach(line => {
+        try {
+          const item = JSON.parse(line);
+          csvRows.push([
+            item.id || '',
+            item.timestamp || '',
+            item.category || '',
+            item.action || '',
+            item.actor || '',
+            item.role || '',
+            item.ip || '',
+            item.status || '',
+            (item.details || '').replace(/"/g, '""')
+          ].map(val => `"${val}"`).join(','));
+        } catch (e) {}
+      });
+
+      res.setHeader('Content-Disposition', `attachment; filename="audit_log_${dateStr}.csv"`);
+      res.setHeader('Content-Type', 'text/csv');
+      res.send(csvRows.join('\r\n'));
+    } else {
+      res.setHeader('Content-Disposition', `attachment; filename="audit_log_${dateStr}.log"`);
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(content);
+    }
+  } catch (err) {
+    console.error('Audit log download failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to download audit logs.' });
+  }
+});
+
+app.post('/api/admin/audit-logs/prune', requireAdmin, (req, res) => {
+  try {
+    const olderThanDays = parseInt(req.body.olderThanDays, 10) || 0;
+    const keepLastCount = parseInt(req.body.keepLastCount, 10) || 5;
+    const result = manualClearLogs({ olderThanDays, keepLastCount });
+
+    res.json({
+      success: true,
+      message: `Pruned ${result.prunedCount} archive log file(s). ${result.retainedCount} archive file(s) retained.`,
+      prunedCount: result.prunedCount,
+      retainedCount: result.retainedCount
+    });
+  } catch (err) {
+    console.error('Audit log prune failed:', err);
+    res.status(500).json({ success: false, message: 'Failed to prune audit logs.' });
+  }
+});
+
 // Excel Import Routes
 // -------------------------------------------------------------
 app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) => {
@@ -1730,7 +2030,7 @@ app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) 
 
     // Seed default semester label mappings
     const semestersSet = new Set(mergedCourses.map(c => c.semester));
-    const roman = { '1': 'I BSC', '2': 'II BSC', '3': 'III BSC', '4': 'IV BSC', '5': 'V BSC', '6': 'VI BSC' };
+    const roman = { '1': 'I Sem', '2': 'II Sem', '3': 'III Sem', '4': 'IV Sem', '5': 'V Sem', '6': 'VI Sem' };
     semestersSet.forEach(sem => {
       if (!db.config.semesterLabels[sem]) {
         db.config.semesterLabels[sem] = roman[sem] || `${sem} Sem`;
@@ -2279,6 +2579,15 @@ app.delete('/api/admin/courses/:code', requireAdmin, (req, res) => {
   }
 
   writeDb(db);
+  logAudit({
+    action: 'COURSE_DELETED',
+    category: 'DATA',
+    actor: req.user?.role === 'admin' ? 'admin' : (dept || 'coordinator'),
+    role: req.user?.role === 'admin' ? 'ADMIN' : 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Deleted course '${code}'${dept ? ` from department '${dept}'` : ''}`
+  });
   res.json({ success: true, message: 'Course deleted successfully.' });
 });
 
@@ -2451,6 +2760,15 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
 
   if (addedCount > 0 || updatedCount > 0) {
     writeDb(db);
+    logAudit({
+      action: 'COURSES_BATCH_SAVED',
+      category: 'DATA',
+      actor: 'admin',
+      role: 'ADMIN',
+      ip: getClientIp(req),
+      status: 'SUCCESS',
+      details: `Batch courses update: ${addedCount} added, ${updatedCount} updated (${courses.length} processed)`
+    });
   }
 
   res.json({
@@ -2521,6 +2839,15 @@ app.post('/api/admin/faculty/batch', requireAdmin, (req, res) => {
 
   if (addedCount > 0 || updatedCount > 0) {
     writeDb(db);
+    logAudit({
+      action: 'FACULTY_BATCH_SAVED',
+      category: 'DATA',
+      actor: 'admin',
+      role: 'ADMIN',
+      ip: getClientIp(req),
+      status: 'SUCCESS',
+      details: `Batch faculty update: ${addedCount} added, ${updatedCount} updated (${faculty.length} processed)`
+    });
   }
 
   res.json({
@@ -2560,6 +2887,15 @@ app.delete('/api/admin/faculty/:staffId', requireAdmin, (req, res) => {
   });
   
   writeDb(db);
+  logAudit({
+    action: 'FACULTY_DELETED',
+    category: 'DATA',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Deleted faculty member '${facultyObj.name}' (${facultyObj.code}, Staff ID: ${staffId}) from '${facultyObj.department}'`
+  });
   res.json({ success: true, message: 'Faculty member deleted successfully.' });
 });
 
@@ -3215,6 +3551,22 @@ app.post('/api/submissions/status', requireDepartment, (req, res) => {
   db.submissions[deptUpper].comments = comments || '';
   
   writeDb(db);
+
+  let auditAction = 'TIMETABLE_STATUS_CHANGE';
+  if (status === 'Submitted') auditAction = 'TIMETABLE_SUBMIT';
+  else if (status === 'Approved') auditAction = 'TIMETABLE_APPROVE';
+  else if (status === 'Draft') auditAction = 'TIMETABLE_RETURN';
+
+  logAudit({
+    action: auditAction,
+    category: 'SCHEDULING',
+    actor: req.user?.role === 'admin' ? 'admin' : deptUpper,
+    role: req.user?.role === 'admin' ? 'ADMIN' : 'COORDINATOR',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: `Timetable status for department '${deptUpper}' set to '${status}'. ${comments ? `Comments: ${comments}` : ''}`.trim()
+  });
+
   res.json({ success: true, message: `Status updated to ${status} for department ${deptUpper}.` });
 });
 
@@ -3850,13 +4202,14 @@ app.post('/api/admin/clear-database', requireAdmin, (req, res) => {
   db.batchDeptMappings = [];
   db.groupMappings = {};
   db.config.semesterLabels = {
-    "1": "I BSC",
-    "3": "III BSC",
-    "5": "V BSC"
+    "1": "I Sem",
+    "3": "III Sem",
+    "5": "V Sem"
   };
   db.periods = ["1", "2", "3", "LB", "4", "5", "6"];
   
   writeDb(db);
+  logAudit({ action: 'DATABASE_CLEARED', category: 'SYSTEM', actor: 'admin', role: 'ADMIN', ip: getClientIp(req), status: 'WARNING', details: 'Complete database clear executed by administrator' });
   res.json({ success: true, message: 'Database cleared successfully.' });
 });
 
@@ -3880,6 +4233,17 @@ app.post('/api/admin/change-password', requireAdmin, (req, res) => {
 
   db.config.adminPassword = hashPassword(newPassword.trim());
   writeDb(db);
+
+  logAudit({
+    action: 'ADMIN_PASSWORD_CHANGED',
+    category: 'AUTH',
+    actor: 'admin',
+    role: 'ADMIN',
+    ip: getClientIp(req),
+    status: 'SUCCESS',
+    details: 'Administrator master password changed successfully'
+  });
+
   res.json({ success: true, message: 'Administrator password changed successfully.' });
 });
 
@@ -4408,6 +4772,7 @@ app.use((err, req, res, next) => {
 
 // Start Server
 initDb().then(() => {
+  initAuditLogger();
   app.listen(PORT, () => {
     console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
 

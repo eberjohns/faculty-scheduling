@@ -3697,19 +3697,18 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
-  const semLabel = (state.config && state.config.semesterLabels && state.config.semesterLabels[course.semester]) || `${course.semester} Sem`;
+  const romanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
+  const semNum = parseInt(course.semester, 10);
+  const semLabel = (!isNaN(semNum) && romanMap[semNum]) ? `${romanMap[semNum]} Sem` : (course.semester ? `Sem ${course.semester}` : '');
   const catStr = formatCategory(course.category);
   
-  if (semLabel.toUpperCase().includes('BSC') || semLabel.toUpperCase().includes('MSC')) {
-    return `${semLabel} ${catStr}`;
-  }
-  
-  const isPg = course.code.toUpperCase().includes('MSC') || 
+  const isPg = (course.code && course.code.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('MSC')) || 
                (course.pathway && course.pathway.toUpperCase().includes('POST GRADUATE')) ||
                course.programType === 'PG';
-  const progLabel = isPg ? 'MSC' : 'BSC';
-  return `${semLabel} ${progLabel} ${catStr}`;
+  const isInt = course.programType === 'INT';
+  const progLabel = isPg ? 'PG' : (isInt ? 'INT' : '');
+  return [semLabel, progLabel, catStr].filter(Boolean).join(' ');
 }
 
 // Probes all possible allocation keys (exact, -T, -P, baseCode, class variants _C1-T, _C1-P)
