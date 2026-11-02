@@ -48,7 +48,7 @@ flowchart TD
     Step1 --> Step2["Step 2: API Authentication & Submission Lock Check"]
     Step2 --> Step3{"Step 3: Multi-Cohort Check<br/>(Multiple Semesters / Programs?)"}
     
-    Step3 -- Yes --> MultiCohort["Decompose into Cohorts (Sem 5 > Sem 3 > Sem 1)<br/>Carry forward cumulative allocations"]
+    Step3 -- Yes --> MultiCohort["Decompose into Cohorts in Ascending Order (Sem 1 > Sem 2 > Sem 3 > Sem 5)<br/>Carry forward cumulative allocations"]
     Step3 -- No --> Step4["Step 4: Resolve Faculty Bindings & Workload Balancing"]
     MultiCohort --> Step4
 
@@ -56,7 +56,7 @@ flowchart TD
     Step5 --> Step6["Step 6: Map External Constraints (Global Locks, Other Depts, Lab Slots)"]
     Step6 --> Step7["Step 7: Sort Cards by MRV Heuristic (Recommended > Practicals > Single-Teacher)"]
     
-    Step7 --> Phase1["Step 8: PHASE 1 — Lock Curriculum-Recommended Slots ('T', 'P', 'M')"]
+    Step7 --> Phase1["Step 8: PHASE 1 — Lock Curriculum-Recommended Slots ('T' & 'P' ONLY, 'M' is not recommended)"]
     Phase1 --> Phase1Check{"Phase 1 Success?"}
     Phase1Check -- No --> Phase1Relax["Phase 1 Relaxed Pass (Preserve Recommended Hours)"]
     Phase1Relax --> Phase2
@@ -109,7 +109,7 @@ flowchart TD
 ### Step 3: Multi-Cohort Decomposition (If Applicable)
 - When generating for multiple semesters or program types simultaneously (e.g., "All Semesters"):
   - [`generateMultiCohortSchedule()`](file:///e:/git_repos/college_time_table/server/scheduler.js#L166) groups courses by cohort key (`${semester}_${programType}`).
-  - **Cohort Prioritization**: Solves from senior classes downward:
+  - **Cohort Prioritization**: Solves in ascending order (Sem 1 -> Sem 2 -> Sem 3 -> Sem 5 -> PG):
     $$\text{Sem 5 (UG)} \longrightarrow \text{Sem 3 (UG)} \longrightarrow \text{Sem 1 (UG)} \longrightarrow \text{PG}$$
   - Each cohort's result is added to `cumulativeAllocations`. Subsequent cohorts schedule around these previously allocated slots, guaranteeing zero cross-semester teacher clashes and conflict-free lab usage.
 
@@ -161,8 +161,8 @@ The scheduling engine operates in two distinct phases:
 ```
 +-------------------------------------------------------------------------------+
 | PHASE 1: Curriculum-Recommended Slots (HIGHEST PRIORITY)                     |
-| - Strictly schedules cards into pre-designated recommended slots (T, P, M).   |
-| - Practical cards strictly take 'P' slots; Theory cards take 'T'/'M' slots.  |
+| - Strictly schedules cards into pre-designated recommended slots (T and P ONLY).   |
+| - Practical cards strictly take 'P' slots; Theory cards take 'T' slots ('M' is NOT).|
 | - Locks in curriculum structure before any open balance slots are considered.  |
 +---------------------------------------+---------------------------------------+
                                         |
@@ -197,9 +197,10 @@ For every candidate slot, the solver validates against the full constraint hiera
 | **Zero Faculty Clashes** | Hard Invariant | A teacher cannot teach two classes simultaneously (internal or external department). |
 | **Student Cohort Clash** | Hard Invariant | Same-semester courses cannot run in parallel unless they represent disjoint divisions (`_C1` vs `_C2`) or Major/Minor pairs. |
 | **Single Laboratory Rule** | Hard Invariant | Only one practical lab course can occupy the laboratory at any period unless disjoint class divisions share the room. |
-| **Teacher Blackout Slots** | Hard / Soft | Faculty blackout periods are strictly honored in strict pass; relaxed in deep fallback. |
+| **Teacher Blackout Slots** | Hard Invariant | Faculty unavailability marked in Teacher Availability is strictly honored 100% (never allocated). |
 | **Teacher Fatigue Limit** | Soft Invariant | Teachers cannot teach $> 2$ consecutive hours without a rest period. |
-| **Course Slot Blocks (`B`)** | Hard Invariant | Curriculum-blocked periods for specific courses are strictly respected. |
+| **Course Slot Blocks (`B`)** | Hard Invariant | Curriculum-blocked periods for specific courses are strictly respected (blocks ONLY that course on that day/period; other semester courses remain assignable). |
+| **Entire Semester Blocks** | Hard Invariant | Entire-semester blackout slots completely block all courses in that semester from being scheduled in that slot. |
 | **Daily Course Stacking** | Soft Invariant | Maximum 1 practical block per day; maximum 1 theory lecture per day (up to 2 in relaxed mode). |
 
 ---
@@ -227,7 +228,7 @@ If a department is overconstrained and no valid schedule exists under strict rul
    - Allows up to $2$ theory hours per day for a course if required.
 3. **Pass 3 (Deep Relaxation)**:
    - Relaxes consecutive limit to $4$ hours.
-   - Overrides teacher blackout slots if deadlock occurs.
+   - Disables shift balancing and anti-mono-period heuristics. Teacher blackout slots and blocked slots ('B') remain strictly protected and are NEVER allocated.
 4. **Audit Logging**: Every relaxed constraint is recorded as an explicit exception (`TEACHER_FATIGUE`, `TEACHER_UNAVAILABLE_OVERRIDE`, `PARTIAL_ALLOCATION`).
 5. **In-Section Bottleneck Reporting**:
    - If even deep relaxation fails, the engine returns diagnostic counters (`rejectionCounts`, `bottleneckFaculty`, `bottleneckCourses`).
@@ -258,7 +259,9 @@ Once generation succeeds:
 +---------------------------------------------------------------------------------------+
 |                                CONSTRAINT HIERARCHY                                   |
 +---------------------------------------------------------------------------------------+
-|  LEVEL 1: ABSOLUTE HARD INVARIANTS (Never Relaxed)                                    |
+|  LEVEL 1: ABSOLUTE HARD INVARIANTS (Never Relaxed & Never Allocated)                  |
+|  - Blocked Periods ('B') in Curriculum Slot Allocation (Zero allocations permitted)   |
+|  - Teacher Unavailability marked in Teacher Availability (Never allocated)             |
 |  - Zero faculty double-booking (Cross-Dept & Internal)                                |
 |  - Zero student cohort parallel clashing                                              |
 |  - Admin Global Common Locked Periods                                                 |
@@ -273,7 +276,7 @@ Once generation succeeds:
 +---------------------------------------------------------------------------------------+
 |  LEVEL 3: SOFT CONSTRAINTS (Relaxed under deadlock during fallback)                  |
 |  - Faculty max consecutive teaching hours (2h -> 3h -> 4h)                            |
-|  - Teacher blackout / unwanted slots                                                  |
+|  - Anti-adjacency rule (back-to-back same theory allowed under deadlock)              |
 |  - Theory daily lecture cap (1h/day -> 2h/day)                                        |
 |  - Morning / Afternoon shift balance                                                  |
 |  - Anti-mono-period diversity                                                         |

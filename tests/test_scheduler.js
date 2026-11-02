@@ -475,10 +475,11 @@ if (autoPracResult.success && autoPracResult.allocations["CSC501-P"]) {
 }
 console.log("Practical Generic Teachers Override to Co-Teaching (Expected 2):", autoCoTaught === 2 ? "PASSED (Both teachers in same slot)" : "FAILED (" + autoCoTaught + ")");
 
-console.log("\n--- Testing Course-Specific Slot Blocking ('B') ---");
+console.log("\n--- Testing Course-Specific Slot Blocking ('B') vs Entire Semester Block ---");
 const blockDb = {
   faculty: [
-    { code: "T1", name: "Teacher One", department: "MATHS", maxHours: 16 }
+    { code: "T1", name: "Teacher One", department: "MATHS", maxHours: 16 },
+    { code: "T2", name: "Teacher Two", department: "MATHS", maxHours: 16 }
   ],
   courses: [
     { 
@@ -487,20 +488,35 @@ const blockDb = {
       department: "MATHS", 
       semester: "1", 
       courseType: "T", 
-      hours: 4, 
+      hours: 3, 
       recommendations: { 
         MONDAY: { "1": "B", "2": "B" },
-        TUESDAY: { "1": "T" }
+        WEDNESDAY: { "1": "T" }
+      } 
+    },
+    { 
+      code: "MTH102", 
+      name: "Algebra", 
+      department: "MATHS", 
+      semester: "1", 
+      courseType: "T", 
+      hours: 3, 
+      recommendations: { 
+        MONDAY: { "1": "T" }, // Recommended on Monday P1 (which is only blocked for MTH101, not MTH102)
+        THURSDAY: { "1": "T" }
       } 
     }
   ],
   courseFacultyAssignments: {
-    "MTH101": ["T1"]
+    "MTH101": ["T1"],
+    "MTH102": ["T2"]
   },
   allocations: { "MATHS": {} },
   config: {
     periods: ["1", "2", "3", "LB", "4", "5", "6"],
-    globalLockedPeriods: []
+    globalLockedPeriods: [
+      { day: "TUESDAY", period: "1", semester: "1", label: "Blocked" } // Entire Semester 1 Block!
+    ]
   }
 };
 
@@ -510,15 +526,32 @@ const blockResult = generateDepartmentSchedule({
   semester: "1"
 });
 
-let placedInBlockedSlots = false;
-if (blockResult.success && blockResult.allocations["MTH101"]) {
-  const mthMon = blockResult.allocations["MTH101"].MONDAY || {};
-  if ((mthMon["1"] && mthMon["1"].length > 0) || (mthMon["2"] && mthMon["2"].length > 0)) {
-    placedInBlockedSlots = true;
+let mth101InBlocked = false;
+let mth102OnMon1 = false;
+let anyoneOnTue1 = false;
+
+if (blockResult.success && blockResult.allocations) {
+  const mth101Mon = blockResult.allocations["MTH101"]?.MONDAY || {};
+  if (mth101Mon["1"]?.length > 0 || mth101Mon["2"]?.length > 0) {
+    mth101InBlocked = true;
   }
+
+  const mth102Mon = blockResult.allocations["MTH102"]?.MONDAY || {};
+  if (mth102Mon["1"]?.length > 0) {
+    mth102OnMon1 = true;
+  }
+
+  ["MTH101", "MTH102"].forEach(code => {
+    const tue = blockResult.allocations[code]?.TUESDAY || {};
+    if (tue["1"]?.length > 0) {
+      anyoneOnTue1 = true;
+    }
+  });
 }
 
-console.log("Course MTH101 Blocked on Monday P1 & P2 Respected:", (!placedInBlockedSlots && blockResult.success) ? "PASSED (0 slots placed in blocked periods)" : "FAILED");
+console.log("Course MTH101 Blocked on Monday P1 & P2 Respected:", (!mth101InBlocked && blockResult.success) ? "PASSED (MTH101 not placed in its blocked slots)" : "FAILED");
+console.log("Course-specific block does NOT block other courses in semester (MTH102 placed on Mon P1):", mth102OnMon1 ? "PASSED (MTH102 placed on Mon P1)" : "FAILED");
+console.log("Entire Semester Block on Tuesday P1 completely blocks all courses in semester:", (!anyoneOnTue1) ? "PASSED (0 courses placed in semester block)" : "FAILED");
 
 console.log("\n--- Testing Strict Theory & Practical Compulsory Recommendations (including CourseType 'M') ---");
 const compDb = {
@@ -773,4 +806,66 @@ const bypassResult = generateDepartmentSchedule({
 });
 
 const placedMon1 = (bypassResult.allocations && bypassResult.allocations["REC101-T"] && bypassResult.allocations["REC101-T"]["MONDAY"] && bypassResult.allocations["REC101-T"]["MONDAY"]["1"]);
-console.log("Recommended Slot Bypasses Global Lock & Blackout Constraint (Monday P1):", (placedMon1 && placedMon1.includes("PX")) ? "PASSED (Placed unconditionally in recommended slot)" : "FAILED (Not placed: " + JSON.stringify(placedMon1) + ")");
+const placedTue2 = (bypassResult.allocations && bypassResult.allocations["REC101-T"] && bypassResult.allocations["REC101-T"]["TUESDAY"] && bypassResult.allocations["REC101-T"]["TUESDAY"]["2"]);
+console.log("Hard Invariants: Global Lock, Semester Block & Teacher Blackout strictly respected over recommendations:", (!placedMon1 && placedTue2) ? "PASSED (Blocked/blackout slot avoided, valid slot placed)" : "FAILED (placedMon1=" + JSON.stringify(placedMon1) + ", placedTue2=" + JSON.stringify(placedTue2) + ")");
+
+
+// --- Testing Semester Suffix Matching ("4_UG" vs "4") ---
+const semSuffixDb = {
+  config: {
+    globalLockedPeriods: [
+      { day: "MONDAY", period: "6", semester: "4_UG", department: "MATH_TEST", label: "Blocked" }
+    ]
+  },
+  courses: [
+    { code: "M401", name: "Math 401", department: "MATH_TEST", semester: "4", programType: "UG", weeklyHours: 2, theoryHours: 2, practicalHours: 0, teachers: ["T1"] }
+  ],
+  faculty: [{ code: "T1", name: "Teacher 1", department: "MATH_TEST" }],
+  teacherUnavailability: {},
+  submissions: {},
+  allocations: {}
+};
+
+const semSuffixRes = generateDepartmentSchedule({
+  db: semSuffixDb,
+  departmentName: "MATH_TEST",
+  semester: "4",
+  selectedCourseCodes: ["M401"],
+  allowRelaxedFallback: false
+});
+
+const m401Mon6 = semSuffixRes.allocations && semSuffixRes.allocations["M401"] && semSuffixRes.allocations["M401"]["MONDAY"] && semSuffixRes.allocations["M401"]["MONDAY"]["6"];
+console.log("Semester Suffix Block Enforcement ('4_UG' vs '4'):", !m401Mon6 ? "PASSED (Mon Period 6 strictly not assigned)" : "FAILED (Assigned: " + JSON.stringify(m401Mon6) + ")");
+
+
+// --- Testing Program Filter Isolation: UG lock does NOT block PG course ---
+const progIsolationDb = {
+  config: {
+    globalLockedPeriods: [
+      { day: "MONDAY", period: "1", semester: "4_UG", department: "MATH_TEST", label: "Blocked" },
+      { day: "MONDAY", period: "2", semester: "4_UG", department: "MATH_TEST", label: "Blocked" },
+      { day: "MONDAY", period: "3", semester: "4_UG", department: "MATH_TEST", label: "Blocked" },
+      { day: "MONDAY", period: "4", semester: "4_UG", department: "MATH_TEST", label: "Blocked" },
+      { day: "MONDAY", period: "5", semester: "4_UG", department: "MATH_TEST", label: "Blocked" },
+      { day: "MONDAY", period: "6", semester: "4_UG", department: "MATH_TEST", label: "Blocked" }
+    ]
+  },
+  courses: [
+    { code: "PG401", name: "PG Math 401", department: "MATH_TEST", semester: "4", programType: "PG", weeklyHours: 2, theoryHours: 2, practicalHours: 0, teachers: ["T1"], recommendations: { MONDAY: { "1": "T" } } }
+  ],
+  faculty: [{ code: "T1", name: "Teacher 1", department: "MATH_TEST" }],
+  teacherUnavailability: {},
+  submissions: {},
+  allocations: {}
+};
+
+const progIsolationRes = generateDepartmentSchedule({
+  db: progIsolationDb,
+  departmentName: "MATH_TEST",
+  semester: "4_PG",
+  selectedCourseCodes: ["PG401"],
+  allowRelaxedFallback: false
+});
+
+const pg401Mon1 = progIsolationRes.allocations && progIsolationRes.allocations["PG401"] && progIsolationRes.allocations["PG401"]["MONDAY"] && progIsolationRes.allocations["PG401"]["MONDAY"]["1"];
+console.log("Program Isolation (UG lock does not block PG):", pg401Mon1 ? "PASSED (PG placed in Mon P1 despite 4_UG lock)" : "FAILED (PG was blocked)");

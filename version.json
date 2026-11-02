@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "db19ded",
-  "commitFull": "db19dedbc61fd90e9a32d33652946bcc823ddedd",
+  "commit": "4d30740",
+  "commitFull": "4d307406a6b5a3b2b8e3ea0891d46b7a957bca14",
   "branch": "main",
-  "commitDate": "2026-10-31 00:24:59 +0530",
-  "commitMessage": "version updated to 1.1.0",
-  "builtAt": "2026-11-02T11:27:54.539Z",
+  "commitDate": "2026-11-02 16:56:00 +0530",
+  "commitMessage": "department timetable import issue, global check dropped",
+  "builtAt": "2026-11-02T11:37:00.000Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

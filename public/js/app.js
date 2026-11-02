@@ -1473,8 +1473,8 @@ function renderAllocationMatrix() {
   // Synchronize open print previews or teacher timetables if visible
   syncPrintViewsIfActive();
 
-  // Synchronize manual allocations into Subject Teacher Mapping in real time
-  syncAllocationsToSubjectMapping();
+  // Do NOT reverse-sync allocations into Subject Teacher Mapping
+  // (Preserves user's configured hours, teachers, and practical/theory splits intact)
 }
 
 // Merges data representation of -T and -P suffixes
@@ -1584,15 +1584,30 @@ function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) 
   if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
   if (String(lock.period).trim() !== String(period).trim()) return false;
 
-  const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-  const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+  const lockSemRaw = String(lock.semester || '').trim();
+  const courseSemRaw = course ? String(course.semester || '').trim() : '';
+  const isAll = !lockSemRaw || lockSemRaw.toLowerCase() === 'all';
 
-  // If lock is semester-specific, course must match that semester
-  if (courseSem && lockSem && lockSem !== 'all' && lockSem !== courseSem) {
-    return false;
+  if (!isAll) {
+    const lockDigits = lockSemRaw.replace(/\D+/g, '');
+    const courseDigits = courseSemRaw.replace(/\D+/g, '');
+    if (lockDigits && courseDigits && lockDigits !== courseDigits) {
+      return false;
+    }
+    const lockProgMatch = lockSemRaw.toUpperCase().match(/UG|PG/);
+    const courseProg = (course && course.programType) ? String(course.programType).toUpperCase() : '';
+    const courseProgMatch = courseProg.match(/UG|PG/) || courseSemRaw.toUpperCase().match(/UG|PG/);
+    if (lockProgMatch && courseProgMatch && lockProgMatch[0] !== courseProgMatch[0]) {
+      return false;
+    }
   }
 
-  // All courses belonging to this semester (or all semesters if 'all') are locked during this common period
+  if (lock.department && course && course.department) {
+    const lDept = String(lock.department).trim().toUpperCase();
+    const cDept = String(course.department).trim().toUpperCase();
+    if (lDept && cDept && lDept !== cDept) return false;
+  }
+
   return true;
 }
 
@@ -5419,6 +5434,16 @@ function syncAllocationsToSubjectMapping(targetCourseCode = null) {
     coursesToSync.forEach(course => {
       const cCode = course.code || '';
       const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+
+      // INVARIANT: If this course already has configured hours or teachers in Subject Teacher Mapping,
+      // NEVER allow grid allocations to overwrite, drop teachers, or tamper with the practical/theory split!
+      const existingSaved = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptUpper] && (state.subjectTeacherMapping[deptUpper][cCode] || state.subjectTeacherMapping[deptUpper][baseCode]));
+      const existingLocal = localSubjectMappings[cCode] || localSubjectMappings[baseCode];
+      const hasConfiguredMapping = (existingSaved && (existingSaved.theoryHours !== undefined || existingSaved.practicalHours !== undefined || (existingSaved.teachers && existingSaved.teachers.length > 0))) ||
+                                   (existingLocal && (existingLocal.theoryHours !== undefined || existingLocal.practicalHours !== undefined || (existingLocal.teachers && existingLocal.teachers.length > 0)));
+      if (hasConfiguredMapping) {
+        return; // Preserve user's configured subject mapping completely intact!
+      }
       const classMatch = cCode.match(/(_C|_G)(\d+)/);
       const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
 
@@ -5720,9 +5745,7 @@ function initLocalSubjectMappings() {
     }
   });
 
-  // Automatically reflect any active manual allocations into the mappings
-  syncAllocationsToSubjectMapping();
-
+  // Retain pristine user subject mappings without reverse-sync overwrite
   if (savedSubjectMappingsSnapshot === null) {
     updateSubjectMappingsSnapshot();
   }
@@ -6497,6 +6520,21 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
           localSubjectMappings[cCode].practicalHours = defSplit.practical;
           localSubjectMappings[cCode].theoryHours = defSplit.theory;
         }
+        const pVal = localSubjectMappings[cCode].practicalHours || 2;
+        const tVal = localSubjectMappings[cCode].theoryHours !== undefined ? localSubjectMappings[cCode].theoryHours : Math.max(0, totalHrs - pVal);
+
+        const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+        if (pracBox) {
+          pracBox.style.display = pVal > 0 ? 'block' : 'none';
+          const headerSpan = pracBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
+        }
+        const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+        if (thBox) {
+          thBox.style.display = tVal > 0 ? 'block' : 'none';
+          const headerSpan = thBox.querySelector('span');
+          if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+        }
       }
       syncAutoGenConfigForCourse(cCode);
     });
@@ -6567,6 +6605,20 @@ function bindSubjectMappingTileEvents(container, deptFaculty) {
       if (!localSubjectMappings[cCode]) localSubjectMappings[cCode] = {};
       localSubjectMappings[cCode].theoryHours = tVal;
       localSubjectMappings[cCode].practicalHours = pVal;
+
+      // Update practical & theory boxes visibility and headers
+      const pracBox = document.getElementById(`tile-prac-fac-box-${cCode}`);
+      if (pracBox) {
+        pracBox.style.display = pVal > 0 ? 'block' : 'none';
+        const headerSpan = pracBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-users text-success"></i> Practical Teachers (${pVal} hrs)`;
+      }
+      const thBox = document.getElementById(`tile-prac-theory-box-${cCode}`);
+      if (thBox) {
+        thBox.style.display = tVal > 0 ? 'block' : 'none';
+        const headerSpan = thBox.querySelector('span');
+        if (headerSpan) headerSpan.innerHTML = `<i class="fa-solid fa-book text-primary"></i> Theory Teachers (${tVal} hrs)`;
+      }
 
       // Re-split theory hours among theory teachers
       const thTeachers = localSubjectMappings[cCode].theoryTeachers || [];
@@ -8372,11 +8424,7 @@ function detectCourseParamChanges(cCode, existingAlloc) {
   const cSemClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
   Object.keys(existingAlloc).forEach(day => {
     Object.keys(existingAlloc[day] || {}).forEach(p => {
-      const isLocked = globalLocks.some(l => {
-        const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-        const semMatch = !l.semester || l.semester === 'all' || lSem === cSemClean;
-        return l.day === day && String(l.period) === String(p) && semMatch;
-      });
+      const isLocked = globalLocks.some(l => isPeriodLockedForCourse(l, course, day, p, state.commonBatches || []));
       if (isLocked) {
         const msg = `Allocated slot ${day} Period ${p} is now blocked for Semester ${course.semester}`;
         if (!reasons.includes(msg)) reasons.push(msg);
@@ -8841,6 +8889,33 @@ let masterCoursesRecsBaseline = {}; // Pristine master timetable recommendations
 let curriculumSelectedSem = '';
 let curriculumSelectedFilterCourse = 'ALL';
 
+// Helper to match curriculum semester across formats (e.g. "4", "4_UG", "Sem 4", etc.)
+function isMatchingCurriculumSem(semA, semB) {
+  if (!semA || !semB) return false;
+  const sA = String(semA).replace(/^Sem(ester)?\s*/i, '').trim();
+  const sB = String(semB).replace(/^Sem(ester)?\s*/i, '').trim();
+  if (sA.toLowerCase() === sB.toLowerCase()) return true;
+
+  const digA = sA.replace(/\D+/g, '');
+  const digB = sB.replace(/\D+/g, '');
+  if (!digA || !digB || digA !== digB) return false;
+
+  const progA = (sA.match(/UG|PG/i) || [''])[0].toUpperCase();
+  const progB = (sB.match(/UG|PG/i) || [''])[0].toUpperCase();
+
+  // If both have program type specified, they MUST match (UG !== PG)
+  if (progA && progB) {
+    return progA === progB;
+  }
+
+  // If one or both lack explicit program type, infer from active program filter
+  const progSelect = typeof document !== 'undefined' ? document.getElementById('curriculum-program-select') : null;
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : '';
+  const effProgA = progA || activeProg || 'UG';
+  const effProgB = progB || activeProg || 'UG';
+  return effProgA === effProgB;
+}
+
 function bindCurriculumSlotAllocatorEvents() {
   // Mode selection pills
   document.querySelectorAll('.curriculum-mode-pill').forEach(btn => {
@@ -8956,19 +9031,29 @@ function initCurriculumSemesterData(force = false) {
   if (force || localCurriculumSemesterBlocks.length === 0) {
     localCurriculumSemesterBlocks = [];
     const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+    const seenBlocks = new Set();
     globalLocks.forEach(l => {
       const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
-      if (isBlocked && l.day && l.period) {
-        localCurriculumSemesterBlocks.push({
-          day: l.day.toUpperCase(),
-          period: String(l.period),
-          semester: String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim(),
-          label: 'Blocked'
-        });
+      const lDept = String(l.department || '').trim().toUpperCase();
+      const deptMatch = !lDept || lDept === deptName;
+      if (isBlocked && l.day && l.period && deptMatch) {
+        const s = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        const d = l.day.toUpperCase();
+        const p = String(l.period).trim();
+        const key = `${d}-${p}-${s.toUpperCase()}`;
+        if (!seenBlocks.has(key)) {
+          seenBlocks.add(key);
+          localCurriculumSemesterBlocks.push({
+            day: d,
+            period: p,
+            semester: s,
+            department: deptName,
+            label: 'Blocked'
+          });
+        }
       }
     });
   }
-
   if (force || savedCurriculumRecsSnapshot === null) {
     updateCurriculumSlotsSnapshot();
   }
@@ -9007,13 +9092,73 @@ function getCurriculumDeptCourses(sem = null) {
 }
 
 function getCourseHourTargets(baseCode, semCourses) {
-  // 1. Check localSubjectMappings if user explicitly configured hours in Subject Mapping tab
-  if (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[baseCode]) {
-    const map = localSubjectMappings[baseCode];
-    const th = map.theoryHours !== undefined ? parseInt(map.theoryHours) : null;
-    const pr = map.practicalHours !== undefined ? parseInt(map.practicalHours) : null;
-    if (th !== null && pr !== null && !isNaN(th) && !isNaN(pr)) {
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  const savedMappings = (state.subjectTeacherMapping && state.subjectTeacherMapping[deptName]) || {};
+
+  // Helper to fetch mapping for a specific code from localSubjectMappings or savedMappings
+  const getMappingForCode = (code) => {
+    if (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[code]) {
+      return localSubjectMappings[code];
+    }
+    if (savedMappings[code]) {
+      return savedMappings[code];
+    }
+    return null;
+  };
+
+  // 1. Direct check on baseCode in Subject Teacher Mapping
+  const directMap = getMappingForCode(baseCode);
+  if (directMap) {
+    const isPrac = (directMap.courseType === 'P');
+    const totalH = parseInt(directMap.hours) || 4;
+    const th = directMap.theoryHours !== undefined && directMap.theoryHours !== null 
+      ? parseInt(directMap.theoryHours) 
+      : (isPrac ? 0 : totalH);
+    const pr = directMap.practicalHours !== undefined && directMap.practicalHours !== null 
+      ? parseInt(directMap.practicalHours) 
+      : (isPrac ? totalH : 0);
+    if (!isNaN(th) && !isNaN(pr)) {
       return { thTarget: th, prTarget: pr, total: th + pr };
+    }
+  }
+
+  // 1b. Check if separate -T and -P mappings exist for this baseCode in Subject Teacher Mapping
+  const tMap = getMappingForCode(`${baseCode}-T`);
+  const pMap = getMappingForCode(`${baseCode}-P`);
+  if (tMap || pMap) {
+    let th = 0;
+    let pr = 0;
+    if (tMap) {
+      th = tMap.theoryHours !== undefined ? parseInt(tMap.theoryHours) : (parseInt(tMap.hours) || 2);
+    }
+    if (pMap) {
+      pr = pMap.practicalHours !== undefined ? parseInt(pMap.practicalHours) : (parseInt(pMap.hours) || 2);
+    }
+    const finalTh = isNaN(th) ? 0 : th;
+    const finalPr = isNaN(pr) ? 0 : pr;
+    return { thTarget: finalTh, prTarget: finalPr, total: finalTh + finalPr };
+  }
+
+  // 1c. Check any course in semCourses matching this baseCode for saved Subject Teacher Mappings
+  const matchingCourses = (semCourses || []).filter(c => {
+    const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    return b === baseCode;
+  });
+
+  for (const c of matchingCourses) {
+    const cMap = getMappingForCode(c.code);
+    if (cMap) {
+      const isPrac = (cMap.courseType === 'P' || c.code.endsWith('-P') || c.courseType === 'P');
+      const totalH = parseInt(cMap.hours || c.hours) || 4;
+      const th = cMap.theoryHours !== undefined && cMap.theoryHours !== null 
+        ? parseInt(cMap.theoryHours) 
+        : (isPrac ? 0 : totalH);
+      const pr = cMap.practicalHours !== undefined && cMap.practicalHours !== null 
+        ? parseInt(cMap.practicalHours) 
+        : (isPrac ? totalH : 0);
+      if (!isNaN(th) && !isNaN(pr)) {
+        return { thTarget: th, prTarget: pr, total: th + pr };
+      }
     }
   }
 
@@ -9114,28 +9259,29 @@ function getPracticalPeriodPair(period) {
 // Finds if clicked period is already part of a Practical pair for the given subject
 function findAssignedPracticalPair(day, period, targetBaseCode, semCourses) {
   const pStr = String(period).trim();
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
   let isP = false;
-  semCourses.forEach(c => {
-    const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-    if (b === targetBaseCode) {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pStr] === 'P') {
+  let detectedBase = targetBaseCode;
+
+  for (const c of semCourses) {
+    const b = cleanBase(c.code);
+    const rec = localCurriculumCourseRecs[c.code]?.[day]?.[pStr];
+    if (rec === 'P') {
+      if (!targetBaseCode || targetBaseCode === 'ALL' || b === targetBaseCode) {
         isP = true;
+        detectedBase = b;
+        break;
       }
     }
-  });
+  }
   if (!isP) return null;
 
   const checkSlotIsP = (pCheck) => {
-    let match = false;
-    semCourses.forEach(c => {
-      const b = c.code.replace(/-(T|P)$/, '').replace(/_G\d+$/, '');
-      if (b === targetBaseCode) {
-        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day] && localCurriculumCourseRecs[c.code][day][pCheck] === 'P') {
-          match = true;
-        }
-      }
+    return semCourses.some(c => {
+      const b = cleanBase(c.code);
+      return b === detectedBase && localCurriculumCourseRecs[c.code]?.[day]?.[String(pCheck)] === 'P';
     });
-    return match;
   };
 
   // Only valid pairs: ['1', '2'], ['4', '5'], ['5', '6']
@@ -9145,11 +9291,12 @@ function findAssignedPracticalPair(day, period, targetBaseCode, semCourses) {
   if (pStr === '5') {
     if (checkSlotIsP('4')) return ['4', '5'];
     if (checkSlotIsP('6')) return ['5', '6'];
+    return ['4', '5'];
   }
   if (pStr === '6' && checkSlotIsP('5')) return ['5', '6'];
   if (pStr === '3') return ['3'];
 
-  return getPracticalPeriodPair(pStr);
+  return getPracticalPeriodPair(pStr) || [pStr];
 }
 
 function populateCurriculumSemesterDropdown() {
@@ -9170,7 +9317,7 @@ function populateCurriculumSemesterDropdown() {
   deptCourses.forEach(c => {
     const prog = c.programType || 'UG';
     const s = String(c.semester || '1').replace(/^Sem(ester)?\s*/i, '').trim();
-    const key = activeProg ? s : `${s}_${prog}`;
+    const key = `${s}_${prog}`;
     if (!pairs.some(p => p.val === key)) {
       pairs.push({ val: key, sem: s, prog });
     }
@@ -9253,6 +9400,9 @@ function populateCurriculumCourseDropdowns() {
 }
 
 function renderCurriculumSlotAllocator() {
+  if (typeof initLocalSubjectMappings === 'function') {
+    initLocalSubjectMappings();
+  }
   initCurriculumSemesterData();
   populateCurriculumSemesterDropdown();
   populateCurriculumCourseDropdowns();
@@ -9286,7 +9436,11 @@ function renderCurriculumSlotMatrix() {
 
   // Get department courses for active semester
   const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
-  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : ((String(curriculumSelectedSem).match(/UG|PG/i) || ['UG'])[0].toUpperCase());
+  const semNum = String(curriculumSelectedSem).replace(/\D+/g, '');
+  const canonicalSem = `${semNum}_${activeProg}`;
+  const activeSemStr = canonicalSem;
 
   let totalRecCount = 0;
   let totalBlockCount = 0;
@@ -9305,8 +9459,7 @@ function renderCurriculumSlotMatrix() {
 
       // Check if semester is blocked
       const isSemBlocked = localCurriculumSemesterBlocks.some(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return b.day === day && String(b.period) === String(p) && bSem === activeSemStr;
+        return b.day === day && String(b.period) === String(p) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem);
       });
 
       if (isSemBlocked) {
@@ -9486,20 +9639,61 @@ function handleCurriculumSlotCellClick(day, period) {
     return;
   }
 
-  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : ((String(curriculumSelectedSem).match(/UG|PG/i) || ['UG'])[0].toUpperCase());
+  const semNum = String(curriculumSelectedSem).replace(/\D+/g, '');
+  const canonicalSem = (String(curriculumSelectedSem).includes('_')) ? String(curriculumSelectedSem).trim() : (semNum + '_' + activeProg);
+  const activeSemStr = canonicalSem;
   const deptCourses = getCurriculumDeptCourses(curriculumSelectedSem);
   const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
   const assignSelect = document.getElementById('curriculum-target-subject-select');
-  const targetBaseCode = assignSelect ? assignSelect.value : 'ALL';
+  let targetBaseCode = assignSelect ? assignSelect.value : 'ALL';
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
+  // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // D. Check Entire Semester Block
+  // If the slot is an entire semester block:
+  // - Clicking with 'B' or 'CLEAR' unblocks the semester completely.
+  // - Clicking with 'T' or 'P' warns that the semester is completely blocked.
+  // -------------------------------------------------------------
+  const isSemBlocked = localCurriculumSemesterBlocks.some(b => {
+    return b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem);
+  });
+
+  if (isSemBlocked) {
+    if (curriculumActiveToolMode === 'B' || curriculumActiveToolMode === 'CLEAR') {
+      // Cleanly remove ALL matching semester blocks for this slot (prevents duplicate persistence)
+      localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b =>
+        !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem))
+      );
+      // Also clear any course-specific blocks on this slot
+      deptCourses.forEach(c => {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
+      renderCurriculumSlotMatrix();
+      renderCurriculumHoursBreakdown();
+      return;
+    } else {
+      showModalAlert(
+        'Semester Blocked',
+        `This period is completely blocked for <strong>Semester ${escapeHtml(activeSemStr)}</strong>.<br><span class="text-muted text-xs">Use the Block tool or Clear tool to unblock the semester before assigning a course.</span>`,
+        'warning'
+      );
+      return;
+    }
+  }
+
+  // -------------------------------------------------------------
   // 1. Tool: Block Slot ('B')
+  // Course-specific Block vs Entire Semester Block
+  // -------------------------------------------------------------
   if (curriculumActiveToolMode === 'B') {
     if (targetBaseCode && targetBaseCode !== 'ALL') {
-      // Block/unblock ONLY the selected course!
-      const targetCourses = deptCourses.filter(c => {
-        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return base === targetBaseCode;
-      });
+      // Course-specific block: ONLY the selected course is blocked on this day/period
+      const targetCourses = deptCourses.filter(c => cleanBase(c.code) === targetBaseCode);
 
       const isAlreadyBlocked = targetCourses.some(c => 
         localCurriculumCourseRecs[c.code] && 
@@ -9508,14 +9702,14 @@ function handleCurriculumSlotCellClick(day, period) {
       );
 
       if (isAlreadyBlocked) {
-        // Toggle OFF (unblock this course)
+        // Toggle OFF (unblock this specific course)
         targetCourses.forEach(c => {
           if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
             delete localCurriculumCourseRecs[c.code][day][period];
           }
         });
       } else {
-        // Toggle ON (block this course in this slot)
+        // Toggle ON (block this specific course only - other courses in semester remain unblocked)
         targetCourses.forEach(c => {
           if (!localCurriculumCourseRecs[c.code]) localCurriculumCourseRecs[c.code] = {};
           if (!localCurriculumCourseRecs[c.code][day]) localCurriculumCourseRecs[c.code][day] = {};
@@ -9523,22 +9717,33 @@ function handleCurriculumSlotCellClick(day, period) {
         });
       }
     } else {
-      // Entire Semester Block: Toggle semester-wide blackout
-      // Clear any course recommendations/blocks for this day & period in this semester
-      deptCourses.forEach(c => {
-        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-          delete localCurriculumCourseRecs[c.code][day][period];
-        }
-      });
+      // Entire Semester Block or Toggle OFF Course Blocks when in ALL view:
+      const anyCourseBlocked = deptCourses.some(c => 
+        localCurriculumCourseRecs[c.code] && 
+        localCurriculumCourseRecs[c.code][day] && 
+        localCurriculumCourseRecs[c.code][day][period] === 'B'
+      );
 
-      const existingIdx = localCurriculumSemesterBlocks.findIndex(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
-      });
-
-      if (existingIdx !== -1) {
-        localCurriculumSemesterBlocks.splice(existingIdx, 1);
+      if (anyCourseBlocked) {
+        // If courses are currently blocked, clicking with Block tool toggles them OFF (unblocks)
+        deptCourses.forEach(c => {
+          if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+            delete localCurriculumCourseRecs[c.code][day][period];
+          }
+        });
       } else {
+        // Entire Semester Block: Completely blocks ALL courses in this semester
+        deptCourses.forEach(c => {
+          if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+            delete localCurriculumCourseRecs[c.code][day][period];
+          }
+        });
+
+        // Filter out any existing block first to prevent duplicates
+        localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b =>
+          !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem))
+        );
+
         localCurriculumSemesterBlocks.push({
           day,
           period: String(period),
@@ -9553,14 +9758,13 @@ function handleCurriculumSlotCellClick(day, period) {
     return;
   }
 
+  // -------------------------------------------------------------
   // 2. Tool: Clear Slot ('CLEAR')
+  // -------------------------------------------------------------
   if (curriculumActiveToolMode === 'CLEAR') {
     if (targetBaseCode && targetBaseCode !== 'ALL') {
       // Clear ONLY for the selected course
-      const targetCourses = deptCourses.filter(c => {
-        const base = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return base === targetBaseCode;
-      });
+      const targetCourses = deptCourses.filter(c => cleanBase(c.code) === targetBaseCode);
       targetCourses.forEach(c => {
         if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
           delete localCurriculumCourseRecs[c.code][day][period];
@@ -9569,8 +9773,7 @@ function handleCurriculumSlotCellClick(day, period) {
     } else {
       // Clear entire semester block and all courses in this slot
       localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+        return !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
       });
 
       deptCourses.forEach(c => {
@@ -9633,14 +9836,17 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Remove block if slot was blocked
     localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+      return !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
-    // Clear ANY existing course recommendation in this slot for this semester first
+    // Clear existing Theory/Practical teaching recommendations in this slot for this semester
+    // (Preserve course-specific 'B' blocked slots of other courses)
     deptCourses.forEach(c => {
       if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        delete localCurriculumCourseRecs[c.code][day][period];
+        const val = localCurriculumCourseRecs[c.code][day][period];
+        if (val === 'T' || val === 'P') {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
       }
     });
 
@@ -9711,15 +9917,18 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Remove blocks on both periods in pairToAssign
     localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return !(b.day === day && pairToAssign.includes(String(b.period)) && bSem === activeSemStr);
+      return !(b.day === day && pairToAssign.includes(String(b.period)) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
-    // Clear ANY existing course recommendation on both periods in pairToAssign
+    // Clear existing Theory/Practical recommendations on both periods in pairToAssign
+    // (Preserve course-specific 'B' blocked slots of other courses)
     deptCourses.forEach(c => {
       if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
         pairToAssign.forEach(p => {
-          delete localCurriculumCourseRecs[c.code][day][p];
+          const val = localCurriculumCourseRecs[c.code][day][p];
+          if (val === 'T' || val === 'P') {
+            delete localCurriculumCourseRecs[c.code][day][p];
+          }
         });
       }
     });
@@ -9775,8 +9984,7 @@ function renderCurriculumHoursBreakdown() {
     const thAssigned = assigned.thAssigned;
     const prAssigned = assigned.prAssigned;
 
-    const isSelected = (curriculumSelectedFilterCourse === u.baseCode);
-    const borderStyle = isSelected ? 'border: 2px solid var(--primary); background: #f0fdf4;' : 'border: 1px solid var(--border); background: #ffffff;';
+
 
     const thFull = (thAssigned >= u.thTarget);
     const prFull = (u.prTarget === 0 || prAssigned >= u.prTarget);
@@ -9805,9 +10013,8 @@ function renderCurriculumHoursBreakdown() {
 
     html += `
       <div class="curriculum-hours-chip" 
-           style="${borderStyle}; cursor: pointer; transition: all 0.15s ease;" 
-           onclick="selectCurriculumSubjectForEdit('${u.baseCode}')"
-           title="Click to select ${escapeHtml(u.baseCode)} for editing. Assigning recommended slots is optional; remaining balance hours will be auto-scheduled anywhere.">
+           style="border: 1px solid var(--border); background: #ffffff; cursor: default; user-select: none;" 
+           title="${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)} (Target: ${u.thTarget}h Theory${u.prTarget > 0 ? ', ' + u.prTarget + 'h Practical' : ''})">
         <div style="font-weight: 700; font-size: 11.5px; margin-right: 8px;">
           ${escapeHtml(u.baseCode)}
         </div>
