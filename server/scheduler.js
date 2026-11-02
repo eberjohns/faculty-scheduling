@@ -991,10 +991,21 @@ export function generateDepartmentSchedule({
     return globalLocks.some(lock => {
       if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
       if (String(lock.period).trim() !== String(period).trim()) return false;
-      const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-      const cSem = String(courseSemester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-      if (lockSem && lockSem !== 'all' && cSem && lockSem !== cSem) {
-        return false;
+      const lockSemRaw = String(lock.semester || '').trim();
+      const courseSemRaw = String(courseSemester || (courseObj && courseObj.semester) || '').trim();
+      const isAll = !lockSemRaw || lockSemRaw.toLowerCase() === 'all';
+      if (!isAll) {
+        const lockDigits = lockSemRaw.replace(/\D+/g, '');
+        const courseDigits = courseSemRaw.replace(/\D+/g, '');
+        if (lockDigits && courseDigits && lockDigits !== courseDigits) {
+          return false;
+        }
+        const lockProgMatch = lockSemRaw.toUpperCase().match(/UG|PG/);
+        const courseProg = (courseObj && courseObj.programType) ? String(courseObj.programType).toUpperCase() : '';
+        const courseProgMatch = courseProg.match(/UG|PG/) || courseSemRaw.toUpperCase().match(/UG|PG/);
+        if (lockProgMatch && courseProgMatch && lockProgMatch[0] !== courseProgMatch[0]) {
+          return false;
+        }
       }
       if (lock.department && courseObj && courseObj.department) {
         const lDept = String(lock.department).trim().toUpperCase();

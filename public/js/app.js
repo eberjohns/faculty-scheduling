@@ -1584,15 +1584,30 @@ function isPeriodLockedForCourse(lock, course, day, period, commonBatches = []) 
   if ((lock.day || '').toUpperCase() !== (day || '').toUpperCase()) return false;
   if (String(lock.period).trim() !== String(period).trim()) return false;
 
-  const lockSem = String(lock.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-  const courseSem = course ? String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase() : '';
+  const lockSemRaw = String(lock.semester || '').trim();
+  const courseSemRaw = course ? String(course.semester || '').trim() : '';
+  const isAll = !lockSemRaw || lockSemRaw.toLowerCase() === 'all';
 
-  // If lock is semester-specific, course must match that semester
-  if (courseSem && lockSem && lockSem !== 'all' && lockSem !== courseSem) {
-    return false;
+  if (!isAll) {
+    const lockDigits = lockSemRaw.replace(/\D+/g, '');
+    const courseDigits = courseSemRaw.replace(/\D+/g, '');
+    if (lockDigits && courseDigits && lockDigits !== courseDigits) {
+      return false;
+    }
+    const lockProgMatch = lockSemRaw.toUpperCase().match(/UG|PG/);
+    const courseProg = (course && course.programType) ? String(course.programType).toUpperCase() : '';
+    const courseProgMatch = courseProg.match(/UG|PG/) || courseSemRaw.toUpperCase().match(/UG|PG/);
+    if (lockProgMatch && courseProgMatch && lockProgMatch[0] !== courseProgMatch[0]) {
+      return false;
+    }
   }
 
-  // All courses belonging to this semester (or all semesters if 'all') are locked during this common period
+  if (lock.department && course && course.department) {
+    const lDept = String(lock.department).trim().toUpperCase();
+    const cDept = String(course.department).trim().toUpperCase();
+    if (lDept && cDept && lDept !== cDept) return false;
+  }
+
   return true;
 }
 
@@ -8409,11 +8424,7 @@ function detectCourseParamChanges(cCode, existingAlloc) {
   const cSemClean = String(course.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
   Object.keys(existingAlloc).forEach(day => {
     Object.keys(existingAlloc[day] || {}).forEach(p => {
-      const isLocked = globalLocks.some(l => {
-        const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim().toLowerCase();
-        const semMatch = !l.semester || l.semester === 'all' || lSem === cSemClean;
-        return l.day === day && String(l.period) === String(p) && semMatch;
-      });
+      const isLocked = globalLocks.some(l => isPeriodLockedForCourse(l, course, day, p, state.commonBatches || []));
       if (isLocked) {
         const msg = `Allocated slot ${day} Period ${p} is now blocked for Semester ${course.semester}`;
         if (!reasons.includes(msg)) reasons.push(msg);
@@ -8878,6 +8889,33 @@ let masterCoursesRecsBaseline = {}; // Pristine master timetable recommendations
 let curriculumSelectedSem = '';
 let curriculumSelectedFilterCourse = 'ALL';
 
+// Helper to match curriculum semester across formats (e.g. "4", "4_UG", "Sem 4", etc.)
+function isMatchingCurriculumSem(semA, semB) {
+  if (!semA || !semB) return false;
+  const sA = String(semA).replace(/^Sem(ester)?\s*/i, '').trim();
+  const sB = String(semB).replace(/^Sem(ester)?\s*/i, '').trim();
+  if (sA.toLowerCase() === sB.toLowerCase()) return true;
+
+  const digA = sA.replace(/\D+/g, '');
+  const digB = sB.replace(/\D+/g, '');
+  if (!digA || !digB || digA !== digB) return false;
+
+  const progA = (sA.match(/UG|PG/i) || [''])[0].toUpperCase();
+  const progB = (sB.match(/UG|PG/i) || [''])[0].toUpperCase();
+
+  // If both have program type specified, they MUST match (UG !== PG)
+  if (progA && progB) {
+    return progA === progB;
+  }
+
+  // If one or both lack explicit program type, infer from active program filter
+  const progSelect = typeof document !== 'undefined' ? document.getElementById('curriculum-program-select') : null;
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : '';
+  const effProgA = progA || activeProg || 'UG';
+  const effProgB = progB || activeProg || 'UG';
+  return effProgA === effProgB;
+}
+
 function bindCurriculumSlotAllocatorEvents() {
   // Mode selection pills
   document.querySelectorAll('.curriculum-mode-pill').forEach(btn => {
@@ -8993,19 +9031,29 @@ function initCurriculumSemesterData(force = false) {
   if (force || localCurriculumSemesterBlocks.length === 0) {
     localCurriculumSemesterBlocks = [];
     const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
+    const seenBlocks = new Set();
     globalLocks.forEach(l => {
       const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
-      if (isBlocked && l.day && l.period) {
-        localCurriculumSemesterBlocks.push({
-          day: l.day.toUpperCase(),
-          period: String(l.period),
-          semester: String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim(),
-          label: 'Blocked'
-        });
+      const lDept = String(l.department || '').trim().toUpperCase();
+      const deptMatch = !lDept || lDept === deptName;
+      if (isBlocked && l.day && l.period && deptMatch) {
+        const s = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
+        const d = l.day.toUpperCase();
+        const p = String(l.period).trim();
+        const key = `${d}-${p}-${s.toUpperCase()}`;
+        if (!seenBlocks.has(key)) {
+          seenBlocks.add(key);
+          localCurriculumSemesterBlocks.push({
+            day: d,
+            period: p,
+            semester: s,
+            department: deptName,
+            label: 'Blocked'
+          });
+        }
       }
     });
   }
-
   if (force || savedCurriculumRecsSnapshot === null) {
     updateCurriculumSlotsSnapshot();
   }
@@ -9269,7 +9317,7 @@ function populateCurriculumSemesterDropdown() {
   deptCourses.forEach(c => {
     const prog = c.programType || 'UG';
     const s = String(c.semester || '1').replace(/^Sem(ester)?\s*/i, '').trim();
-    const key = activeProg ? s : `${s}_${prog}`;
+    const key = `${s}_${prog}`;
     if (!pairs.some(p => p.val === key)) {
       pairs.push({ val: key, sem: s, prog });
     }
@@ -9388,7 +9436,11 @@ function renderCurriculumSlotMatrix() {
 
   // Get department courses for active semester
   const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
-  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : ((String(curriculumSelectedSem).match(/UG|PG/i) || ['UG'])[0].toUpperCase());
+  const semNum = String(curriculumSelectedSem).replace(/\D+/g, '');
+  const canonicalSem = `${semNum}_${activeProg}`;
+  const activeSemStr = canonicalSem;
 
   let totalRecCount = 0;
   let totalBlockCount = 0;
@@ -9407,8 +9459,7 @@ function renderCurriculumSlotMatrix() {
 
       // Check if semester is blocked
       const isSemBlocked = localCurriculumSemesterBlocks.some(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return b.day === day && String(b.period) === String(p) && bSem === activeSemStr;
+        return b.day === day && String(b.period) === String(p) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem);
       });
 
       if (isSemBlocked) {
@@ -9588,7 +9639,11 @@ function handleCurriculumSlotCellClick(day, period) {
     return;
   }
 
-  const activeSemStr = String(curriculumSelectedSem).replace(/^Sem(ester)?\s*/i, '').trim();
+  const progSelect = document.getElementById('curriculum-program-select');
+  const activeProg = (progSelect && progSelect.value) ? progSelect.value.toUpperCase() : ((String(curriculumSelectedSem).match(/UG|PG/i) || ['UG'])[0].toUpperCase());
+  const semNum = String(curriculumSelectedSem).replace(/\D+/g, '');
+  const canonicalSem = (String(curriculumSelectedSem).includes('_')) ? String(curriculumSelectedSem).trim() : (semNum + '_' + activeProg);
+  const activeSemStr = canonicalSem;
   const deptCourses = getCurriculumDeptCourses(curriculumSelectedSem);
   const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
   const assignSelect = document.getElementById('curriculum-target-subject-select');
@@ -9596,19 +9651,28 @@ function handleCurriculumSlotCellClick(day, period) {
   const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
   // D. Check Entire Semester Block
   // If the slot is an entire semester block:
-  // - Clicking with 'B' or 'CLEAR' unblocks the semester.
+  // - Clicking with 'B' or 'CLEAR' unblocks the semester completely.
   // - Clicking with 'T' or 'P' warns that the semester is completely blocked.
   // -------------------------------------------------------------
-  const existingSemBlockIdx = localCurriculumSemesterBlocks.findIndex(b => {
-    const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-    return b.day === day && String(b.period) === String(period) && bSem === activeSemStr;
+  const isSemBlocked = localCurriculumSemesterBlocks.some(b => {
+    return b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem);
   });
 
-  if (existingSemBlockIdx !== -1) {
+  if (isSemBlocked) {
     if (curriculumActiveToolMode === 'B' || curriculumActiveToolMode === 'CLEAR') {
-      localCurriculumSemesterBlocks.splice(existingSemBlockIdx, 1);
+      // Cleanly remove ALL matching semester blocks for this slot (prevents duplicate persistence)
+      localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b =>
+        !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem))
+      );
+      // Also clear any course-specific blocks on this slot
+      deptCourses.forEach(c => {
+        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+          delete localCurriculumCourseRecs[c.code][day][period];
+        }
+      });
       renderCurriculumSlotMatrix();
       renderCurriculumHoursBreakdown();
       return;
@@ -9653,20 +9717,40 @@ function handleCurriculumSlotCellClick(day, period) {
         });
       }
     } else {
-      // Entire Semester Block: Completely blocks ALL courses in this semester
-      // Clear individual recommendations/blocks for this day & period in this semester first
-      deptCourses.forEach(c => {
-        if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-          delete localCurriculumCourseRecs[c.code][day][period];
-        }
-      });
+      // Entire Semester Block or Toggle OFF Course Blocks when in ALL view:
+      const anyCourseBlocked = deptCourses.some(c => 
+        localCurriculumCourseRecs[c.code] && 
+        localCurriculumCourseRecs[c.code][day] && 
+        localCurriculumCourseRecs[c.code][day][period] === 'B'
+      );
 
-      localCurriculumSemesterBlocks.push({
-        day,
-        period: String(period),
-        semester: activeSemStr,
-        label: 'Blocked'
-      });
+      if (anyCourseBlocked) {
+        // If courses are currently blocked, clicking with Block tool toggles them OFF (unblocks)
+        deptCourses.forEach(c => {
+          if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+            delete localCurriculumCourseRecs[c.code][day][period];
+          }
+        });
+      } else {
+        // Entire Semester Block: Completely blocks ALL courses in this semester
+        deptCourses.forEach(c => {
+          if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
+            delete localCurriculumCourseRecs[c.code][day][period];
+          }
+        });
+
+        // Filter out any existing block first to prevent duplicates
+        localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b =>
+          !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem))
+        );
+
+        localCurriculumSemesterBlocks.push({
+          day,
+          period: String(period),
+          semester: activeSemStr,
+          label: 'Blocked'
+        });
+      }
     }
 
     renderCurriculumSlotMatrix();
@@ -9689,8 +9773,7 @@ function handleCurriculumSlotCellClick(day, period) {
     } else {
       // Clear entire semester block and all courses in this slot
       localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-        const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-        return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+        return !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
       });
 
       deptCourses.forEach(c => {
@@ -9753,8 +9836,7 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Remove block if slot was blocked
     localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return !(b.day === day && String(b.period) === String(period) && bSem === activeSemStr);
+      return !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
     // Clear existing Theory/Practical teaching recommendations in this slot for this semester
@@ -9835,8 +9917,7 @@ function handleCurriculumSlotCellClick(day, period) {
 
     // Remove blocks on both periods in pairToAssign
     localCurriculumSemesterBlocks = localCurriculumSemesterBlocks.filter(b => {
-      const bSem = String(b.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      return !(b.day === day && pairToAssign.includes(String(b.period)) && bSem === activeSemStr);
+      return !(b.day === day && pairToAssign.includes(String(b.period)) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
     // Clear existing Theory/Practical recommendations on both periods in pairToAssign

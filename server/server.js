@@ -1148,29 +1148,60 @@ app.post('/api/curriculum-slots', requireDepartment, (req, res) => {
   if (Array.isArray(semesterBlocks) && semester) {
     if (!db.config.globalLockedPeriods) db.config.globalLockedPeriods = [];
     const semStr = String(semester).replace(/^Sem(ester)?\s*/i, '').trim();
+
+    const isMatchingSem = (semA, semB) => {
+      if (!semA || !semB) return false;
+      const sA = String(semA).replace(/^Sem(ester)?\s*/i, '').trim();
+      const sB = String(semB).replace(/^Sem(ester)?\s*/i, '').trim();
+      if (sA.toLowerCase() === sB.toLowerCase()) return true;
+      const digA = sA.replace(/\D+/g, '');
+      const digB = sB.replace(/\D+/g, '');
+      if (!digA || !digB || digA !== digB) return false;
+      const progA = (sA.match(/UG|PG/i) || [''])[0].toUpperCase();
+      const progB = (sB.match(/UG|PG/i) || [''])[0].toUpperCase();
+      if (progA && progB && progA !== progB) return false;
+      return true;
+    };
+
     // Remove existing "Blocked" locks for this department's semester
     db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
-      const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
-      const lDept = String(l.department || '').trim().toUpperCase();
       const isBlockedLabel = (l.label || '').toUpperCase().startsWith('BLOCKED');
+      const lDept = String(l.department || '').trim().toUpperCase();
       const deptMatch = !lDept || lDept === deptUpper;
-      return !(lSem === semStr && isBlockedLabel && deptMatch);
+      return !(isBlockedLabel && deptMatch && isMatchingSem(l.semester, semStr));
     });
 
-    // Add new blocks
+    // Add new blocks (strictly scoped to this semester, deduplicated)
+    const seen = new Set();
     semesterBlocks.forEach(b => {
-      if (b && b.day && b.period) {
-        db.config.globalLockedPeriods.push({
-          day: b.day.toUpperCase(),
-          period: String(b.period),
-          semester: semStr,
-          department: deptUpper,
-          label: 'Blocked'
-        });
+      if (b && b.day && b.period && isMatchingSem(b.semester || semStr, semStr)) {
+        const dayNorm = b.day.toUpperCase();
+        const periodNorm = String(b.period).trim();
+        const blockSem = b.semester ? String(b.semester).trim() : semStr;
+        const key = `${dayNorm}-${periodNorm}-${blockSem.toUpperCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          db.config.globalLockedPeriods.push({
+            day: dayNorm,
+            period: periodNorm,
+            semester: blockSem,
+            department: deptUpper,
+            label: 'Blocked'
+          });
+        }
       }
     });
-  }
 
+    // Global deduplication to keep database clean
+    const globalSeen = new Set();
+    db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
+      if (!l || !l.day || !l.period) return false;
+      const key = `${(l.day || '').toUpperCase()}-${String(l.period).trim()}-${String(l.semester || '').trim().toUpperCase()}-${String(l.department || '').trim().toUpperCase()}-${String(l.label || '').trim().toUpperCase()}`;
+      if (globalSeen.has(key)) return false;
+      globalSeen.add(key);
+      return true;
+    });
+  }
   writeDb(db);
   res.json({
     success: true,
@@ -1229,16 +1260,28 @@ app.post('/api/curriculum-slots/reset', requireDepartment, (req, res) => {
   // If resetting whole semester (courseFilter is 'ALL'), remove user-created semester blocked periods for this semester
   if (!courseFilter || courseFilter === 'ALL') {
     if (db.config.globalLockedPeriods) {
+      const isMatchingSem = (semA, semB) => {
+        if (!semA || !semB) return false;
+        const sA = String(semA).replace(/^Sem(ester)?\s*/i, '').trim();
+        const sB = String(semB).replace(/^Sem(ester)?\s*/i, '').trim();
+        if (sA.toLowerCase() === sB.toLowerCase()) return true;
+        const digA = sA.replace(/\D+/g, '');
+        const digB = sB.replace(/\D+/g, '');
+        if (!digA || !digB || digA !== digB) return false;
+        const progA = (sA.match(/UG|PG/i) || [''])[0].toUpperCase();
+        const progB = (sB.match(/UG|PG/i) || [''])[0].toUpperCase();
+        if (progA && progB && progA !== progB) return false;
+        return true;
+      };
+
       db.config.globalLockedPeriods = db.config.globalLockedPeriods.filter(l => {
-        const lSem = String(l.semester || '').replace(/^Sem(ester)?\s*/i, '').trim();
         const lDept = String(l.department || '').trim().toUpperCase();
         const isBlocked = (l.label || '').toUpperCase().startsWith('BLOCKED');
         const deptMatch = !lDept || lDept === deptUpper;
-        return !(lSem === semStr && isBlocked && deptMatch);
+        return !(isBlocked && deptMatch && isMatchingSem(l.semester, semStr));
       });
     }
   }
-
   writeDb(db);
   res.json({
     success: true,
