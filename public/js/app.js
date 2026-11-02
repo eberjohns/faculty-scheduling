@@ -829,13 +829,31 @@ function bindDeptEvents() {
       fileInputDept.click();
     });
 
-    fileInputDept.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+    let pendingImportFile = null;
 
+    const modalFacultyMapping = document.getElementById('modal-import-faculty-mapping');
+    const tbodyFacultyMapping = document.getElementById('import-faculty-mapping-tbody');
+    const countFacultyMapping = document.getElementById('import-mapping-token-count');
+    const btnConfirmImportMapping = document.getElementById('btn-confirm-import-faculty-mapping');
+    const btnCancelImportMapping = document.getElementById('btn-cancel-import-faculty-mapping');
+    const btnCloseImportMapping = document.getElementById('btn-close-import-faculty-mapping');
+
+    function closeFacultyMappingModal() {
+      if (modalFacultyMapping) modalFacultyMapping.classList.add('hidden');
+      pendingImportFile = null;
+      if (fileInputDept) fileInputDept.value = '';
+    }
+
+    if (btnCancelImportMapping) btnCancelImportMapping.addEventListener('click', closeFacultyMappingModal);
+    if (btnCloseImportMapping) btnCloseImportMapping.addEventListener('click', closeFacultyMappingModal);
+
+    async function executeTimetableImport(file, facultyMapping = null) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('departmentName', state.currentUser.departmentName);
+      if (facultyMapping && typeof facultyMapping === 'object') {
+        formData.append('facultyMapping', JSON.stringify(facultyMapping));
+      }
 
       try {
         const res = await authFetch(`${API_BASE}/department/import-timetable`, {
@@ -844,7 +862,7 @@ function bindDeptEvents() {
         });
 
         const result = await res.json();
-        fileInputDept.value = ''; // Reset input
+        closeFacultyMappingModal();
 
         if (res.ok && result.success) {
           let warnMsg = '';
@@ -864,8 +882,180 @@ function bindDeptEvents() {
         }
       } catch (err) {
         console.error(err);
-        fileInputDept.value = '';
+        closeFacultyMappingModal();
         showModalAlert('Error', 'Connection error while uploading timetable Excel.', 'danger');
+      }
+    }
+
+    if (btnConfirmImportMapping) {
+      btnConfirmImportMapping.addEventListener('click', async () => {
+        if (!pendingImportFile) return;
+
+        const mapping = {};
+        if (tbodyFacultyMapping) {
+          const selects = tbodyFacultyMapping.querySelectorAll('.faculty-mapping-select');
+          selects.forEach(sel => {
+            const tok = sel.dataset.token;
+            mapping[tok] = sel.value;
+          });
+        }
+
+        btnConfirmImportMapping.disabled = true;
+        btnConfirmImportMapping.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Importing...';
+
+        try {
+          await executeTimetableImport(pendingImportFile, mapping);
+        } finally {
+          btnConfirmImportMapping.disabled = false;
+          btnConfirmImportMapping.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Confirm & Import Timetable';
+        }
+      });
+    }
+
+    fileInputDept.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const previewData = new FormData();
+      previewData.append('file', file);
+      previewData.append('departmentName', state.currentUser.departmentName);
+
+      try {
+        const previewRes = await authFetch(`${API_BASE}/department/import-timetable/preview`, {
+          method: 'POST',
+          body: previewData
+        });
+
+        const previewResult = await previewRes.json();
+
+        if (!previewRes.ok || !previewResult.success) {
+          fileInputDept.value = '';
+          showModalAlert('Preview Error', previewResult.message || previewResult.error || 'Could not parse timetable file.', 'danger');
+          return;
+        }
+
+        // If no tokens found, proceed to direct import
+        if (!previewResult.tokens || previewResult.tokens.length === 0) {
+          await executeTimetableImport(file);
+          return;
+        }
+
+        // Store file and open mapping dialog
+        pendingImportFile = file;
+        const myDept = (state.currentUser.departmentName || '').toUpperCase();
+
+        if (countFacultyMapping) {
+          countFacultyMapping.textContent = previewResult.tokens.length;
+        }
+
+        if (tbodyFacultyMapping) {
+          tbodyFacultyMapping.innerHTML = '';
+
+          previewResult.tokens.forEach(tok => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border)';
+
+            // 1. Token Cell
+            const tdToken = document.createElement('td');
+            tdToken.style.padding = '10px 8px';
+            tdToken.innerHTML = `<span class="badge badge-primary" style="font-size: 13px; font-weight: 700; font-family: monospace; padding: 4px 8px;">${escapeHtml(tok.token)}</span>`;
+
+            // 2. Slots / Count Cell
+            const tdCount = document.createElement('td');
+            tdCount.style.padding = '10px 8px';
+            tdCount.style.textAlign = 'center';
+            tdCount.innerHTML = `<span class="badge badge-secondary" style="font-size: 11px;">${tok.count} slot${tok.count > 1 ? 's' : ''}</span>` +
+              (tok.sampleCourses && tok.sampleCourses.length > 0 ? `<div class="text-xs text-muted" style="margin-top: 3px; font-size: 10px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(tok.sampleCourses.join(', '))}">${escapeHtml(tok.sampleCourses.join(', '))}</div>` : '');
+
+            // 3. Select Dropdown Cell
+            const tdSelect = document.createElement('td');
+            tdSelect.style.padding = '10px 8px';
+
+            const select = document.createElement('select');
+            select.className = 'form-control faculty-mapping-select';
+            select.style.fontSize = '12px';
+            select.style.padding = '6px 10px';
+            select.dataset.token = tok.token;
+
+            // Option: Drop / Ignore
+            const optDrop = document.createElement('option');
+            optDrop.value = '__DROP__';
+            optDrop.textContent = '-- Do Not Map (Drop / Ignore) --';
+            select.appendChild(optDrop);
+
+            // Group: Department Faculty
+            const optGroupDept = document.createElement('optgroup');
+            optGroupDept.label = `${myDept} Faculty (${previewResult.departmentFaculty.length})`;
+            previewResult.departmentFaculty.forEach(fac => {
+              const opt = document.createElement('option');
+              opt.value = fac.code;
+              opt.textContent = `${fac.name} (${fac.code}${fac.staffId ? ` - ${fac.staffId}` : ''})`;
+              if (tok.suggestedCode && fac.code.toUpperCase() === tok.suggestedCode.toUpperCase()) {
+                opt.selected = true;
+              }
+              optGroupDept.appendChild(opt);
+            });
+            select.appendChild(optGroupDept);
+
+            // Group: Other Faculty (Cross-Dept)
+            if (previewResult.otherFaculty && previewResult.otherFaculty.length > 0) {
+              const optGroupOther = document.createElement('optgroup');
+              optGroupOther.label = `Other Departments (${previewResult.otherFaculty.length})`;
+              previewResult.otherFaculty.forEach(fac => {
+                const opt = document.createElement('option');
+                opt.value = fac.code;
+                opt.textContent = `${fac.name} (${fac.code} - ${fac.department || ''})`;
+                if (tok.suggestedCode && fac.code.toUpperCase() === tok.suggestedCode.toUpperCase() && !optGroupDept.querySelector(`option[value="${fac.code}"]`)) {
+                  opt.selected = true;
+                }
+                optGroupOther.appendChild(opt);
+              });
+              select.appendChild(optGroupOther);
+            }
+
+            tdSelect.appendChild(select);
+
+            // 4. Status Cell
+            const tdStatus = document.createElement('td');
+            tdStatus.style.padding = '10px 8px';
+            tdStatus.style.textAlign = 'center';
+
+            function updateStatusBadge() {
+              const val = select.value;
+              if (val === '__DROP__') {
+                tdStatus.innerHTML = '<span class="badge badge-secondary" style="font-size: 10px;"><i class="fa-solid fa-ban"></i> Dropped</span>';
+              } else if (tok.matchStatus === 'exact' && val === tok.suggestedCode) {
+                tdStatus.innerHTML = '<span class="badge badge-success" style="font-size: 10px;"><i class="fa-solid fa-check"></i> Exact Code</span>';
+              } else if (tok.matchStatus === 'suggested' && val === tok.suggestedCode) {
+                tdStatus.innerHTML = '<span class="badge badge-primary" style="font-size: 10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Matched</span>';
+              } else if (tok.matchStatus === 'cross_dept' && val === tok.suggestedCode) {
+                tdStatus.innerHTML = '<span class="badge badge-warning" style="font-size: 10px;"><i class="fa-solid fa-arrow-right-arrow-left"></i> Cross-Dept</span>';
+              } else if (val) {
+                tdStatus.innerHTML = '<span class="badge badge-info" style="font-size: 10px;"><i class="fa-solid fa-user-check"></i> Mapped</span>';
+              } else {
+                tdStatus.innerHTML = '<span class="badge badge-secondary" style="font-size: 10px;">Select Faculty</span>';
+              }
+            }
+
+            select.addEventListener('change', updateStatusBadge);
+            updateStatusBadge();
+
+            tr.appendChild(tdToken);
+            tr.appendChild(tdCount);
+            tr.appendChild(tdSelect);
+            tr.appendChild(tdStatus);
+
+            tbodyFacultyMapping.appendChild(tr);
+          });
+
+          if (modalFacultyMapping) {
+            modalFacultyMapping.classList.remove('hidden');
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        fileInputDept.value = '';
+        showModalAlert('Error', 'Connection error while inspecting timetable Excel.', 'danger');
       }
     });
   }

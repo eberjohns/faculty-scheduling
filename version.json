@@ -1,11 +1,11 @@
 {
   "version": "1.0.0",
-  "commit": "18789fb",
-  "commitFull": "18789fbf03e08b9b6b71211294ec519d6b2bea8c",
+  "commit": "647f360",
+  "commitFull": "647f360f9fbfc207727d9079107760169c966206",
   "branch": "main",
-  "commitDate": "2026-11-02 17:08:06 +0530",
-  "commitMessage": "Merge branch 'origin/main' into main and resolve version.json",
-  "builtAt": "2026-11-02T11:38:18.421Z",
+  "commitDate": "2026-11-02 17:08:31 +0530",
+  "commitMessage": "update version.json with merge commit metadata",
+  "builtAt": "2026-11-02T13:42:26.801Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

@@ -3409,6 +3409,177 @@ app.get('/api/department/import-template', requireUser, (req, res) => {
   res.send(buffer);
 });
 
+// -------------------------------------------------------------
+// Department Timetable Excel Import: Preview & Interactive Mapping
+// -------------------------------------------------------------
+app.post('/api/department/import-timetable/preview', requireDepartment, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const db = readDb();
+  const deptUpper = (req.departmentName || req.body.departmentName || '').toUpperCase();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length < 2) {
+      return res.status(400).json({ error: 'Excel sheet must contain a header row and at least one data row.' });
+    }
+
+    const headerRow = data[0];
+    const DAY_MAP = { MON: 'MONDAY', TUE: 'TUESDAY', WED: 'WEDNESDAY', THU: 'THURSDAY', FRI: 'FRIDAY', MONDAY: 'MONDAY', TUESDAY: 'TUESDAY', WEDNESDAY: 'WEDNESDAY', THURSDAY: 'THURSDAY', FRIDAY: 'FRIDAY' };
+
+    let codeColIdx = -1;
+    const slotCols = [];
+
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = String(headerRow[c] || '').trim();
+      const hdrLow = hdr.toLowerCase();
+
+      const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY)[-_\s]?(.+)$/i);
+      if (slotMatch) {
+        const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
+        const period = slotMatch[2].trim();
+        if (dayFull && period.toUpperCase() !== 'LB') {
+          slotCols.push({ idx: c, day: dayFull, period });
+        }
+        continue;
+      }
+
+      if (hdrLow === 'course code' || hdrLow === 'coursecode' || hdrLow === 'code') {
+        codeColIdx = c;
+      }
+    }
+
+    if (codeColIdx === -1) {
+      return res.status(400).json({ error: 'Could not find a "Course Code" column in header row.' });
+    }
+
+    if (slotCols.length === 0) {
+      return res.status(400).json({ error: 'No timetable slot columns found in header (expected headers like MON-1, MON-2, etc.).' });
+    }
+
+    const facultyList = db.faculty || [];
+    const deptFaculty = facultyList.filter(f => (f.department || '').toUpperCase() === deptUpper);
+    const otherFaculty = facultyList.filter(f => (f.department || '').toUpperCase() !== deptUpper);
+
+    // Collect unique tokens across all timetable cells
+    const tokenMap = {};
+    let totalCoursesInSheet = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0) continue;
+      const rawCode = String(row[codeColIdx] || '').trim();
+      if (!rawCode || rawCode.toLowerCase() === 'course code') continue;
+
+      totalCoursesInSheet++;
+
+      slotCols.forEach(({ idx, day, period }) => {
+        const cellVal = String(row[idx] || '').trim();
+        if (!cellVal) return;
+
+        const rawTokens = cellVal.split(/[/,;+&]/).map(t => t.trim()).filter(Boolean);
+        rawTokens.forEach(token => {
+          const key = token.toUpperCase();
+          if (!tokenMap[key]) {
+            tokenMap[key] = {
+              token,
+              count: 0,
+              sampleCourses: new Set(),
+              sampleSlots: []
+            };
+          }
+          tokenMap[key].count++;
+          if (rawCode) tokenMap[key].sampleCourses.add(rawCode);
+          if (tokenMap[key].sampleSlots.length < 3) {
+            tokenMap[key].sampleSlots.push(`${day.substring(0, 3)}-${period}`);
+          }
+        });
+      });
+    }
+
+    function suggestMatch(tok) {
+      const tUpper = tok.toUpperCase();
+
+      // 1. Exact code in deptFaculty
+      let match = deptFaculty.find(f => f.code.toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'exact', reason: `Exact code match (${match.code})` };
+
+      // 2. Staff ID in deptFaculty
+      match = deptFaculty.find(f => (f.staffId || '').toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'exact', reason: `Staff ID match (${match.staffId})` };
+
+      // 3. Code variation in deptFaculty (e.g. SAS matches SAS1, or NP matches NPL)
+      match = deptFaculty.find(f => {
+        const c = f.code.toUpperCase();
+        return c.startsWith(tUpper) || tUpper.startsWith(c);
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Code variation (${match.code})` };
+
+      // 4. Name prefix in deptFaculty (e.g. ANN matches Ann Mary K A)
+      match = deptFaculty.find(f => {
+        const clean = f.name.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim().toUpperCase();
+        return clean.startsWith(tUpper);
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Name prefix match (${match.name})` };
+
+      // 5. Letter sequence in deptFaculty (e.g. J-B-S in Joby Sebastian, V-M-K in Vimalkumar)
+      match = deptFaculty.find(f => {
+        const clean = f.name.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').replace(/[^A-Za-z]/g, '').toUpperCase();
+        let idx = 0;
+        for (const char of tUpper) {
+          idx = clean.indexOf(char, idx);
+          if (idx === -1) return false;
+          idx++;
+        }
+        return true;
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Initials match (${match.name})` };
+
+      // 6. Check other faculty (cross-department)
+      match = otherFaculty.find(f => f.code.toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'cross_dept', reason: `Other Dept (${match.department})` };
+
+      return { code: '', name: '', status: 'unmapped', reason: 'Unrecognized' };
+    }
+
+    const tokens = Object.values(tokenMap).map(t => {
+      const suggestion = suggestMatch(t.token);
+      return {
+        token: t.token,
+        count: t.count,
+        sampleCourses: Array.from(t.sampleCourses).slice(0, 3),
+        sampleSlots: t.sampleSlots,
+        suggestedCode: suggestion.code,
+        suggestedName: suggestion.name,
+        matchStatus: suggestion.status,
+        matchReason: suggestion.reason
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    res.json({
+      success: true,
+      totalCoursesInSheet,
+      tokens,
+      departmentFaculty: deptFaculty.map(f => ({ code: f.code, name: f.name, staffId: f.staffId, department: f.department })),
+      otherFaculty: otherFaculty.map(f => ({ code: f.code, name: f.name, staffId: f.staffId, department: f.department }))
+    });
+  } catch (err) {
+    console.error("Department Excel preview failed:", err);
+    res.status(500).json({ error: 'Failed to inspect timetable Excel: ' + err.message });
+  }
+});
+
 app.post('/api/department/import-timetable', requireDepartment, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
@@ -3475,21 +3646,69 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
     const deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptUpper);
     const facultyList = db.faculty || [];
 
+    const deptFaculty = facultyList.filter(f => (f.department || '').toUpperCase() === deptUpper);
+
+    // Parse facultyMapping if provided (JSON string or object)
+    let facultyMapping = {};
+    if (req.body.facultyMapping) {
+      try {
+        facultyMapping = typeof req.body.facultyMapping === 'string'
+          ? JSON.parse(req.body.facultyMapping)
+          : req.body.facultyMapping;
+      } catch (e) {
+        console.warn('[Import Timetable] Could not parse facultyMapping:', e.message);
+      }
+    }
+
+    function isExplicitlyDropped(token) {
+      if (!facultyMapping || typeof facultyMapping !== 'object') return false;
+      const clean = token.trim();
+      const mapped = facultyMapping[clean] !== undefined ? facultyMapping[clean] : facultyMapping[clean.toUpperCase()];
+      return mapped === '__DROP__' || mapped === '' || mapped === null;
+    }
+
     function resolveFacultyCode(token) {
       const clean = token.trim();
       if (!clean) return null;
       const cleanUpper = clean.toUpperCase();
 
-      let fac = facultyList.find(f => f.code.toUpperCase() === cleanUpper);
+      // 1. Check user-defined explicit mapping
+      if (facultyMapping && typeof facultyMapping === 'object') {
+        const mappedCode = facultyMapping[clean] !== undefined ? facultyMapping[clean] : facultyMapping[cleanUpper];
+        if (mappedCode !== undefined) {
+          if (!mappedCode || mappedCode === '__DROP__' || mappedCode === 'null') {
+            return null; // Explicitly dropped by user
+          }
+          const mappedUpper = String(mappedCode).trim().toUpperCase();
+          const targetFac = facultyList.find(f => f.code.toUpperCase() === mappedUpper);
+          return targetFac ? targetFac.code : null;
+        }
+      }
+
+      // 2. Prioritize department's own faculty
+      let fac = deptFaculty.find(f => f.code.toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
-      fac = facultyList.find(f => f.staffId.toUpperCase() === cleanUpper);
+      fac = deptFaculty.find(f => (f.staffId || '').toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
-      fac = facultyList.find(f => f.name.toUpperCase() === cleanUpper);
+      fac = deptFaculty.find(f => f.name.toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
       const cleanTitleName = cleanUpper.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim();
+      fac = deptFaculty.find(f => f.name.toUpperCase().replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim() === cleanTitleName);
+      if (fac) return fac.code;
+
+      // 3. Fallback to other college faculty (cross-department)
+      fac = facultyList.find(f => f.code.toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => (f.staffId || '').toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => (f.name || '').toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
       fac = facultyList.find(f => f.name.toUpperCase().replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim() === cleanTitleName);
       if (fac) return fac.code;
 
@@ -3534,6 +3753,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
         const resolvedFacs = [];
 
         rawTokens.forEach(token => {
+          if (isExplicitlyDropped(token)) return;
           const code = resolveFacultyCode(token);
           if (code) {
             if (!resolvedFacs.includes(code)) resolvedFacs.push(code);
