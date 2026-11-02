@@ -20,7 +20,7 @@ import {
   apiLimiter,
   sanitizeExcelRows
 } from './security.js';
-import { getVersionInfo } from './version.js';
+import { getVersionInfo, bumpVersion } from './version.js';
 import { initAuditLogger, logAudit, getClientIp, getAuditLogs, getActiveLogContent, manualClearLogs, getLogsDiskUsage } from './audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1748,6 +1748,35 @@ app.post('/api/admin/audit-logs/prune', requireAdmin, (req, res) => {
   } catch (err) {
     console.error('Audit log prune failed:', err);
     res.status(500).json({ success: false, message: 'Failed to prune audit logs.' });
+  }
+});
+
+// Admin endpoint to bump or change semantic version
+app.post('/api/admin/version/bump', requireAdmin, (req, res) => {
+  const { type, customVersion } = req.body;
+  try {
+    const result = bumpVersion(type || 'patch', customVersion);
+    if (!result) {
+      return res.status(400).json({ success: false, message: 'Version bump skipped or failed.' });
+    }
+    logAudit({
+      action: 'VERSION_BUMPED',
+      category: 'SYSTEM',
+      actor: 'admin',
+      role: 'ADMIN',
+      target: `v${result.version}`,
+      details: `Semantic version updated from v${result.oldVersion} to v${result.version} (${type || 'custom'})`,
+      req
+    });
+    const info = getVersionInfo(true);
+    res.json({
+      success: true,
+      message: `Version successfully updated to v${result.version}`,
+      ...result,
+      deployment: info
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
   }
 });
 

@@ -54,7 +54,7 @@ graph TD
 
 | Attribute | Git Command / Source | Example Value |
 |---|---|---|
-| `version` | [`package.json`](file:///e:/git_repos/college_time_table/package.json) | `1.0.0` |
+| `version` | [`package.json`](file:///e:/git_repos/college_time_table/package.json) | `2.0.0` |
 | `commit` | `git rev-parse --short HEAD` | `ac14b9e` |
 | `commitFull` | `git rev-parse HEAD` | `ac14b9e941a820cbbf7dd3909544da88d51e543a` |
 | `branch` | `git rev-parse --abbrev-ref HEAD` | `main` |
@@ -70,7 +70,7 @@ If Git commands fail (e.g., when deployed in a stripped Docker image or zipped d
    Publicly readable JSON payload containing the local server's deployment status:
    ```json
    {
-     "version": "1.0.0",
+     "version": "2.0.0",
      "commit": "ac14b9e",
      "commitFull": "ac14b9e941a820cbbf7dd3909544da88d51e543a",
      "branch": "main",
@@ -215,3 +215,46 @@ When updates have been pushed to GitHub, follow these steps to update the produc
      npm run check-deploy http://tt.stthomas.ac.in:8021
      ```
    - The status will now read: **🟢 COLLEGE SERVER IS 100% UP TO DATE!**
+
+
+---
+
+## 7. Version Bumping & Release Lifecycle
+
+The system adheres to standard Semantic Versioning (`MAJOR.MINOR.PATCH`, e.g., `2.0.0`):
+- **MAJOR (`X.0.0`)**: Breaking architectural changes, major database reorganizations, or comprehensive milestone overhauls.
+- **MINOR (`2.X.0`)**: Backward-compatible new features (e.g. adding new reports, audit views, or department workflows).
+- **PATCH (`2.0.X`)**: Bug fixes, constraint adjustments, UI styling tweaks, and routine maintenance.
+
+### 7.1 Automated Git Commit Hook (`pre-commit`)
+Whenever a developer runs `git commit -m "..."`, a Git `pre-commit` hook automatically:
+1. Detects whether `package.json` was already manually modified/staged in this commit.
+   - If user already set a custom version (e.g. `3.0.0`), the hook preserves it.
+   - Otherwise, it automatically increments the **patch digit** (`2.0.0 -> 2.0.1`).
+2. Synchronizes both [`package.json`](file:///e:/git_repos/college_time_table/package.json) and [`version.json`](file:///e:/git_repos/college_time_table/version.json).
+3. Automatically runs `git add package.json version.json` so the new version is included right inside the commit.
+
+To reinstall or initialize hooks on any clone:
+```bash
+npm run setup-hooks
+```
+
+### 7.2 Manual CLI Bumping
+You can bump or set any semantic version directly from your terminal:
+
+| Command | Action | Example Before -> After |
+|---|---|---|
+| `npm run bump` or `npm run bump:patch` | Increments patch digit | `2.0.0` -> `2.0.1` |
+| `npm run bump:minor` | Increments minor digit | `2.0.1` -> `2.1.0` |
+| `npm run bump:major` | Increments major digit | `2.1.0` -> `3.0.0` |
+| `node scripts/bump-version.js <version>` | Explicit custom version | `node scripts/bump-version.js 2.5.0` |
+
+### 7.3 Admin Web UI Version Control
+System Administrators can also manage releases without using Git or CLI:
+1. Open the Central Admin Portal -> **System Information & Deployment Status** card.
+2. Under **Version Bump & Release Control**, click:
+   - **Patch (+0.0.1)**
+   - **Minor (+0.1.0)**
+   - **Major (+1.0.0)**
+   - **Set Version...** (custom prompt)
+3. The server invokes `POST /api/admin/version/bump`, updates both files, writes an entry in the **Audit Logs** (`VERSION_BUMPED`), and immediately updates all version badges on the screen.

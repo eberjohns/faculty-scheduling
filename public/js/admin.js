@@ -7010,6 +7010,86 @@ async function initDeploymentVersionInfo() {
       }
     });
   }
+
+  // Version bump buttons (+Patch, +Minor, +Major)
+  document.querySelectorAll('.btn-bump-ver').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.getAttribute('data-type');
+      const label = type === 'major' ? 'Major (+1.0.0)' : (type === 'minor' ? 'Minor (+0.1.0)' : 'Patch (+0.0.1)');
+      showModalConfirm(
+        `Bump Version (${label})?`,
+        `Are you sure you want to increment the ${type} version? This will update package.json, version.json, and system audit logs.`,
+        async () => {
+          try {
+            const res = await fetch(`${API_BASE}/admin/version/bump`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              showToast(`Version successfully updated to v${data.version}!`, 'success');
+              if (data.deployment) {
+                localDeploymentData = data.deployment;
+                renderDeploymentVersionDisplay(localDeploymentData);
+              }
+            } else {
+              showModalAlert('Error', data.message || 'Failed to bump version.', 'danger');
+            }
+          } catch (e) {
+            showModalAlert('Error', 'Connection error while bumping version.', 'danger');
+          }
+        }
+      );
+    });
+  });
+
+  // Custom version modal
+  const btnCustomVer = document.getElementById('btn-custom-ver');
+  const modalCustomVer = document.getElementById('modal-custom-version');
+  const inputCustomVer = document.getElementById('input-custom-version');
+  const btnCloseCustomVer = document.getElementById('btn-close-custom-version-modal');
+  const btnCancelCustomVer = document.getElementById('btn-cancel-custom-version');
+  const btnSaveCustomVer = document.getElementById('btn-save-custom-version');
+
+  if (btnCustomVer && modalCustomVer) {
+    btnCustomVer.addEventListener('click', () => {
+      if (inputCustomVer) inputCustomVer.value = localDeploymentData?.version || '2.0.0';
+      modalCustomVer.classList.remove('hidden');
+    });
+    const hideCustomModal = () => modalCustomVer.classList.add('hidden');
+    if (btnCloseCustomVer) btnCloseCustomVer.addEventListener('click', hideCustomModal);
+    if (btnCancelCustomVer) btnCancelCustomVer.addEventListener('click', hideCustomModal);
+    if (btnSaveCustomVer && inputCustomVer) {
+      btnSaveCustomVer.addEventListener('click', async () => {
+        const customVersion = inputCustomVer.value.trim();
+        if (!/^\d+\.\d+\.\d+.*$/.test(customVersion)) {
+          showModalAlert('Invalid Format', 'Please enter a valid semantic version (e.g. 2.0.0).', 'warning');
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/admin/version/bump`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'custom', customVersion })
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            hideCustomModal();
+            showToast(`Version successfully set to v${data.version}!`, 'success');
+            if (data.deployment) {
+              localDeploymentData = data.deployment;
+              renderDeploymentVersionDisplay(localDeploymentData);
+            }
+          } else {
+            showModalAlert('Error', data.message || 'Failed to update version.', 'danger');
+          }
+        } catch (e) {
+          showModalAlert('Error', 'Connection error while updating version.', 'danger');
+        }
+      });
+    }
+  }
 }
 
 function renderDeploymentVersionDisplay(data) {

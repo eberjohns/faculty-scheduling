@@ -1,11 +1,11 @@
 {
-  "version": "1.0.0",
-  "commit": "be15fcf",
-  "commitFull": "be15fcfaa6c3446babbb008e77bbf444b7a3961f",
+  "version": "2.0.0",
+  "commit": "07bb247",
+  "commitFull": "07bb247cdf41b0507320bc449ba0ec26ade75aa9",
   "branch": "main",
-  "commitDate": "2026-11-02 19:13:52 +0530",
-  "commitMessage": "department timetable importing and mapping",
-  "builtAt": "2026-11-02T16:22:47.728Z",
+  "commitDate": "2026-11-02 21:53:51 +0530",
+  "commitMessage": "fixed inaccurate splitting of courses",
+  "builtAt": "2026-11-02T16:44:40.768Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { bumpVersion as executeBump } from '../scripts/bump-version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,16 +12,26 @@ const PACKAGE_FILE_PATH = path.join(ROOT_DIR, 'package.json');
 
 let cachedVersionInfo = null;
 
+export function resetVersionCache() {
+  cachedVersionInfo = null;
+}
+
+export function bumpVersion(bumpType = 'patch', customVersion = null, options = {}) {
+  const result = executeBump(bumpType, customVersion, options);
+  cachedVersionInfo = null;
+  return result;
+}
+
 function readPackageVersion() {
   try {
     if (fs.existsSync(PACKAGE_FILE_PATH)) {
       const pkg = JSON.parse(fs.readFileSync(PACKAGE_FILE_PATH, 'utf8'));
-      return pkg.version || '1.0.0';
+      return pkg.version || '2.0.0';
     }
   } catch (err) {
     // fallback
   }
-  return '1.0.0';
+  return '2.0.0';
 }
 
 function getGitInfo() {
@@ -64,9 +75,10 @@ export function getVersionInfo(forceRefresh = false) {
   }
 
   const pkgVersion = readPackageVersion();
-  const gitInfo = getGitInfo();
   const fileInfo = readVersionJson();
+  const gitInfo = getGitInfo();
 
+  const version = pkgVersion || fileInfo?.version || '2.0.0';
   const commit = gitInfo?.commit || fileInfo?.commit || 'unknown';
   const commitFull = gitInfo?.commitFull || fileInfo?.commitFull || 'unknown';
   const branch = gitInfo?.branch || fileInfo?.branch || 'main';
@@ -74,7 +86,7 @@ export function getVersionInfo(forceRefresh = false) {
   const commitMessage = gitInfo?.commitMessage || fileInfo?.commitMessage || null;
 
   const versionData = {
-    version: pkgVersion,
+    version,
     commit,
     commitFull,
     branch,
