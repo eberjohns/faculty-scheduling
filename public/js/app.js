@@ -485,6 +485,7 @@ async function fetchGlobalData() {
     }
     // Initialize local subject mappings immediately on startup
     initLocalSubjectMappings();
+  updateSubjectMappingWorkloadTracker();
   } catch (err) {
     console.error(err);
   }
@@ -752,7 +753,70 @@ function updateDeptStatusBadge() {
   else badge.classList.add('recommend-none');
 }
 
+// Generic helper to toggle collapsible card
+function setupCollapsibleCard(headerId, bodyId, btnId, storageKey, defaultCollapsed = false) {
+  const header = document.getElementById(headerId);
+  const body = document.getElementById(bodyId);
+  const btn = document.getElementById(btnId);
+  if (!header || !body) return;
+
+  const savedState = storageKey ? localStorage.getItem(storageKey) : null;
+  let isCollapsed = savedState !== null ? (savedState === 'true') : defaultCollapsed;
+
+  const applyState = (collapsed) => {
+    if (collapsed) {
+      body.style.display = 'none';
+      if (btn) {
+        const textSpan = btn.querySelector('.toggle-text');
+        const icon = btn.querySelector('.toggle-icon');
+        if (textSpan) textSpan.textContent = 'Expand';
+        if (icon) {
+          icon.classList.remove('fa-chevron-up');
+          icon.classList.add('fa-chevron-down');
+        }
+      }
+    } else {
+      body.style.display = '';
+      if (btn) {
+        const textSpan = btn.querySelector('.toggle-text');
+        const icon = btn.querySelector('.toggle-icon');
+        if (textSpan) textSpan.textContent = 'Collapse';
+        if (icon) {
+          icon.classList.remove('fa-chevron-down');
+          icon.classList.add('fa-chevron-up');
+        }
+      }
+    }
+    if (storageKey) {
+      localStorage.setItem(storageKey, String(collapsed));
+    }
+  };
+
+  applyState(isCollapsed);
+
+  const toggle = (e) => {
+    if (e) e.stopPropagation();
+    isCollapsed = !isCollapsed;
+    applyState(isCollapsed);
+  };
+
+  header.addEventListener('click', toggle);
+  if (btn) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggle(e);
+    });
+  }
+}
+
 function bindDeptEvents() {
+  setupCollapsibleCard(
+    'header-dept-live-workload',
+    'body-dept-live-workload',
+    'btn-toggle-dept-live-workload',
+    'dept_live_workload_collapsed',
+    false
+  );
   // Day tab switch
   document.querySelectorAll('.weekday-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -5190,6 +5254,13 @@ function bindAdvancedFeaturesModalEvents() {
 
   // Common Subject Mapping Controls
   bindCommonSubjectMappingEvents();
+  setupCollapsibleCard(
+    'header-subject-mapping-workload',
+    'body-subject-mapping-workload',
+    'btn-toggle-subject-mapping-workload',
+    'subject_mapping_workload_collapsed',
+    false
+  );
 
   // Auto Generator Controls
   const autoGenProgSelect = document.getElementById('auto-gen-program-select');
@@ -5228,6 +5299,13 @@ function bindAdvancedFeaturesModalEvents() {
   const coursesSearch = document.getElementById('auto-gen-courses-search');
   if (coursesSearch) {
     coursesSearch.addEventListener('input', () => {
+      renderAutoGeneratorBindings();
+    });
+  }
+
+  const coursesAssignFilter = document.getElementById('auto-gen-courses-assignment-filter');
+  if (coursesAssignFilter) {
+    coursesAssignFilter.addEventListener('change', () => {
       renderAutoGeneratorBindings();
     });
   }
@@ -5829,6 +5907,109 @@ function populateSubjectMappingSemFilter() {
   }
 }
 
+// Dedicated Subject Teacher Mapping Workload Calculator
+// Strictly calculates hours from localSubjectMappings manually configured by the user.
+// Has ZERO connection with the live timetable allocations tracker (dept-live-workload).
+function updateSubjectMappingWorkloadTracker() {
+  const container = document.getElementById('subject-mapping-workload-pills');
+  if (!container) return;
+
+  const deptName = state.currentUser ? state.currentUser.departmentName : '';
+  const deptNorm = (deptName || '').replace(/^Department\s+of\s+/i, '').trim().toUpperCase();
+  const deptFaculty = (state.faculty || []).filter(f => (f.department || '').replace(/^Department\s+of\s+/i, '').trim().toUpperCase() === deptNorm);
+
+  if (deptFaculty.length === 0) {
+    container.innerHTML = '<span class="text-muted text-sm">No faculty members found for this department.</span>';
+    return;
+  }
+
+  // Initialize teacher totals
+  const facWorkload = {};
+  deptFaculty.forEach(f => {
+    facWorkload[f.code] = {
+      name: f.name,
+      code: f.code,
+      totalHours: 0,
+      theoryHours: 0,
+      practicalHours: 0,
+      coursesCount: 0
+    };
+  });
+
+  // Calculate exclusively from localSubjectMappings for courses in this department
+  const deptCourses = (state.courses || []).filter(c => (c.department || '').replace(/^Department\s+of\s+/i, '').trim().toUpperCase() === deptNorm);
+  
+  deptCourses.forEach(c => {
+    const mapping = (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[c.code]) ? localSubjectMappings[c.code] : null;
+    if (!mapping) return;
+
+    const isPrac = (mapping.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
+
+    if (isPrac) {
+      // Practical lab hours: each assigned practical teacher teaches the lab session (co-teaching)
+      const pTeachers = Array.isArray(mapping.practicalTeachers) ? mapping.practicalTeachers : [];
+      const pHours = (typeof mapping.practicalHours === 'number') ? mapping.practicalHours : 0;
+      
+      pTeachers.forEach(fc => {
+        if (facWorkload[fc]) {
+          facWorkload[fc].practicalHours += pHours;
+          facWorkload[fc].totalHours += pHours;
+          facWorkload[fc].coursesCount++;
+        }
+      });
+
+      // Theory portion of practical course (if split)
+      const tTeachers = Array.isArray(mapping.theoryTeachers) ? mapping.theoryTeachers : [];
+      const tHours = (typeof mapping.theoryHours === 'number') ? mapping.theoryHours : 0;
+      const thSplit = mapping.theoryTeacherHours || {};
+
+      if (tTeachers.length > 0) {
+        tTeachers.forEach(fc => {
+          if (facWorkload[fc]) {
+            const h = (thSplit[fc] !== undefined) ? parseInt(thSplit[fc]) : Math.max(1, Math.floor(tHours / tTeachers.length));
+            facWorkload[fc].theoryHours += h;
+            facWorkload[fc].totalHours += h;
+            if (!pTeachers.includes(fc)) {
+              facWorkload[fc].coursesCount++;
+            }
+          }
+        });
+      }
+    } else {
+      // Pure Theory Course
+      const teachers = Array.isArray(mapping.teachers) ? mapping.teachers : (Array.isArray(mapping.theoryTeachers) ? mapping.theoryTeachers : []);
+      const totalHrs = parseInt(mapping.hours) || 4;
+      const thSplit = mapping.teacherHours || mapping.theoryTeacherHours || {};
+
+      if (teachers.length > 0) {
+        teachers.forEach(fc => {
+          if (facWorkload[fc]) {
+            const h = (thSplit[fc] !== undefined) ? parseInt(thSplit[fc]) : Math.max(1, Math.floor(totalHrs / teachers.length));
+            facWorkload[fc].theoryHours += h;
+            facWorkload[fc].totalHours += h;
+            facWorkload[fc].coursesCount++;
+          }
+        });
+      }
+    }
+  });
+
+  // Render pills
+  container.innerHTML = deptFaculty.map(f => {
+    const data = facWorkload[f.code] || { totalHours: 0, theoryHours: 0, practicalHours: 0 };
+    const badgeColor = data.totalHours > 16 ? '#dc2626' : (data.totalHours === 0 ? '#94a3b8' : '#2563eb');
+    return `
+      <div class="mapping-workload-pill" title="${f.name} (${f.code})">
+        <span class="fac-code">${f.code}</span>
+        <span class="fac-hours" style="color: ${badgeColor};">${data.totalHours} hrs</span>
+        <div class="fac-detail">
+          <span>TH: ${data.theoryHours}</span> • <span>PR: ${data.practicalHours}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderSubjectMappingTiles() {
   const container = document.getElementById('subject-mapping-grid');
   const semFilter = document.getElementById('subject-mapping-sem-filter');
@@ -5876,6 +6057,7 @@ function renderSubjectMappingTiles() {
   }
 
   // Sort courses
+
   const sortMode = sortSelect ? sortSelect.value : 'code-asc';
   deptCourses.sort((a, b) => {
     const mapA = localSubjectMappings[a.code] || { hours: 4, courseType: 'T' };
@@ -6231,6 +6413,7 @@ function renderPracTheorySplitRows(container, cCode, deptFaculty) {
 }
 
 function syncAutoGenConfigForCourse(cCode) {
+  if (typeof updateSubjectMappingWorkloadTracker === 'function') updateSubjectMappingWorkloadTracker();
   const mData = localSubjectMappings[cCode];
   if (!mData) return;
   if (mData.courseType === 'P') {
@@ -7985,6 +8168,27 @@ function renderAutoGeneratorBindings() {
     );
   }
 
+  // Filter by Assignment Status
+  const assignFilter = document.getElementById('auto-gen-courses-assignment-filter');
+  const assignMode = assignFilter ? assignFilter.value : 'all';
+  if (assignMode === 'assigned') {
+    deptCourses = deptCourses.filter(c => {
+      const b = autoGenCourseFacultyBindings[c.code];
+      if (b !== undefined) return b.length > 0;
+      const m = localSubjectMappings[c.code] || {};
+      const cFacs = m.teachers || c.teachers || [];
+      return cFacs.length > 0;
+    });
+  } else if (assignMode === 'unassigned') {
+    deptCourses = deptCourses.filter(c => {
+      const b = autoGenCourseFacultyBindings[c.code];
+      if (b !== undefined) return b.length === 0;
+      const m = localSubjectMappings[c.code] || {};
+      const cFacs = m.teachers || c.teachers || [];
+      return cFacs.length === 0;
+    });
+  }
+
   const sortMode = sortSelect ? sortSelect.value : 'code-asc';
   deptCourses.sort((a, b) => {
     const mapA = localSubjectMappings[a.code] || a;
@@ -8068,21 +8272,30 @@ function renderAutoGeneratorBindings() {
     const selectedFacs = autoGenCourseFacultyBindings[c.code] || [];
     const isDistribute = !isPrac && (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
 
-    let summaryText = 'Auto-Assign';
+    let summaryText = 'Not Assigned';
+    let summaryIcon = 'fa-solid fa-circle-exclamation';
+    let summaryIconColor = '#ef4444';
     if (isPrac) {
       if (pracTeachers.length > 1) {
         summaryText = `Co-Teachers: ${pracTeachers.join(', ')} (${pracTeachers.length} in same period)`;
+        summaryIcon = 'fa-solid fa-user-group';
+        summaryIconColor = 'var(--primary)';
       } else if (selectedFacs.length > 0) {
         summaryText = `Co-Teaching: ${selectedFacs.join(', ')}`;
+        summaryIcon = 'fa-solid fa-user-group';
+        summaryIconColor = 'var(--primary)';
       }
     } else {
       if (selectedFacs.length === 1) {
         summaryText = `${selectedFacs[0]} (1 Teacher)`;
+        summaryIcon = 'fa-solid fa-user';
+        summaryIconColor = 'var(--primary)';
       } else if (selectedFacs.length > 1) {
         summaryText = `${selectedFacs.join(', ')} (${selectedFacs.length} Teachers)`;
+        summaryIcon = 'fa-solid fa-user-group';
+        summaryIconColor = 'var(--primary)';
       }
     }
-
     const typeBadge = isPrac
       ? `<span class="badge" style="background-color: var(--success-light); color: var(--success-dark); font-size: 10px;">PR</span>`
       : `<span class="badge" style="background-color: var(--warning-light); color: var(--warning-dark); font-size: 10px;">TH</span>`;
@@ -8103,8 +8316,8 @@ function renderAutoGeneratorBindings() {
 
           <!-- Multi-Teacher Dropdown Trigger -->
           <div>
-            <button type="button" class="btn btn-outline btn-xs btn-toggle-fac-dropdown" data-course-code="${c.code}" style="font-size: 11px; padding: 4px 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; border-color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--border)'}; background: ${selectedFacs.length > 0 ? 'var(--primary-light)' : '#ffffff'}; color: ${selectedFacs.length > 0 ? 'var(--primary)' : 'var(--text-main)'}; border-radius: 4px;">
-              <i class="fa-solid fa-user-group text-primary"></i>
+            <button type="button" class="btn btn-outline btn-xs btn-toggle-fac-dropdown" data-course-code="${c.code}" style="font-size: 11px; padding: 4px 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; border-color: ${selectedFacs.length > 0 ? 'var(--primary)' : '#fca5a5'}; background: ${selectedFacs.length > 0 ? 'var(--primary-light)' : '#fef2f2'}; color: ${selectedFacs.length > 0 ? 'var(--primary)' : '#b91c1c'}; border-radius: 4px;">
+              <i class="${summaryIcon}" style="color: ${summaryIconColor}; font-size: 10px;"></i>
               <span class="fac-btn-label">${summaryText}</span>
               <i class="fa-solid fa-chevron-down" style="font-size: 9px; opacity: 0.7;"></i>
             </button>
@@ -8240,21 +8453,32 @@ function renderAutoGeneratorBindings() {
     const selected = autoGenCourseFacultyBindings[cCode] || [];
     const btn = container.querySelector(`.btn-toggle-fac-dropdown[data-course-code="${cCode}"]`);
     const label = btn ? btn.querySelector('.fac-btn-label') : null;
+    const icon = btn ? btn.querySelector('i:first-child') : null;
     const pillsRow = document.getElementById(`fac-pills-${cCode}`);
     const distBox = document.getElementById(`distribute-box-${cCode}`);
 
-    let text = 'Auto-Assign';
+    let text = 'Not Assigned';
+    let iconClass = 'fa-solid fa-circle-exclamation';
+    let iconColor = '#ef4444';
     if (selected.length === 1) {
       text = `${selected[0]} (1 Teacher)`;
+      iconClass = 'fa-solid fa-user';
+      iconColor = 'var(--primary)';
     } else if (selected.length > 1) {
       text = `${selected.join(', ')} (${selected.length} Teachers)`;
+      iconClass = 'fa-solid fa-user-group';
+      iconColor = 'var(--primary)';
     }
     if (label) label.textContent = text;
+    if (icon) {
+      icon.className = iconClass;
+      icon.style.color = iconColor;
+    }
 
     if (btn) {
-      btn.style.borderColor = selected.length > 0 ? 'var(--primary)' : 'var(--border)';
-      btn.style.background = selected.length > 0 ? 'var(--primary-light)' : '#ffffff';
-      btn.style.color = selected.length > 0 ? 'var(--primary)' : 'var(--text-main)';
+      btn.style.borderColor = selected.length > 0 ? 'var(--primary)' : '#fca5a5';
+      btn.style.background = selected.length > 0 ? 'var(--primary-light)' : '#fef2f2';
+      btn.style.color = selected.length > 0 ? 'var(--primary)' : '#b91c1c';
     }
 
     if (pillsRow) {
@@ -8270,7 +8494,6 @@ function renderAutoGeneratorBindings() {
       distBox.style.display = selected.length > 1 ? 'block' : 'none';
     }
   }
-
   if (selectAllCb) {
     selectAllCb.onchange = () => {
       const isChecked = selectAllCb.checked;
@@ -8278,6 +8501,24 @@ function renderAutoGeneratorBindings() {
         cb.checked = isChecked;
       });
       updateSelectedCount();
+    };
+  }
+
+  const btnDeselectUnassigned = document.getElementById('btn-auto-gen-deselect-unassigned');
+  if (btnDeselectUnassigned) {
+    btnDeselectUnassigned.onclick = () => {
+      let changed = false;
+      container.querySelectorAll('.auto-gen-course-cb').forEach(cb => {
+        const cCode = cb.value;
+        const facs = autoGenCourseFacultyBindings[cCode] || [];
+        if (facs.length === 0 && cb.checked) {
+          cb.checked = false;
+          changed = true;
+        }
+      });
+      if (changed) {
+        updateSelectedCount();
+      }
     };
   }
 

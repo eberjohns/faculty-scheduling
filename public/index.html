@@ -451,11 +451,18 @@
       </div>
 
       <!-- Real-Time Workload Live Tracker -->
-      <div class="card mt-4 mb-4 workload-dept-card">
-        <div class="card-header">
-          <h2>Department Workload Live Tracker</h2>
+      <div class="card mt-4 mb-4 workload-dept-card" id="card-dept-live-workload">
+        <div class="card-header" id="header-dept-live-workload" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;" title="Click to toggle collapse">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-chart-pie text-primary" style="font-size: 16px;"></i>
+            <h2 style="margin: 0; font-size: 16px; font-weight: 700;">Department Workload Live Tracker</h2>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" id="btn-toggle-dept-live-workload" style="padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; border-color: var(--border);">
+            <span class="toggle-text">Collapse</span>
+            <i class="fa-solid fa-chevron-up toggle-icon" style="transition: transform 0.2s ease;"></i>
+          </button>
         </div>
-        <div class="card-body">
+        <div class="card-body" id="body-dept-live-workload">
           <div class="workload-pill-box" id="dept-live-workload">
             <!-- Dynamically populated -->
           </div>
@@ -943,6 +950,28 @@
                 </div>
               </div>
 
+              <!-- Dedicated Subject Teacher Mapping Workload Calculator -->
+              <div class="card mb-3" id="subject-mapping-workload-card" style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
+                <div class="card-header" id="header-subject-mapping-workload" style="background: #f8fafc; padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; cursor: pointer; user-select: none;" title="Click to toggle collapse">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-calculator text-primary" style="font-size: 14px;"></i>
+                    <h4 style="margin: 0; font-size: 13px; font-weight: 700; color: var(--text-main);">Subject Teacher Mapping Workload</h4>
+                    <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">
+                      <i class="fa-solid fa-circle-info"></i> Computed exclusively from manual subject-teacher mappings & hours
+                    </span>
+                  </div>
+                  <button type="button" class="btn btn-xs btn-outline" id="btn-toggle-subject-mapping-workload" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; border-color: var(--border);">
+                    <span class="toggle-text">Collapse</span>
+                    <i class="fa-solid fa-chevron-up toggle-icon" style="transition: transform 0.2s ease;"></i>
+                  </button>
+                </div>
+                <div class="card-body" id="body-subject-mapping-workload" style="padding: 12px 16px;">
+                  <div class="workload-pill-box" id="subject-mapping-workload-pills" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                    <!-- Dynamically populated exclusively from localSubjectMappings -->
+                  </div>
+                </div>
+              </div>
+
               <!-- Filter and Sort Bar -->
               <div class="adv-search-bar">
                 <div style="flex: 1; min-width: 200px;">
@@ -1100,10 +1129,17 @@
                     <div class="flex-row justify-between items-center mb-1">
                       <h3 style="margin-bottom: 0;"><span class="step-num-badge">3</span> Course & Teacher Bindings
                         (<span id="auto-gen-courses-count">0</span>)</h3>
-                      <label class="text-sm bold"
-                        style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary);">
-                        <input type="checkbox" id="auto-gen-select-all-courses" checked> Select All
-                      </label>
+                      <div class="flex-row items-center gap-2">
+                        <button type="button" id="btn-auto-gen-deselect-unassigned" class="btn btn-outline btn-xs"
+                          style="font-size: 11px; padding: 2px 8px; border-color: #fca5a5; color: #b91c1c; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; background: #fff;"
+                          title="Deselect all courses that have no teachers assigned">
+                          <i class="fa-solid fa-user-xmark" style="color: #ef4444;"></i> Deselect Not Assigned
+                        </button>
+                        <label class="text-sm bold"
+                          style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary); margin-bottom: 0;">
+                          <input type="checkbox" id="auto-gen-select-all-courses" checked> Select All
+                        </label>
+                      </div>
                     </div>
                     <p class="text-muted text-sm mb-2">Individual subjects selected for automatic schedule generation:
                     </p>
@@ -1123,6 +1159,14 @@
                           <option value="">All (BSc & MSc)</option>
                           <option value="UG">BSc (UG)</option>
                           <option value="PG">MSc (PG)</option>
+                        </select>
+                      </div>
+                      <div style="width: 130px;">
+                        <select id="auto-gen-courses-assignment-filter" class="form-control"
+                          style="font-size: 11px; padding: 3px 6px; height: 30px;">
+                          <option value="all">All Assignments</option>
+                          <option value="assigned">Assigned Only</option>
+                          <option value="unassigned">Not Assigned</option>
                         </select>
                       </div>
                       <div style="width: 150px;">

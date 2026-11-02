@@ -1122,13 +1122,8 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // RECOMMENDED SLOT BYPASS (canPlaceCard): Skip remaining soft constraint checks.
-    // Curriculum designer chose these slots explicitly — place if not blocked and faculty available.
-    if (isRecommendedSlot(card, day, periodsGroup)) {
-      return true;
-    }
-
-    // 3. Faculty Clashes & Fatigue Limits
+    // 3. Faculty Clashes & Fatigue Limits - HARD PHYSICAL CONSTRAINT (No teacher can be in two rooms at once!)
+    // Strictly enforced for ALL slots, including recommended slots.
     for (const fac of card.assignedFaculty) {
       for (const p of periodsGroup) {
         // Cross-department - Strictly enforced
@@ -1154,6 +1149,13 @@ export function generateDepartmentSchedule({
         recordRejection('TEACHER_FATIGUE', card, fac);
         return false;
       }
+    }
+
+    // RECOMMENDED SLOT BYPASS (canPlaceCard):
+    // After hard faculty clashes and blackout rules are guaranteed conflict-free,
+    // bypass soft distribution rules (like same-day distribution) since curriculum designers explicitly designated this slot.
+    if (isRecommendedSlot(card, day, periodsGroup)) {
+      return true;
     }
 
     // 4. Student Cohort & Semester Clashes - Strictly enforced (NO parallel hours for same semester students)
@@ -1315,14 +1317,8 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // RECOMMENDED SLOT BYPASS (getAvailableCandidatesForCard): Return faculty pool who are not in blackout
-    if (isRecommendedSlot(card, day, periodsGroup)) {
-      const pool = (card.facultyPool && card.facultyPool.length > 0) ? card.facultyPool : card.assignedFaculty;
-      const availableFromPool = (pool || []).filter(fac => {
-        return !periodsGroup.some(p => isTeacherUnavailable(fac, day, p));
-      });
-      return (availableFromPool && availableFromPool.length > 0) ? availableFromPool : [];
-    }
+    // Note: Recommended slots must strictly respect teacher clash, teacherHours quotas, and fatigue!
+    // We proceed to full candidate filtering below so teachers are never double-booked or over-quota.
 
     if (card.type === 'P') {
       const has2 = periodsGroup.includes('2');

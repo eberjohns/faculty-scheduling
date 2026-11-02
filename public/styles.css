@@ -887,6 +887,42 @@ h1, h2, h3, h4, h5, h6 {
   margin-top: 2px;
 }
 
+/* Dedicated Subject Mapping Workload Calculator */
+.mapping-workload-pill {
+  background-color: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 90px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: all 0.2s ease;
+}
+.mapping-workload-pill:hover {
+  border-color: var(--primary);
+  background-color: #f0fdf4;
+}
+.mapping-workload-pill .fac-code {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--primary);
+}
+.mapping-workload-pill .fac-hours {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-top: 2px;
+}
+.mapping-workload-pill .fac-detail {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  display: flex;
+  gap: 4px;
+}
+
 /* Modal overlays */
 .modal {
   position: fixed;
