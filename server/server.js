@@ -2498,28 +2498,48 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
 
     if (targetClassesCount === 1) {
       // Revert to a single class (cleanBaseCode)
-      const keep = currentClassVariants[0];
+      const unsuffixedRecord = currentClassVariants.find(c => c.code === cleanBaseCode);
+      const c1Record = currentClassVariants.find(c => c.code === `${cleanBaseCode}_C1`);
+      const keep = (c1Record && (c1Record.teachers?.length || 0) > 0) ? c1Record : (unsuffixedRecord || c1Record || currentClassVariants[0]);
+
+      const oldKeepCode = keep.code;
       keep.code = cleanBaseCode;
       keep.class = 0;
       keep.group = 0;
       keep.classes = 1;
 
-      // Remove the other variants
-      const toRemoveCodes = currentClassVariants.slice(1).map(c => c.code);
-      if (toRemoveCodes.length > 0) {
-        db.courses = db.courses.filter(c => !toRemoveCodes.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
-        
-        // Clean up allocations for removed codes
-        if (db.allocations && db.allocations[targetDept]) {
-          toRemoveCodes.forEach(remCode => {
-            delete db.allocations[targetDept][remCode];
-            delete db.allocations[targetDept][`${remCode}-T`];
-            delete db.allocations[targetDept][`${remCode}-P`];
-          });
+      // If keep came from _C1 (or another code), migrate its allocations to cleanBaseCode
+      if (oldKeepCode !== cleanBaseCode && db.allocations && db.allocations[targetDept]) {
+        if (!db.allocations[targetDept][cleanBaseCode] || Object.keys(db.allocations[targetDept][cleanBaseCode]).length === 0) {
+          if (db.allocations[targetDept][oldKeepCode]) {
+            db.allocations[targetDept][cleanBaseCode] = db.allocations[targetDept][oldKeepCode];
+          }
         }
-        for (let i = 2; i <= 5; i++) {
-          delete db.groupMappings[`${cleanBaseCode}_C${i}`];
+      }
+
+      // Collect all other variants to remove
+      const toRemoveVariants = currentClassVariants.filter(c => c !== keep);
+      const toRemoveCodes = toRemoveVariants.map(c => c.code).filter(cd => cd !== cleanBaseCode);
+
+      // Remove other variants from db.courses
+      db.courses = db.courses.filter(c => c === keep || !toRemoveVariants.includes(c));
+
+      // Clean up allocations and groupMappings for all removed variants and split codes (_C1.._C5)
+      if (db.allocations && db.allocations[targetDept]) {
+        toRemoveCodes.forEach(remCode => {
+          delete db.allocations[targetDept][remCode];
+          delete db.allocations[targetDept][`${remCode}-T`];
+          delete db.allocations[targetDept][`${remCode}-P`];
+        });
+        for (let i = 1; i <= 5; i++) {
+          const suffixed = `${cleanBaseCode}_C${i}`;
+          delete db.allocations[targetDept][suffixed];
+          delete db.allocations[targetDept][`${suffixed}-T`];
+          delete db.allocations[targetDept][`${suffixed}-P`];
         }
+      }
+      for (let i = 1; i <= 5; i++) {
+        delete db.groupMappings[`${cleanBaseCode}_C${i}`];
       }
     } else {
       // Split into targetClassesCount classes: _C1, _C2, ... _C{targetClassesCount}
@@ -2534,13 +2554,38 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
         }
       });
 
-      // If we had unsuffixed record and need _C1, convert it or create _C1
-      if (unsuffixed.length > 0 && !existingByNum[1]) {
-        unsuffixed[0].code = `${cleanBaseCode}_C1`;
-        unsuffixed[0].class = 1;
-        unsuffixed[0].group = 1;
-        unsuffixed[0].classes = 1;
-        existingByNum[1] = unsuffixed[0];
+      const toRemove = [];
+
+      // If we had unsuffixed records:
+      if (unsuffixed.length > 0) {
+        if (!existingByNum[1]) {
+          // Convert unsuffixed[0] to _C1
+          unsuffixed[0].code = `${cleanBaseCode}_C1`;
+          unsuffixed[0].class = 1;
+          unsuffixed[0].group = 1;
+          unsuffixed[0].classes = 1;
+          existingByNum[1] = unsuffixed[0];
+
+          // Migrate allocations from cleanBaseCode to _C1
+          if (db.allocations && db.allocations[targetDept] && db.allocations[targetDept][cleanBaseCode]) {
+            if (!db.allocations[targetDept][`${cleanBaseCode}_C1`]) {
+              db.allocations[targetDept][`${cleanBaseCode}_C1`] = db.allocations[targetDept][cleanBaseCode];
+            }
+            delete db.allocations[targetDept][cleanBaseCode];
+            delete db.allocations[targetDept][`${cleanBaseCode}-T`];
+            delete db.allocations[targetDept][`${cleanBaseCode}-P`];
+          }
+          // Any remaining unsuffixed records must be removed
+          unsuffixed.slice(1).forEach(u => toRemove.push(u));
+        } else {
+          // _C1 already exists! ALL unsuffixed records are redundant and must be removed!
+          unsuffixed.forEach(u => toRemove.push(u));
+          if (db.allocations && db.allocations[targetDept]) {
+            delete db.allocations[targetDept][cleanBaseCode];
+            delete db.allocations[targetDept][`${cleanBaseCode}-T`];
+            delete db.allocations[targetDept][`${cleanBaseCode}-P`];
+          }
+        }
       }
 
       // Ensure classes 1..targetClassesCount exist
@@ -2552,7 +2597,26 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
             class: cl,
             group: cl,
             classes: 1,
-            department: targetDept
+            department: targetDept,
+            teachers: [],
+            teacherHours: {},
+            theoryTeachers: [],
+            theoryTeacherHours: {},
+            practicalTeachers: [],
+            recommendations: {
+              MONDAY: {},
+              TUESDAY: {},
+              WEDNESDAY: {},
+              THURSDAY: {},
+              FRIDAY: {}
+            },
+            masterRecommendations: {
+              MONDAY: {},
+              TUESDAY: {},
+              WEDNESDAY: {},
+              THURSDAY: {},
+              FRIDAY: {}
+            }
           };
           db.courses.push(newCourse);
           existingByNum[cl] = newCourse;
@@ -2564,28 +2628,25 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
       }
 
       // If previous count was higher than targetClassesCount, remove excess
-      const toRemove = [];
       Object.keys(existingByNum).forEach(clStr => {
         const cl = parseInt(clStr, 10);
         if (cl > targetClassesCount) {
-          toRemove.push(existingByNum[cl].code);
+          toRemove.push(existingByNum[cl]);
         }
       });
 
-      // Remove any leftover unsuffixed duplicates
-      unsuffixed.slice(1).forEach(u => toRemove.push(u.code));
-
       if (toRemove.length > 0) {
-        db.courses = db.courses.filter(c => !toRemove.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
+        db.courses = db.courses.filter(c => !toRemove.includes(c));
         if (db.allocations && db.allocations[targetDept]) {
-          toRemove.forEach(remCode => {
+          toRemove.forEach(remCourse => {
+            const remCode = remCourse.code;
             delete db.allocations[targetDept][remCode];
             delete db.allocations[targetDept][`${remCode}-T`];
             delete db.allocations[targetDept][`${remCode}-P`];
           });
         }
-        toRemove.forEach(remCode => {
-          delete db.groupMappings[remCode];
+        toRemove.forEach(remCourse => {
+          delete db.groupMappings[remCourse.code];
         });
       }
     }
@@ -2736,19 +2797,32 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
 
     const cleanBaseCode = rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
-    if (classes === 1) {
-      // Single class record
-      const matchIdx = db.courses.findIndex(c => {
-        const cBase = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === department;
-      });
+    // Current variants for this course in this department
+    const existingVariants = db.courses.filter(c => {
+      const cBase = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === department;
+    });
 
-      if (matchIdx >= 0) {
-        db.courses[matchIdx].name = name;
-        if (alias) db.courses[matchIdx].alias = alias;
-        if (semester) db.courses[matchIdx].semester = semester;
-        if (category) db.courses[matchIdx].category = category;
-        if (programType) db.courses[matchIdx].programType = programType;
+    if (classes === 1) {
+      if (existingVariants.length > 0) {
+        const unsuffixedRecord = existingVariants.find(c => c.code === cleanBaseCode);
+        const c1Record = existingVariants.find(c => c.code === `${cleanBaseCode}_C1`);
+        const keep = unsuffixedRecord || c1Record || existingVariants[0];
+
+        keep.code = cleanBaseCode;
+        keep.class = 0;
+        keep.group = 0;
+        keep.classes = 1;
+        keep.name = name;
+        if (alias) keep.alias = alias;
+        if (semester) keep.semester = semester;
+        if (category) keep.category = category;
+        if (programType) keep.programType = programType;
+
+        const toRemoveVariants = existingVariants.filter(c => c !== keep);
+        if (toRemoveVariants.length > 0) {
+          db.courses = db.courses.filter(c => c === keep || !toRemoveVariants.includes(c));
+        }
         updatedCount++;
       } else {
         db.courses.push({
@@ -2778,21 +2852,44 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
       }
     } else {
       // Multiple class split records (_C1, _C2, ... _C{classes})
+      const unsuffixed = existingVariants.filter(c => !c.code.match(/(_G|_C)\d+$/));
+      const existingByNum = {};
+      existingVariants.forEach(c => {
+        const m = c.code.match(/(_G|_C)(\d+)$/);
+        if (m) existingByNum[parseInt(m[2], 10)] = c;
+      });
+
+      if (unsuffixed.length > 0) {
+        if (!existingByNum[1]) {
+          unsuffixed[0].code = `${cleanBaseCode}_C1`;
+          unsuffixed[0].class = 1;
+          unsuffixed[0].group = 1;
+          unsuffixed[0].classes = 1;
+          existingByNum[1] = unsuffixed[0];
+          unsuffixed.slice(1).forEach(u => {
+            db.courses = db.courses.filter(c => c !== u);
+          });
+        } else {
+          unsuffixed.forEach(u => {
+            db.courses = db.courses.filter(c => c !== u);
+          });
+        }
+      }
+
       for (let cl = 1; cl <= classes; cl++) {
         const classCode = `${cleanBaseCode}_C${cl}`;
-        const matchIdx = db.courses.findIndex(c => 
-          c.code === classCode && (c.department || '').trim().toUpperCase() === department
-        );
-
-        if (matchIdx >= 0) {
-          db.courses[matchIdx].name = name;
-          if (alias) db.courses[matchIdx].alias = alias;
-          if (semester) db.courses[matchIdx].semester = semester;
-          if (category) db.courses[matchIdx].category = category;
-          if (programType) db.courses[matchIdx].programType = programType;
+        if (existingByNum[cl]) {
+          existingByNum[cl].name = name;
+          if (alias) existingByNum[cl].alias = alias;
+          if (semester) existingByNum[cl].semester = semester;
+          if (category) existingByNum[cl].category = category;
+          if (programType) existingByNum[cl].programType = programType;
+          existingByNum[cl].class = cl;
+          existingByNum[cl].group = cl;
+          existingByNum[cl].classes = 1;
           updatedCount++;
         } else {
-          db.courses.push({
+          const newCourse = {
             code: classCode,
             name,
             department,
@@ -2814,10 +2911,20 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
               THURSDAY: {},
               FRIDAY: {}
             }
-          });
+          };
+          db.courses.push(newCourse);
+          existingByNum[cl] = newCourse;
           addedCount++;
         }
       }
+
+      // Remove excess classes if imported count is lower
+      Object.keys(existingByNum).forEach(clStr => {
+        const cl = parseInt(clStr, 10);
+        if (cl > classes) {
+          db.courses = db.courses.filter(c => c !== existingByNum[cl]);
+        }
+      });
     }
   });
 

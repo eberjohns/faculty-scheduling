@@ -62,6 +62,10 @@ export async function initDb() {
           }
         });
         dbInstance = parseDbData(rawData);
+        if (dbInstance && dbInstance.__needsDbSave) {
+          delete dbInstance.__needsDbSave;
+          writeDb(dbInstance);
+        }
         console.log("PostgreSQL database successfully initialized and loaded.");
       } finally {
         client.release();
@@ -199,6 +203,46 @@ function parseDbData(rawData) {
     });
     if (stmChanged) needsDbSave = true;
   }
+  // Auto-cleanup orphaned unsuffixed courses when split _C variants exist
+  if (Array.isArray(db.courses)) {
+    const splitBaseKeys = new Set();
+    db.courses.forEach(c => {
+      const m = (c.code || '').match(/^(.+)_C\d+$/);
+      if (m) {
+        splitBaseKeys.add(`${m[1]}:::${(c.department || '').trim().toUpperCase()}`);
+      }
+    });
+
+    const initialCourseCount = db.courses.length;
+    const removedOrphans = [];
+    db.courses = db.courses.filter(c => {
+      const deptUpper = (c.department || '').trim().toUpperCase();
+      const isOrphan = splitBaseKeys.has(`${c.code}:::${deptUpper}`);
+      if (isOrphan) {
+        removedOrphans.push({ code: c.code, dept: deptUpper });
+        return false;
+      }
+      return true;
+    });
+
+    if (db.courses.length < initialCourseCount) {
+      needsDbSave = true;
+      if (db.allocations && typeof db.allocations === 'object') {
+        removedOrphans.forEach(({ code, dept }) => {
+          if (db.allocations[dept] && db.allocations[dept][code]) {
+            const alloc = db.allocations[dept][code];
+            const hasAllocations = Object.values(alloc).some(day => day && Object.keys(day).length > 0);
+            if (!hasAllocations) {
+              delete db.allocations[dept][code];
+              delete db.allocations[dept][`${code}-T`];
+              delete db.allocations[dept][`${code}-P`];
+            }
+          }
+        });
+      }
+    }
+  }
+
   db.__needsDbSave = needsDbSave;
 
   return db;

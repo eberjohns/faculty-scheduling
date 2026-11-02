@@ -3037,7 +3037,8 @@ function renderInspectRecords() {
           x.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cleanCode && 
           (x.department || '').toUpperCase() === (c.department || '').toUpperCase()
         );
-        const currentCount = deptVariants.length > 0 ? deptVariants.length : (c.classes || 1);
+        const suffixedVariants = deptVariants.filter(x => x.code.match(/(_G|_C)\d+$/));
+        const currentCount = suffixedVariants.length > 0 ? suffixedVariants.length : (deptVariants.length > 0 ? deptVariants.length : (c.classes || 1));
         const classSelect = document.getElementById('edit-course-classes');
         if (classSelect) {
           classSelect.value = String(Math.max(1, Math.min(5, currentCount)));
