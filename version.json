@@ -1,11 +1,11 @@
 {
-  "version": "1.1.0",
-  "commit": "f03c02c",
-  "commitFull": "f03c02cb0be78445f0ce0b36836fee8cedf646d9",
+  "version": "1.0.0",
+  "commit": "db19ded",
+  "commitFull": "db19dedbc61fd90e9a32d33652946bcc823ddedd",
   "branch": "main",
-  "commitDate": "2026-10-31 00:03:07 +0530",
-  "commitMessage": "removed academic config's semester mapping",
-  "builtAt": "2026-10-30T18:47:06.180Z",
+  "commitDate": "2026-10-31 00:24:59 +0530",
+  "commitMessage": "version updated to 1.1.0",
+  "builtAt": "2026-11-02T11:27:54.539Z",
   "nodeVersion": "v24.15.0",
   "platform": "win32",
   "environment": "production"

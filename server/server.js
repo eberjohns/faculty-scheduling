@@ -318,56 +318,76 @@ function generateCourseAlias(name) {
 
 // Global Clash Check Helper
 // Returns list of clashes: { weekday, period, facultyCode, courses: [courseCodes] }
-function findAllocationClashes(allocations) {
+function findAllocationClashes(allocations, targetDept = null) {
   const clashes = [];
-  // For each department
-  for (const dept of Object.keys(allocations)) {
-    const deptAlloc = allocations[dept];
-    // Map of weekday -> period -> facultyCode -> Set(courseCodes)
-    const usage = {};
+  const targetUpper = targetDept ? String(targetDept).trim().toUpperCase() : null;
 
+  // Build global usage map: usage[weekday][period][facultyCode] = [{ department, courseCode }]
+  const usage = {};
+
+  for (const dept of Object.keys(allocations)) {
+    const deptAlloc = allocations[dept] || {};
     for (const courseCode of Object.keys(deptAlloc)) {
-      const courseDays = deptAlloc[courseCode];
+      const courseDays = deptAlloc[courseCode] || {};
       for (const weekday of Object.keys(courseDays)) {
-        const periodsObj = courseDays[weekday];
+        const periodsObj = courseDays[weekday] || {};
         if (!usage[weekday]) usage[weekday] = {};
-        
+
         for (const period of Object.keys(periodsObj)) {
           if (!usage[weekday][period]) usage[weekday][period] = {};
-          
+
           const facultyList = periodsObj[period] || [];
           for (const fac of facultyList) {
+            if (!fac) continue;
             if (!usage[weekday][period][fac]) {
-              usage[weekday][period][fac] = new Set();
+              usage[weekday][period][fac] = [];
             }
-            usage[weekday][period][fac].add(courseCode);
-          }
-        }
-      }
-    }
-
-    // Check for double bookings
-    for (const weekday of Object.keys(usage)) {
-      for (const period of Object.keys(usage[weekday])) {
-        for (const fac of Object.keys(usage[weekday][period])) {
-          const coursesSet = usage[weekday][period][fac];
-          if (coursesSet.size > 1) {
-            // Check if they are actually different courses or just split variants of the same course
-            const uniqueBases = new Set(Array.from(coursesSet).map(c => c.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')));
-            if (uniqueBases.size > 1) {
-              clashes.push({
-                department: dept,
-                weekday,
-                period,
-                facultyCode: fac,
-                courses: Array.from(coursesSet)
-              });
-            }
+            usage[weekday][period][fac].push({
+              department: dept,
+              courseCode: courseCode
+            });
           }
         }
       }
     }
   }
+
+  // Check for double bookings
+  for (const weekday of Object.keys(usage)) {
+    for (const period of Object.keys(usage[weekday])) {
+      for (const fac of Object.keys(usage[weekday][period])) {
+        const bookings = usage[weekday][period][fac];
+        if (bookings.length <= 1) continue;
+
+        // If targetDept is specified, only check clashes that involve targetDept
+        if (targetUpper && !bookings.some(b => (b.department || '').trim().toUpperCase() === targetUpper)) {
+          continue;
+        }
+
+        // Check if bookings are different courses or different departments
+        // Exclude split variants of the same base course in the same department (e.g. T/P or class splits)
+        const uniqueKeys = new Set(
+          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}`)
+        );
+
+        if (uniqueKeys.size > 1) {
+          const hasMultipleDepts = new Set(bookings.map(b => (b.department || '').toUpperCase())).size > 1;
+          const courseLabels = bookings.map(b => hasMultipleDepts ? `${b.courseCode} (${b.department})` : b.courseCode);
+
+          clashes.push({
+            department: hasMultipleDepts 
+              ? Array.from(new Set(bookings.map(b => b.department))).join(' / ') 
+              : bookings[0].department,
+            weekday,
+            period,
+            facultyCode: fac,
+            courses: Array.from(new Set(courseLabels))
+          });
+        }
+      }
+    }
+  }
+
   return clashes;
 }
 
@@ -3253,7 +3273,7 @@ app.post('/api/allocations', requireDepartment, (req, res) => {
   const testAllocations = JSON.parse(JSON.stringify(db.allocations));
   testAllocations[deptUpper] = allocations;
   
-  const clashes = findAllocationClashes(testAllocations);
+  const clashes = findAllocationClashes(testAllocations, deptUpper);
   if (clashes.length > 0 && req.body.isSubmission) {
     return res.status(400).json({
       success: false,
@@ -3492,7 +3512,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
     const testAllocations = JSON.parse(JSON.stringify(db.allocations));
     testAllocations[deptUpper] = newDeptAlloc;
 
-    const clashes = findAllocationClashes(testAllocations);
+    const clashes = findAllocationClashes(testAllocations, deptUpper);
     if (clashes.length > 0) {
       return res.status(400).json({
         success: false,
