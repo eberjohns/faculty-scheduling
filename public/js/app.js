@@ -1549,7 +1549,11 @@ function getMergedCourseInfo(baseCode, deptCourses) {
   if (!courseT && !courseP) {
     const fallbackCourse = deptCourses.find(c => c.code === baseCode);
     if (fallbackCourse) {
-      courseT = fallbackCourse;
+      if (fallbackCourse.courseType === 'P') {
+        courseP = fallbackCourse;
+      } else {
+        courseT = fallbackCourse;
+      }
     }
   }
   
@@ -1824,11 +1828,13 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
 
   // 5c. Check Subject-Teacher Mapping if available
   const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const getFromMapping = (m) => m ? (m[codeStr] || m[baseCode] || null) : null;
   const courseMap = deptMapping || 
+    (typeof localSubjectMappings !== 'undefined' && getFromMapping(localSubjectMappings)) ||
     (typeof state !== 'undefined' && state.subjectTeacherMapping && (
-      (course && course.department && state.subjectTeacherMapping[course.department.toUpperCase()] && state.subjectTeacherMapping[course.department.toUpperCase()][baseCode]) ||
-      (state.currentUser && state.currentUser.departmentName && state.subjectTeacherMapping[state.currentUser.departmentName.toUpperCase()] && state.subjectTeacherMapping[state.currentUser.departmentName.toUpperCase()][baseCode]) ||
-      (typeof activePrintDept !== 'undefined' && activePrintDept && state.subjectTeacherMapping[activePrintDept.toUpperCase()] && state.subjectTeacherMapping[activePrintDept.toUpperCase()][baseCode])
+      (course && course.department && getFromMapping(state.subjectTeacherMapping[course.department.toUpperCase()])) ||
+      (state.currentUser && state.currentUser.departmentName && getFromMapping(state.subjectTeacherMapping[state.currentUser.departmentName.toUpperCase()])) ||
+      (typeof activePrintDept !== 'undefined' && activePrintDept && getFromMapping(state.subjectTeacherMapping[activePrintDept.toUpperCase()]))
     ));
 
   if (courseMap && assignedList.length > 0) {
@@ -1872,8 +1878,11 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     return lockSem === courseSem.toLowerCase();
   }) || matchingLocks[0];
 
-  const recT = (courseT && courseT.recommendations && courseT.recommendations[day] && courseT.recommendations[day][period]) || '';
-  const recP = (courseP && courseP.recommendations && courseP.recommendations[day] && courseP.recommendations[day][period]) || '';
+  const curRec = (currentCourse && currentCourse.recommendations && currentCourse.recommendations[day] && currentCourse.recommendations[day][period]) || '';
+  const recT = (courseT && courseT.recommendations && courseT.recommendations[day] && courseT.recommendations[day][period]) ||
+               (curRec === 'T' ? 'T' : '') || '';
+  const recP = (courseP && courseP.recommendations && courseP.recommendations[day] && courseP.recommendations[day][period]) ||
+               (curRec === 'P' ? 'P' : '') || '';
   
   const isM = (courseT && courseT.courseType === 'M') || (courseP && courseP.courseType === 'M') || (currentCourse && currentCourse.courseType === 'M');
   
@@ -1887,16 +1896,20 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
   const classNumFromCode = (baseCode.match(/(_G|_C)(\d+)$/) || [])[2];
   const effClass = classIndex || classNumFromCode || (currentCourse && (currentCourse.class || currentCourse.group)) || null;
 
-  let courseTCode = courseT ? courseT.code : '';
-  let coursePCode = courseP ? courseP.code : '';
+  const allCoursesList = (typeof state !== 'undefined' && Array.isArray(state.courses)) ? state.courses : [];
+  const hasRealSplitT = !!allCoursesList.find(c => c.code === (cleanBaseCode + '-T') || (c.code.startsWith(cleanBaseCode + '_C') && c.code.endsWith('-T')));
+  const hasRealSplitP = !!allCoursesList.find(c => c.code === (cleanBaseCode + '-P') || (c.code.startsWith(cleanBaseCode + '_C') && c.code.endsWith('-P')));
+
+  let courseTCode = (courseT && hasRealSplitT) ? courseT.code : '';
+  let coursePCode = (courseP && hasRealSplitP) ? courseP.code : '';
   if (classIndex) {
-    courseTCode = courseT ? `${cleanBaseCode}_C${classIndex}-T` : '';
-    coursePCode = courseP ? `${cleanBaseCode}_C${classIndex}-P` : '';
+    courseTCode = (courseT && hasRealSplitT) ? `${cleanBaseCode}_C${classIndex}-T` : '';
+    coursePCode = (courseP && hasRealSplitP) ? `${cleanBaseCode}_C${classIndex}-P` : '';
   } else if (effClass) {
-    if (!courseTCode || !courseTCode.includes(`_C${effClass}`)) {
+    if (hasRealSplitT && (!courseTCode || !courseTCode.includes(`_C${effClass}`))) {
       courseTCode = courseT ? `${cleanBaseCode}_C${effClass}-T` : '';
     }
-    if (!coursePCode || !coursePCode.includes(`_C${effClass}`)) {
+    if (hasRealSplitP && (!coursePCode || !coursePCode.includes(`_C${effClass}`))) {
       coursePCode = courseP ? `${cleanBaseCode}_C${effClass}-P` : '';
     }
   }
@@ -2028,7 +2041,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     // Clear out default none/unassigned classes so assigned coloring applies cleanly
     highlightClass = highlightClass.replace(/\bslot-recommend-(none|t|p|m)\b/g, '').trim();
     if (hasRecs && (recT || recP)) {
-      if (assignedSlotType === 'P') {
+      if (recP === 'P' || assignedSlotType === 'P') {
         highlightClass += ' slot-recommend-p';
         if (coursePCode) activeCourseCode = coursePCode;
       } else if (assignedSlotType === 'M') {

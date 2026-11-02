@@ -189,8 +189,25 @@ function generateMultiCohortSchedule({
     cohortMap.get(key).push(c);
   });
 
-  // Prioritize cohorts: ascending semester order (Sem 1 -> Sem 2 -> Sem 3 -> Sem 4 -> Sem 5 -> Sem 6 -> PG), UG before PG
+  // Prioritize cohorts: cohorts with practical recommended blocks first (hardest to place multi-hour lab sessions), then ascending semester order
   const sortedCohorts = Array.from(cohortMap.entries()).sort((a, b) => {
+    const countPracRecs = (courses) => {
+      let count = 0;
+      courses.forEach(c => {
+        if (c.recommendations) {
+          Object.values(c.recommendations).forEach(dMap => {
+            if (Object.values(dMap).some(r => r === 'P')) count++;
+          });
+        }
+      });
+      return count;
+    };
+    const pracA = countPracRecs(a[1]);
+    const pracB = countPracRecs(b[1]);
+    if (pracA !== pracB) {
+      return pracB - pracA; // Most constrained (practical lab recommendations) first!
+    }
+
     const [semA, progA] = a[0].split('_');
     const [semB, progB] = b[0].split('_');
     const numA = parseInt(semA, 10) || 0;
@@ -219,6 +236,46 @@ function generateMultiCohortSchedule({
   const aggregatedSuggestions = new Set();
   let hasRelaxedCohort = false;
 
+  // PASS 1: LOCK ALL CURRICULUM RECOMMENDED SLOTS FIRST ACROSS ALL COHORTS!
+  // Filling recommended slots is the absolute first priority; no neutral slots can steal teachers!
+  for (const [cohortKey, courses] of sortedCohorts) {
+    const [semNum, prog] = cohortKey.split('_');
+    const codes = courses.map(c => c.code);
+
+    const p1Result = generateDepartmentSchedule({
+      db: { ...db, allocations: { ...db.allocations, [deptUpper]: cumulativeAllocations } },
+      departmentName: deptUpper,
+      semester: semNum,
+      selectedCourseCodes: codes,
+      courseFacultyMap,
+      courseFacultyConfig,
+      pinnedSlots,
+      maxConsecutiveHours,
+      practicalBlockSize,
+      allowRelaxedFallback: true,
+      forceRelaxed,
+      __isCohortPass: true,
+      phaseOnly: 1
+    });
+
+    if (p1Result && p1Result.allocations) {
+      Object.keys(p1Result.allocations).forEach(cCode => {
+        const cDays = p1Result.allocations[cCode] || {};
+        WEEKDAYS.forEach(d => {
+          Object.keys(cDays[d] || {}).forEach(p => {
+            const facs = cDays[d][p];
+            if (facs && facs.length > 0) {
+              if (!cumulativeAllocations[cCode]) cumulativeAllocations[cCode] = {};
+              if (!cumulativeAllocations[cCode][d]) cumulativeAllocations[cCode][d] = {};
+              cumulativeAllocations[cCode][d][p] = facs;
+            }
+          });
+        });
+      });
+    }
+  }
+
+  // PASS 2: ALLOCATE BALANCE & NEUTRAL HOURS
   for (const [cohortKey, courses] of sortedCohorts) {
     const [semNum, prog] = cohortKey.split('_');
     const codes = courses.map(c => c.code);
@@ -318,7 +375,8 @@ export function generateDepartmentSchedule({
   practicalBlockSize = 2,
   allowRelaxedFallback = true,
   forceRelaxed = false,
-  __isCohortPass = false
+  __isCohortPass = false,
+  phaseOnly = 0
 }) {
   const deptUpper = (departmentName.toUpperCase() === 'MAT' || departmentName.toUpperCase() === 'MATH') ? 'MATHEMATICS' : departmentName.toUpperCase();
   const isDeptMatch = (d) => {
@@ -2235,6 +2293,13 @@ export function generateDepartmentSchedule({
     });
   }
 
+  if (phaseOnly === 1) {
+    return {
+      success: true,
+      allocations: phase1Alloc,
+      combinationsChecked: totalCombinationsChecked
+    };
+  }
   const remainingPhase2Cards = [...unplacedPhase1Cards, ...phase2Cards];
   remainingPhase2Cards.sort((a, b) => {
     if (b.duration !== a.duration) return b.duration - a.duration;
