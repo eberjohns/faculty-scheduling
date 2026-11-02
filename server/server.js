@@ -20,7 +20,7 @@ import {
   apiLimiter,
   sanitizeExcelRows
 } from './security.js';
-import { getVersionInfo } from './version.js';
+import { getVersionInfo, bumpVersion } from './version.js';
 import { initAuditLogger, logAudit, getClientIp, getAuditLogs, getActiveLogContent, manualClearLogs, getLogsDiskUsage } from './audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -318,56 +318,76 @@ function generateCourseAlias(name) {
 
 // Global Clash Check Helper
 // Returns list of clashes: { weekday, period, facultyCode, courses: [courseCodes] }
-function findAllocationClashes(allocations) {
+function findAllocationClashes(allocations, targetDept = null) {
   const clashes = [];
-  // For each department
-  for (const dept of Object.keys(allocations)) {
-    const deptAlloc = allocations[dept];
-    // Map of weekday -> period -> facultyCode -> Set(courseCodes)
-    const usage = {};
+  const targetUpper = targetDept ? String(targetDept).trim().toUpperCase() : null;
 
+  // Build global usage map: usage[weekday][period][facultyCode] = [{ department, courseCode }]
+  const usage = {};
+
+  for (const dept of Object.keys(allocations)) {
+    const deptAlloc = allocations[dept] || {};
     for (const courseCode of Object.keys(deptAlloc)) {
-      const courseDays = deptAlloc[courseCode];
+      const courseDays = deptAlloc[courseCode] || {};
       for (const weekday of Object.keys(courseDays)) {
-        const periodsObj = courseDays[weekday];
+        const periodsObj = courseDays[weekday] || {};
         if (!usage[weekday]) usage[weekday] = {};
-        
+
         for (const period of Object.keys(periodsObj)) {
           if (!usage[weekday][period]) usage[weekday][period] = {};
-          
+
           const facultyList = periodsObj[period] || [];
           for (const fac of facultyList) {
+            if (!fac) continue;
             if (!usage[weekday][period][fac]) {
-              usage[weekday][period][fac] = new Set();
+              usage[weekday][period][fac] = [];
             }
-            usage[weekday][period][fac].add(courseCode);
-          }
-        }
-      }
-    }
-
-    // Check for double bookings
-    for (const weekday of Object.keys(usage)) {
-      for (const period of Object.keys(usage[weekday])) {
-        for (const fac of Object.keys(usage[weekday][period])) {
-          const coursesSet = usage[weekday][period][fac];
-          if (coursesSet.size > 1) {
-            // Check if they are actually different courses or just split variants of the same course
-            const uniqueBases = new Set(Array.from(coursesSet).map(c => c.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')));
-            if (uniqueBases.size > 1) {
-              clashes.push({
-                department: dept,
-                weekday,
-                period,
-                facultyCode: fac,
-                courses: Array.from(coursesSet)
-              });
-            }
+            usage[weekday][period][fac].push({
+              department: dept,
+              courseCode: courseCode
+            });
           }
         }
       }
     }
   }
+
+  // Check for double bookings
+  for (const weekday of Object.keys(usage)) {
+    for (const period of Object.keys(usage[weekday])) {
+      for (const fac of Object.keys(usage[weekday][period])) {
+        const bookings = usage[weekday][period][fac];
+        if (bookings.length <= 1) continue;
+
+        // If targetDept is specified, only check clashes that involve targetDept
+        if (targetUpper && !bookings.some(b => (b.department || '').trim().toUpperCase() === targetUpper)) {
+          continue;
+        }
+
+        // Check if bookings are different courses or different departments
+        // Exclude split variants of the same base course in the same department (e.g. T/P or class splits)
+        const uniqueKeys = new Set(
+          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}`)
+        );
+
+        if (uniqueKeys.size > 1) {
+          const hasMultipleDepts = new Set(bookings.map(b => (b.department || '').toUpperCase())).size > 1;
+          const courseLabels = bookings.map(b => hasMultipleDepts ? `${b.courseCode} (${b.department})` : b.courseCode);
+
+          clashes.push({
+            department: hasMultipleDepts 
+              ? Array.from(new Set(bookings.map(b => b.department))).join(' / ') 
+              : bookings[0].department,
+            weekday,
+            period,
+            facultyCode: fac,
+            courses: Array.from(new Set(courseLabels))
+          });
+        }
+      }
+    }
+  }
+
   return clashes;
 }
 
@@ -1731,6 +1751,35 @@ app.post('/api/admin/audit-logs/prune', requireAdmin, (req, res) => {
   }
 });
 
+// Admin endpoint to bump or change semantic version
+app.post('/api/admin/version/bump', requireAdmin, (req, res) => {
+  const { type, customVersion } = req.body;
+  try {
+    const result = bumpVersion(type || 'patch', customVersion);
+    if (!result) {
+      return res.status(400).json({ success: false, message: 'Version bump skipped or failed.' });
+    }
+    logAudit({
+      action: 'VERSION_BUMPED',
+      category: 'SYSTEM',
+      actor: 'admin',
+      role: 'ADMIN',
+      target: `v${result.version}`,
+      details: `Semantic version updated from v${result.oldVersion} to v${result.version} (${type || 'custom'})`,
+      req
+    });
+    const info = getVersionInfo(true);
+    res.json({
+      success: true,
+      message: `Version successfully updated to v${result.version}`,
+      ...result,
+      deployment: info
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // Excel Import Routes
 // -------------------------------------------------------------
 app.post('/api/import/courses', requireAdmin, upload.single('file'), (req, res) => {
@@ -2478,28 +2527,48 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
 
     if (targetClassesCount === 1) {
       // Revert to a single class (cleanBaseCode)
-      const keep = currentClassVariants[0];
+      const unsuffixedRecord = currentClassVariants.find(c => c.code === cleanBaseCode);
+      const c1Record = currentClassVariants.find(c => c.code === `${cleanBaseCode}_C1`);
+      const keep = (c1Record && (c1Record.teachers?.length || 0) > 0) ? c1Record : (unsuffixedRecord || c1Record || currentClassVariants[0]);
+
+      const oldKeepCode = keep.code;
       keep.code = cleanBaseCode;
       keep.class = 0;
       keep.group = 0;
       keep.classes = 1;
 
-      // Remove the other variants
-      const toRemoveCodes = currentClassVariants.slice(1).map(c => c.code);
-      if (toRemoveCodes.length > 0) {
-        db.courses = db.courses.filter(c => !toRemoveCodes.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
-        
-        // Clean up allocations for removed codes
-        if (db.allocations && db.allocations[targetDept]) {
-          toRemoveCodes.forEach(remCode => {
-            delete db.allocations[targetDept][remCode];
-            delete db.allocations[targetDept][`${remCode}-T`];
-            delete db.allocations[targetDept][`${remCode}-P`];
-          });
+      // If keep came from _C1 (or another code), migrate its allocations to cleanBaseCode
+      if (oldKeepCode !== cleanBaseCode && db.allocations && db.allocations[targetDept]) {
+        if (!db.allocations[targetDept][cleanBaseCode] || Object.keys(db.allocations[targetDept][cleanBaseCode]).length === 0) {
+          if (db.allocations[targetDept][oldKeepCode]) {
+            db.allocations[targetDept][cleanBaseCode] = db.allocations[targetDept][oldKeepCode];
+          }
         }
-        for (let i = 2; i <= 5; i++) {
-          delete db.groupMappings[`${cleanBaseCode}_C${i}`];
+      }
+
+      // Collect all other variants to remove
+      const toRemoveVariants = currentClassVariants.filter(c => c !== keep);
+      const toRemoveCodes = toRemoveVariants.map(c => c.code).filter(cd => cd !== cleanBaseCode);
+
+      // Remove other variants from db.courses
+      db.courses = db.courses.filter(c => c === keep || !toRemoveVariants.includes(c));
+
+      // Clean up allocations and groupMappings for all removed variants and split codes (_C1.._C5)
+      if (db.allocations && db.allocations[targetDept]) {
+        toRemoveCodes.forEach(remCode => {
+          delete db.allocations[targetDept][remCode];
+          delete db.allocations[targetDept][`${remCode}-T`];
+          delete db.allocations[targetDept][`${remCode}-P`];
+        });
+        for (let i = 1; i <= 5; i++) {
+          const suffixed = `${cleanBaseCode}_C${i}`;
+          delete db.allocations[targetDept][suffixed];
+          delete db.allocations[targetDept][`${suffixed}-T`];
+          delete db.allocations[targetDept][`${suffixed}-P`];
         }
+      }
+      for (let i = 1; i <= 5; i++) {
+        delete db.groupMappings[`${cleanBaseCode}_C${i}`];
       }
     } else {
       // Split into targetClassesCount classes: _C1, _C2, ... _C{targetClassesCount}
@@ -2514,13 +2583,38 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
         }
       });
 
-      // If we had unsuffixed record and need _C1, convert it or create _C1
-      if (unsuffixed.length > 0 && !existingByNum[1]) {
-        unsuffixed[0].code = `${cleanBaseCode}_C1`;
-        unsuffixed[0].class = 1;
-        unsuffixed[0].group = 1;
-        unsuffixed[0].classes = 1;
-        existingByNum[1] = unsuffixed[0];
+      const toRemove = [];
+
+      // If we had unsuffixed records:
+      if (unsuffixed.length > 0) {
+        if (!existingByNum[1]) {
+          // Convert unsuffixed[0] to _C1
+          unsuffixed[0].code = `${cleanBaseCode}_C1`;
+          unsuffixed[0].class = 1;
+          unsuffixed[0].group = 1;
+          unsuffixed[0].classes = 1;
+          existingByNum[1] = unsuffixed[0];
+
+          // Migrate allocations from cleanBaseCode to _C1
+          if (db.allocations && db.allocations[targetDept] && db.allocations[targetDept][cleanBaseCode]) {
+            if (!db.allocations[targetDept][`${cleanBaseCode}_C1`]) {
+              db.allocations[targetDept][`${cleanBaseCode}_C1`] = db.allocations[targetDept][cleanBaseCode];
+            }
+            delete db.allocations[targetDept][cleanBaseCode];
+            delete db.allocations[targetDept][`${cleanBaseCode}-T`];
+            delete db.allocations[targetDept][`${cleanBaseCode}-P`];
+          }
+          // Any remaining unsuffixed records must be removed
+          unsuffixed.slice(1).forEach(u => toRemove.push(u));
+        } else {
+          // _C1 already exists! ALL unsuffixed records are redundant and must be removed!
+          unsuffixed.forEach(u => toRemove.push(u));
+          if (db.allocations && db.allocations[targetDept]) {
+            delete db.allocations[targetDept][cleanBaseCode];
+            delete db.allocations[targetDept][`${cleanBaseCode}-T`];
+            delete db.allocations[targetDept][`${cleanBaseCode}-P`];
+          }
+        }
       }
 
       // Ensure classes 1..targetClassesCount exist
@@ -2532,7 +2626,26 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
             class: cl,
             group: cl,
             classes: 1,
-            department: targetDept
+            department: targetDept,
+            teachers: [],
+            teacherHours: {},
+            theoryTeachers: [],
+            theoryTeacherHours: {},
+            practicalTeachers: [],
+            recommendations: {
+              MONDAY: {},
+              TUESDAY: {},
+              WEDNESDAY: {},
+              THURSDAY: {},
+              FRIDAY: {}
+            },
+            masterRecommendations: {
+              MONDAY: {},
+              TUESDAY: {},
+              WEDNESDAY: {},
+              THURSDAY: {},
+              FRIDAY: {}
+            }
           };
           db.courses.push(newCourse);
           existingByNum[cl] = newCourse;
@@ -2544,28 +2657,25 @@ app.put('/api/admin/courses/:code', requireAdmin, (req, res) => {
       }
 
       // If previous count was higher than targetClassesCount, remove excess
-      const toRemove = [];
       Object.keys(existingByNum).forEach(clStr => {
         const cl = parseInt(clStr, 10);
         if (cl > targetClassesCount) {
-          toRemove.push(existingByNum[cl].code);
+          toRemove.push(existingByNum[cl]);
         }
       });
 
-      // Remove any leftover unsuffixed duplicates
-      unsuffixed.slice(1).forEach(u => toRemove.push(u.code));
-
       if (toRemove.length > 0) {
-        db.courses = db.courses.filter(c => !toRemove.includes(c.code) || (c.department || '').toUpperCase() !== targetDept.toUpperCase());
+        db.courses = db.courses.filter(c => !toRemove.includes(c));
         if (db.allocations && db.allocations[targetDept]) {
-          toRemove.forEach(remCode => {
+          toRemove.forEach(remCourse => {
+            const remCode = remCourse.code;
             delete db.allocations[targetDept][remCode];
             delete db.allocations[targetDept][`${remCode}-T`];
             delete db.allocations[targetDept][`${remCode}-P`];
           });
         }
-        toRemove.forEach(remCode => {
-          delete db.groupMappings[remCode];
+        toRemove.forEach(remCourse => {
+          delete db.groupMappings[remCourse.code];
         });
       }
     }
@@ -2716,19 +2826,32 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
 
     const cleanBaseCode = rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
-    if (classes === 1) {
-      // Single class record
-      const matchIdx = db.courses.findIndex(c => {
-        const cBase = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-        return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === department;
-      });
+    // Current variants for this course in this department
+    const existingVariants = db.courses.filter(c => {
+      const cBase = (c.code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+      return cBase === cleanBaseCode && (c.department || '').trim().toUpperCase() === department;
+    });
 
-      if (matchIdx >= 0) {
-        db.courses[matchIdx].name = name;
-        if (alias) db.courses[matchIdx].alias = alias;
-        if (semester) db.courses[matchIdx].semester = semester;
-        if (category) db.courses[matchIdx].category = category;
-        if (programType) db.courses[matchIdx].programType = programType;
+    if (classes === 1) {
+      if (existingVariants.length > 0) {
+        const unsuffixedRecord = existingVariants.find(c => c.code === cleanBaseCode);
+        const c1Record = existingVariants.find(c => c.code === `${cleanBaseCode}_C1`);
+        const keep = unsuffixedRecord || c1Record || existingVariants[0];
+
+        keep.code = cleanBaseCode;
+        keep.class = 0;
+        keep.group = 0;
+        keep.classes = 1;
+        keep.name = name;
+        if (alias) keep.alias = alias;
+        if (semester) keep.semester = semester;
+        if (category) keep.category = category;
+        if (programType) keep.programType = programType;
+
+        const toRemoveVariants = existingVariants.filter(c => c !== keep);
+        if (toRemoveVariants.length > 0) {
+          db.courses = db.courses.filter(c => c === keep || !toRemoveVariants.includes(c));
+        }
         updatedCount++;
       } else {
         db.courses.push({
@@ -2758,21 +2881,44 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
       }
     } else {
       // Multiple class split records (_C1, _C2, ... _C{classes})
+      const unsuffixed = existingVariants.filter(c => !c.code.match(/(_G|_C)\d+$/));
+      const existingByNum = {};
+      existingVariants.forEach(c => {
+        const m = c.code.match(/(_G|_C)(\d+)$/);
+        if (m) existingByNum[parseInt(m[2], 10)] = c;
+      });
+
+      if (unsuffixed.length > 0) {
+        if (!existingByNum[1]) {
+          unsuffixed[0].code = `${cleanBaseCode}_C1`;
+          unsuffixed[0].class = 1;
+          unsuffixed[0].group = 1;
+          unsuffixed[0].classes = 1;
+          existingByNum[1] = unsuffixed[0];
+          unsuffixed.slice(1).forEach(u => {
+            db.courses = db.courses.filter(c => c !== u);
+          });
+        } else {
+          unsuffixed.forEach(u => {
+            db.courses = db.courses.filter(c => c !== u);
+          });
+        }
+      }
+
       for (let cl = 1; cl <= classes; cl++) {
         const classCode = `${cleanBaseCode}_C${cl}`;
-        const matchIdx = db.courses.findIndex(c => 
-          c.code === classCode && (c.department || '').trim().toUpperCase() === department
-        );
-
-        if (matchIdx >= 0) {
-          db.courses[matchIdx].name = name;
-          if (alias) db.courses[matchIdx].alias = alias;
-          if (semester) db.courses[matchIdx].semester = semester;
-          if (category) db.courses[matchIdx].category = category;
-          if (programType) db.courses[matchIdx].programType = programType;
+        if (existingByNum[cl]) {
+          existingByNum[cl].name = name;
+          if (alias) existingByNum[cl].alias = alias;
+          if (semester) existingByNum[cl].semester = semester;
+          if (category) existingByNum[cl].category = category;
+          if (programType) existingByNum[cl].programType = programType;
+          existingByNum[cl].class = cl;
+          existingByNum[cl].group = cl;
+          existingByNum[cl].classes = 1;
           updatedCount++;
         } else {
-          db.courses.push({
+          const newCourse = {
             code: classCode,
             name,
             department,
@@ -2794,10 +2940,20 @@ app.post('/api/admin/courses/batch', requireAdmin, (req, res) => {
               THURSDAY: {},
               FRIDAY: {}
             }
-          });
+          };
+          db.courses.push(newCourse);
+          existingByNum[cl] = newCourse;
           addedCount++;
         }
       }
+
+      // Remove excess classes if imported count is lower
+      Object.keys(existingByNum).forEach(clStr => {
+        const cl = parseInt(clStr, 10);
+        if (cl > classes) {
+          db.courses = db.courses.filter(c => c !== existingByNum[cl]);
+        }
+      });
     }
   });
 
@@ -3301,7 +3457,7 @@ app.post('/api/allocations', requireDepartment, (req, res) => {
   const testAllocations = JSON.parse(JSON.stringify(db.allocations));
   testAllocations[deptUpper] = allocations;
   
-  const clashes = findAllocationClashes(testAllocations);
+  const clashes = findAllocationClashes(testAllocations, deptUpper);
   if (clashes.length > 0 && req.body.isSubmission) {
     return res.status(400).json({
       success: false,
@@ -3389,6 +3545,177 @@ app.get('/api/department/import-template', requireUser, (req, res) => {
   res.send(buffer);
 });
 
+// -------------------------------------------------------------
+// Department Timetable Excel Import: Preview & Interactive Mapping
+// -------------------------------------------------------------
+app.post('/api/department/import-timetable/preview', requireDepartment, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const db = readDb();
+  const deptUpper = (req.departmentName || req.body.departmentName || '').toUpperCase();
+
+  if (isDepartmentLocked(db, deptUpper)) {
+    return res.status(403).json({
+      success: false,
+      message: `This department's timetable is locked because it is currently ${db.submissions[deptUpper].status}.`
+    });
+  }
+
+  try {
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+    if (data.length < 2) {
+      return res.status(400).json({ error: 'Excel sheet must contain a header row and at least one data row.' });
+    }
+
+    const headerRow = data[0];
+    const DAY_MAP = { MON: 'MONDAY', TUE: 'TUESDAY', WED: 'WEDNESDAY', THU: 'THURSDAY', FRI: 'FRIDAY', MONDAY: 'MONDAY', TUESDAY: 'TUESDAY', WEDNESDAY: 'WEDNESDAY', THURSDAY: 'THURSDAY', FRIDAY: 'FRIDAY' };
+
+    let codeColIdx = -1;
+    const slotCols = [];
+
+    for (let c = 0; c < headerRow.length; c++) {
+      const hdr = String(headerRow[c] || '').trim();
+      const hdrLow = hdr.toLowerCase();
+
+      const slotMatch = hdr.match(/^(MON|TUE|WED|THU|FRI|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY)[-_\s]?(.+)$/i);
+      if (slotMatch) {
+        const dayFull = DAY_MAP[slotMatch[1].toUpperCase()];
+        const period = slotMatch[2].trim();
+        if (dayFull && period.toUpperCase() !== 'LB') {
+          slotCols.push({ idx: c, day: dayFull, period });
+        }
+        continue;
+      }
+
+      if (hdrLow === 'course code' || hdrLow === 'coursecode' || hdrLow === 'code') {
+        codeColIdx = c;
+      }
+    }
+
+    if (codeColIdx === -1) {
+      return res.status(400).json({ error: 'Could not find a "Course Code" column in header row.' });
+    }
+
+    if (slotCols.length === 0) {
+      return res.status(400).json({ error: 'No timetable slot columns found in header (expected headers like MON-1, MON-2, etc.).' });
+    }
+
+    const facultyList = db.faculty || [];
+    const deptFaculty = facultyList.filter(f => (f.department || '').toUpperCase() === deptUpper);
+    const otherFaculty = facultyList.filter(f => (f.department || '').toUpperCase() !== deptUpper);
+
+    // Collect unique tokens across all timetable cells
+    const tokenMap = {};
+    let totalCoursesInSheet = 0;
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0) continue;
+      const rawCode = String(row[codeColIdx] || '').trim();
+      if (!rawCode || rawCode.toLowerCase() === 'course code') continue;
+
+      totalCoursesInSheet++;
+
+      slotCols.forEach(({ idx, day, period }) => {
+        const cellVal = String(row[idx] || '').trim();
+        if (!cellVal) return;
+
+        const rawTokens = cellVal.split(/[/,;+&]/).map(t => t.trim()).filter(Boolean);
+        rawTokens.forEach(token => {
+          const key = token.toUpperCase();
+          if (!tokenMap[key]) {
+            tokenMap[key] = {
+              token,
+              count: 0,
+              sampleCourses: new Set(),
+              sampleSlots: []
+            };
+          }
+          tokenMap[key].count++;
+          if (rawCode) tokenMap[key].sampleCourses.add(rawCode);
+          if (tokenMap[key].sampleSlots.length < 3) {
+            tokenMap[key].sampleSlots.push(`${day.substring(0, 3)}-${period}`);
+          }
+        });
+      });
+    }
+
+    function suggestMatch(tok) {
+      const tUpper = tok.toUpperCase();
+
+      // 1. Exact code in deptFaculty
+      let match = deptFaculty.find(f => f.code.toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'exact', reason: `Exact code match (${match.code})` };
+
+      // 2. Staff ID in deptFaculty
+      match = deptFaculty.find(f => (f.staffId || '').toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'exact', reason: `Staff ID match (${match.staffId})` };
+
+      // 3. Code variation in deptFaculty (e.g. SAS matches SAS1, or NP matches NPL)
+      match = deptFaculty.find(f => {
+        const c = f.code.toUpperCase();
+        return c.startsWith(tUpper) || tUpper.startsWith(c);
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Code variation (${match.code})` };
+
+      // 4. Name prefix in deptFaculty (e.g. ANN matches Ann Mary K A)
+      match = deptFaculty.find(f => {
+        const clean = f.name.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim().toUpperCase();
+        return clean.startsWith(tUpper);
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Name prefix match (${match.name})` };
+
+      // 5. Letter sequence in deptFaculty (e.g. J-B-S in Joby Sebastian, V-M-K in Vimalkumar)
+      match = deptFaculty.find(f => {
+        const clean = f.name.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').replace(/[^A-Za-z]/g, '').toUpperCase();
+        let idx = 0;
+        for (const char of tUpper) {
+          idx = clean.indexOf(char, idx);
+          if (idx === -1) return false;
+          idx++;
+        }
+        return true;
+      });
+      if (match) return { code: match.code, name: match.name, status: 'suggested', reason: `Initials match (${match.name})` };
+
+      // 6. Check other faculty (cross-department)
+      match = otherFaculty.find(f => f.code.toUpperCase() === tUpper);
+      if (match) return { code: match.code, name: match.name, status: 'cross_dept', reason: `Other Dept (${match.department})` };
+
+      return { code: '', name: '', status: 'unmapped', reason: 'Unrecognized' };
+    }
+
+    const tokens = Object.values(tokenMap).map(t => {
+      const suggestion = suggestMatch(t.token);
+      return {
+        token: t.token,
+        count: t.count,
+        sampleCourses: Array.from(t.sampleCourses).slice(0, 3),
+        sampleSlots: t.sampleSlots,
+        suggestedCode: suggestion.code,
+        suggestedName: suggestion.name,
+        matchStatus: suggestion.status,
+        matchReason: suggestion.reason
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    res.json({
+      success: true,
+      totalCoursesInSheet,
+      tokens,
+      departmentFaculty: deptFaculty.map(f => ({ code: f.code, name: f.name, staffId: f.staffId, department: f.department })),
+      otherFaculty: otherFaculty.map(f => ({ code: f.code, name: f.name, staffId: f.staffId, department: f.department }))
+    });
+  } catch (err) {
+    console.error("Department Excel preview failed:", err);
+    res.status(500).json({ error: 'Failed to inspect timetable Excel: ' + err.message });
+  }
+});
+
 app.post('/api/department/import-timetable', requireDepartment, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
@@ -3455,21 +3782,69 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
     const deptCourses = db.courses.filter(c => c.department.toUpperCase() === deptUpper);
     const facultyList = db.faculty || [];
 
+    const deptFaculty = facultyList.filter(f => (f.department || '').toUpperCase() === deptUpper);
+
+    // Parse facultyMapping if provided (JSON string or object)
+    let facultyMapping = {};
+    if (req.body.facultyMapping) {
+      try {
+        facultyMapping = typeof req.body.facultyMapping === 'string'
+          ? JSON.parse(req.body.facultyMapping)
+          : req.body.facultyMapping;
+      } catch (e) {
+        console.warn('[Import Timetable] Could not parse facultyMapping:', e.message);
+      }
+    }
+
+    function isExplicitlyDropped(token) {
+      if (!facultyMapping || typeof facultyMapping !== 'object') return false;
+      const clean = token.trim();
+      const mapped = facultyMapping[clean] !== undefined ? facultyMapping[clean] : facultyMapping[clean.toUpperCase()];
+      return mapped === '__DROP__' || mapped === '' || mapped === null;
+    }
+
     function resolveFacultyCode(token) {
       const clean = token.trim();
       if (!clean) return null;
       const cleanUpper = clean.toUpperCase();
 
-      let fac = facultyList.find(f => f.code.toUpperCase() === cleanUpper);
+      // 1. Check user-defined explicit mapping
+      if (facultyMapping && typeof facultyMapping === 'object') {
+        const mappedCode = facultyMapping[clean] !== undefined ? facultyMapping[clean] : facultyMapping[cleanUpper];
+        if (mappedCode !== undefined) {
+          if (!mappedCode || mappedCode === '__DROP__' || mappedCode === 'null') {
+            return null; // Explicitly dropped by user
+          }
+          const mappedUpper = String(mappedCode).trim().toUpperCase();
+          const targetFac = facultyList.find(f => f.code.toUpperCase() === mappedUpper);
+          return targetFac ? targetFac.code : null;
+        }
+      }
+
+      // 2. Prioritize department's own faculty
+      let fac = deptFaculty.find(f => f.code.toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
-      fac = facultyList.find(f => f.staffId.toUpperCase() === cleanUpper);
+      fac = deptFaculty.find(f => (f.staffId || '').toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
-      fac = facultyList.find(f => f.name.toUpperCase() === cleanUpper);
+      fac = deptFaculty.find(f => f.name.toUpperCase() === cleanUpper);
       if (fac) return fac.code;
 
       const cleanTitleName = cleanUpper.replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim();
+      fac = deptFaculty.find(f => f.name.toUpperCase().replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim() === cleanTitleName);
+      if (fac) return fac.code;
+
+      // 3. Fallback to other college faculty (cross-department)
+      fac = facultyList.find(f => f.code.toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => (f.staffId || '').toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
+      fac = facultyList.find(f => (f.name || '').toUpperCase() === cleanUpper);
+      if (fac) return fac.code;
+
       fac = facultyList.find(f => f.name.toUpperCase().replace(/^(DR\.|MR\.|MRS\.|MS\.|FR\.|SR\.)\s*/i, '').trim() === cleanTitleName);
       if (fac) return fac.code;
 
@@ -3514,6 +3889,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
         const resolvedFacs = [];
 
         rawTokens.forEach(token => {
+          if (isExplicitlyDropped(token)) return;
           const code = resolveFacultyCode(token);
           if (code) {
             if (!resolvedFacs.includes(code)) resolvedFacs.push(code);
@@ -3540,7 +3916,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
     const testAllocations = JSON.parse(JSON.stringify(db.allocations));
     testAllocations[deptUpper] = newDeptAlloc;
 
-    const clashes = findAllocationClashes(testAllocations);
+    const clashes = findAllocationClashes(testAllocations, deptUpper);
     if (clashes.length > 0) {
       return res.status(400).json({
         success: false,

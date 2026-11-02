@@ -773,6 +773,55 @@
       </div>
     </div>
 
+    <!-- MODAL: IMPORT FACULTY MAPPING INTERACTIVE DIALOG -->
+    <div id="modal-import-faculty-mapping" class="modal flex-center hidden no-print" style="z-index: 10025;">
+      <div class="modal-content modal-md" style="max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; padding: 24px;">
+        <div class="modal-header" style="padding: 0 0 12px 0; border-bottom: 1.5px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+          <h2 style="font-size: 18px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-user-check text-primary"></i> Map Imported Faculty Codes
+          </h2>
+          <button id="btn-close-import-faculty-mapping" class="btn btn-outline btn-xs" style="padding: 4px 8px;">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="modal-body" style="padding: 16px 0 0 0; overflow-y: auto; flex: 1;">
+          <p class="text-muted text-sm mb-2" style="line-height: 1.5;">
+            We identified <strong id="import-mapping-token-count" class="text-primary">0</strong> unique faculty code(s) across the course slots in your uploaded timetable.
+            Confirm or select how each code maps to your registered faculty.
+          </p>
+
+          <div style="background-color: var(--surface); padding: 10px 14px; border-radius: var(--radius-sm); border-left: 4px solid var(--primary); margin-bottom: 14px;">
+            <span class="text-xs text-muted" style="display: block; line-height: 1.4;">
+              <i class="fa-solid fa-circle-info text-info"></i>
+              <strong>Note:</strong> Not all faculty members need to be present in this timetable. Any abbreviation set to <em>"-- Do Not Map (Drop / Ignore) --"</em> will simply be omitted from that slot without failing the import.
+            </span>
+          </div>
+
+          <div class="table-responsive" style="max-height: 380px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px;">
+            <table class="table" style="font-size: 13px; margin: 0;">
+              <thead style="background: var(--background); position: sticky; top: 0; z-index: 2;">
+                <tr>
+                  <th style="width: 140px;">Code in File</th>
+                  <th style="width: 110px; text-align: center;">Slots Found</th>
+                  <th>Maps to System Faculty</th>
+                  <th style="width: 140px; text-align: center;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="import-faculty-mapping-tbody">
+                <!-- Dynamically rendered rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer flex-row justify-between items-center mt-3" style="border-top: 1.5px solid var(--border); padding-top: 14px; flex-shrink: 0; display: flex; justify-content: space-between;">
+          <button id="btn-cancel-import-faculty-mapping" class="btn btn-outline">Cancel</button>
+          <button id="btn-confirm-import-faculty-mapping" class="btn btn-primary" style="font-weight: 600;">
+            <i class="fa-solid fa-cloud-arrow-up"></i> Confirm & Import Timetable
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- CUSTOM APP ALERT MODAL -->
     <div id="app-modal" class="modal flex-center hidden no-print">
       <div class="modal-content modal-sm text-center">

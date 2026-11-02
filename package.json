@@ -1,6 +1,6 @@
 {
   "name": "college-timetable-faculty-allocation",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "College Timetable Faculty Allocation System with Express and Vanilla Frontend",
   "main": "server/server.js",
   "type": "module",
@@ -8,7 +8,13 @@
     "start": "node server/server.js",
     "dev": "nodemon server/server.js",
     "check-deploy": "node scripts/check-version.js",
-    "test": "node tests/test_security.js && node tests/test_scheduler.js && node tests/test_manual_assignment_rules.js"
+    "bump": "node scripts/bump-version.js patch",
+    "bump:patch": "node scripts/bump-version.js patch",
+    "bump:minor": "node scripts/bump-version.js minor",
+    "bump:major": "node scripts/bump-version.js major",
+    "setup-hooks": "node scripts/setup-git-hooks.js",
+    "postinstall": "node scripts/setup-git-hooks.js",
+    "test": "node tests/test_security.js && node tests/test_scheduler.js && node tests/test_manual_assignment_rules.js && node tests/test_clash_detection_scoping.js && node tests/test_class_split.js && node tests/test_version_bump.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

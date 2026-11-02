@@ -1,11 +1,11 @@
 {
-  "version": "1.0.0",
-  "commit": "51cca09",
-  "commitFull": "51cca098907adc3b2797858df906dfa3528e2931",
+  "version": "2.0.0",
+  "commit": "d06a9e7",
+  "commitFull": "d06a9e7",
   "branch": "main",
-  "commitDate": "2026-11-03 00:20:42 +0530",
-  "commitMessage": "auto updation corrected",
-  "builtAt": "2026-11-02T18:52:27.596Z",
+  "commitDate": "2026-11-03 00:26:42 +0530",
+  "commitMessage": "Merge upstream/main into main",
+  "builtAt": "2026-11-02T18:57:00.000Z",
   "nodeVersion": "v24.17.0",
   "platform": "win32",
   "environment": "production"
