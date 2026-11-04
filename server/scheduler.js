@@ -234,6 +234,7 @@ function generateMultiCohortSchedule({
   let totalCombinationsChecked = 0;
   const aggregatedExceptions = [];
   const aggregatedSuggestions = new Set();
+  const aggregatedUnassignedHours = [];
   let hasRelaxedCohort = false;
 
   // PASS 1: LOCK ALL CURRICULUM RECOMMENDED SLOTS FIRST ACROSS ALL COHORTS!
@@ -336,6 +337,9 @@ function generateMultiCohortSchedule({
     if (Array.isArray(cohortResult.suggestions)) {
       cohortResult.suggestions.forEach(s => aggregatedSuggestions.add(s));
     }
+    if (Array.isArray(cohortResult.unassignedTeacherHours)) {
+      cohortResult.unassignedTeacherHours.forEach(u => aggregatedUnassignedHours.push(u));
+    }
   }
 
   return {
@@ -356,6 +360,7 @@ function generateMultiCohortSchedule({
       score: 3000
     },
     exceptions: aggregatedExceptions,
+    unassignedTeacherHours: aggregatedUnassignedHours,
     suggestions: Array.from(aggregatedSuggestions)
   };
 }
@@ -762,6 +767,27 @@ export function generateDepartmentSchedule({
       const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || null;
       const thDistributed = thTeachers.length > 1;
 
+      // Prepare per-teacher cards for theory hours
+      const theoryTeacherList = [];
+      const hasExplicitThHours = thTeacherHours && typeof thTeacherHours === 'object' && Object.keys(thTeacherHours).length > 0;
+      if (thTeachers.length > 0) {
+        if (hasExplicitThHours) {
+          thTeachers.forEach(fac => {
+            const h = parseInt(thTeacherHours[fac]) || 0;
+            for (let i = 0; i < h; i++) {
+              theoryTeacherList.push(fac);
+            }
+          });
+          // STRICT MAPPING: Do not exceed any teacher's mapped quota
+        } else {
+          let rr = 0;
+          while (theoryTeacherList.length < theoryNeed) {
+            theoryTeacherList.push(thTeachers[rr % thTeachers.length]);
+            rr++;
+          }
+        }
+      }
+
       const blockSize = practicalBlockSize || 2;
       while (practicalNeed > 0) {
         const curDuration = practicalNeed >= 2 ? blockSize : practicalNeed;
@@ -789,9 +815,15 @@ export function generateDepartmentSchedule({
         practicalNeed -= curDuration;
       }
 
+      let thCardIdx = 0;
       while (theoryNeed > 0) {
         const isRecCard = (recTRemaining > 0);
         if (recTRemaining > 0) recTRemaining--;
+
+        const assignedFac = (thCardIdx < theoryTeacherList.length)
+          ? [theoryTeacherList[thCardIdx]]
+          : (hasExplicitThHours ? [] : thTeachers);
+        thCardIdx++;
 
         cards.push({
           id: `${courseCode}_T_${cards.length}`,
@@ -803,10 +835,10 @@ export function generateDepartmentSchedule({
           semester: course.semester,
           programType: course.programType || 'UG',
           category: course.category || '',
-          assignedFaculty: thTeachers,
-          isDistributed: thDistributed,
-          facultyPool: thTeachers,
-          teacherHours: thTeacherHours,
+          assignedFaculty: assignedFac,
+          isDistributed: false,
+          facultyPool: assignedFac,
+          teacherHours: null,
           batches: mappedBatches,
           recommendations: course.recommendations || {},
           isRecommended: isRecCard
@@ -820,9 +852,48 @@ export function generateDepartmentSchedule({
       const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || null;
       const thDistributed = binding.distribute && thTeachers.length > 1;
 
+      // Prepare per-teacher cards for theory course hours
+      const theoryTeacherList = [];
+      const hasExplicitTeacherHours = thTeacherHours && typeof thTeacherHours === 'object' && Object.keys(thTeacherHours).length > 0;
+      if (thTeachers.length > 0) {
+        if (hasExplicitTeacherHours) {
+          thTeachers.forEach(fac => {
+            const h = parseInt(thTeacherHours[fac]) || 0;
+            for (let i = 0; i < h; i++) {
+              theoryTeacherList.push(fac);
+            }
+          });
+          // STRICT MAPPING: Do not exceed any teacher's mapped quota
+        } else if (thDistributed) {
+          const perTeacher = Math.floor(remainingHours / thTeachers.length);
+          const rem = remainingHours % thTeachers.length;
+          thTeachers.forEach((fac, idx) => {
+            const count = perTeacher + (idx < rem ? 1 : 0);
+            for (let i = 0; i < count; i++) {
+              theoryTeacherList.push(fac);
+            }
+          });
+          let rr = 0;
+          while (theoryTeacherList.length < remainingHours) {
+            theoryTeacherList.push(thTeachers[rr % thTeachers.length]);
+            rr++;
+          }
+        } else {
+          for (let i = 0; i < remainingHours; i++) {
+            theoryTeacherList.push(thTeachers[0] || thTeachers);
+          }
+        }
+      }
+
+      let thCardIdx = 0;
       while (remainingHours > 0) {
         const isRecCard = (recTRemaining > 0);
         if (recTRemaining > 0) recTRemaining--;
+
+        const assignedFac = (thCardIdx < theoryTeacherList.length)
+          ? [theoryTeacherList[thCardIdx]]
+          : (hasExplicitTeacherHours ? [] : thTeachers);
+        thCardIdx++;
 
         cards.push({
           id: `${courseCode}_T_${cards.length}`,
@@ -834,10 +905,10 @@ export function generateDepartmentSchedule({
           semester: course.semester,
           programType: course.programType || 'UG',
           category: course.category || '',
-          assignedFaculty: thTeachers,
-          isDistributed: thDistributed,
-          facultyPool: thTeachers,
-          teacherHours: thTeacherHours,
+          assignedFaculty: assignedFac,
+          isDistributed: false,
+          facultyPool: assignedFac,
+          teacherHours: null,
           batches: mappedBatches,
           recommendations: course.recommendations || {},
           isRecommended: isRecCard
@@ -908,12 +979,36 @@ export function generateDepartmentSchedule({
   });
 
   Object.keys(pinnedSlots).forEach(cCode => {
+    const isTarget = targetCourses.some(tc => tc.code === cCode);
+    if (isTarget) return;
     if (!initialAllocation[cCode]) initialAllocation[cCode] = {};
     const pDays = pinnedSlots[cCode] || {};
     Object.keys(pDays).forEach(d => {
       if (!initialAllocation[cCode][d]) initialAllocation[cCode][d] = {};
       Object.keys(pDays[d]).forEach(p => {
         initialAllocation[cCode][d][p] = pDays[d][p];
+      });
+    });
+  });
+
+  // Sanitize initial allocations of target courses: if any faculty is double-booked on the same slot across courses, remove the clash so solver can properly re-solve
+  const seenSlotFaculty = {};
+  allDeptCourses.forEach(c => {
+    const isTarget = targetCourses.some(tc => tc.code === c.code);
+    const cDays = initialAllocation[c.code] || {};
+    WEEKDAYS.forEach(d => {
+      Object.keys(cDays[d] || {}).forEach(p => {
+        const facs = cDays[d][p] || [];
+        facs.forEach(f => {
+          const key = `${d}_${p}_${f}`;
+          if (seenSlotFaculty[key]) {
+            if (isTarget) {
+              delete cDays[d][p];
+            }
+          } else {
+            seenSlotFaculty[key] = c.code;
+          }
+        });
       });
     });
   });
@@ -1152,7 +1247,7 @@ export function generateDepartmentSchedule({
 
     // 0b. Course-specific slot block (Curriculum slot allocation: 'B') - Strictly enforced
     const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
-    if (cardRecs && cardRecs[day]) {
+    if (cardRecs && cardRecs[day] && !deepRelaxed) {
       for (const p of periodsGroup) {
         if (cardRecs[day][String(p)] === 'B') {
           recordRejection('COURSE_SLOT_BLOCKED', card);
@@ -1192,10 +1287,23 @@ export function generateDepartmentSchedule({
 
         // Own department - Strictly enforced
         for (const otherCourse of Object.keys(allocState)) {
+          if (otherCourse === card.courseCode) continue;
           const occ = allocState[otherCourse][day] && allocState[otherCourse][day][p];
           if (Array.isArray(occ) && occ.includes(fac)) {
             recordRejection('INTERNAL_CLASH', card, fac);
             return false;
+          }
+        }
+
+        // Also check static unselected department courses from db.allocations
+        if (currentDeptAlloc) {
+          for (const otherCourse of Object.keys(currentDeptAlloc)) {
+            if (otherCourse === card.courseCode || allocState[otherCourse]) continue;
+            const occ = currentDeptAlloc[otherCourse][day] && currentDeptAlloc[otherCourse][day][p];
+            if (Array.isArray(occ) && occ.includes(fac)) {
+              recordRejection('INTERNAL_CLASH', card, fac);
+              return false;
+            }
           }
         }
       }
@@ -1355,9 +1463,9 @@ export function generateDepartmentSchedule({
       }
     }
 
-    // 0b. Course-specific slot block ('B') - Strictly enforced
+    // 0b. Course-specific slot block ('B') - Strictly enforced unless deepRelaxed
     const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
-    if (cardRecs && cardRecs[day]) {
+    if (cardRecs && cardRecs[day] && !deepRelaxed) {
       for (const p of periodsGroup) {
         if (cardRecs[day][String(p)] === 'B') {
           recordRejection('COURSE_SLOT_BLOCKED', card);
@@ -1515,7 +1623,7 @@ export function generateDepartmentSchedule({
         : fairQuota;
       // STRICT USER MAPPING ENFORCEMENT:
       // If user specified a specific hours quota for this teacher, NEVER relax or exceed it!
-      const maxQuota = (hasSpecificQuota || !deepRelaxed) ? specificQuota : (specificQuota + 1);
+      const maxQuota = specificQuota;
       const currentHours = (courseFacultyHoursState[card.courseCode] && courseFacultyHoursState[card.courseCode][fac]) || 0;
       if (currentHours + card.duration > maxQuota) {
         continue;
@@ -1547,6 +1655,7 @@ export function generateDepartmentSchedule({
       let hasInternalClash = false;
       for (const p of periodsGroup) {
         for (const otherCourse of Object.keys(allocState)) {
+          if (otherCourse === card.courseCode) continue;
           const occ = allocState[otherCourse][day] && allocState[otherCourse][day][p];
           if (Array.isArray(occ) && occ.includes(fac)) {
             hasInternalClash = true;
@@ -1555,6 +1664,19 @@ export function generateDepartmentSchedule({
           }
         }
         if (hasInternalClash) break;
+
+        if (currentDeptAlloc) {
+          for (const otherCourse of Object.keys(currentDeptAlloc)) {
+            if (otherCourse === card.courseCode || allocState[otherCourse]) continue;
+            const occ = currentDeptAlloc[otherCourse][day] && currentDeptAlloc[otherCourse][day][p];
+            if (Array.isArray(occ) && occ.includes(fac)) {
+              hasInternalClash = true;
+              recordRejection('INTERNAL_CLASH', card, fac);
+              break;
+            }
+          }
+          if (hasInternalClash) break;
+        }
       }
       if (hasInternalClash) continue;
 
@@ -1940,7 +2062,10 @@ export function generateDepartmentSchedule({
           // Course-specific slot block: strictly skip blocked periods for this course
           const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
           const isBlocked = slotGroup.some(p => cardRecs && cardRecs[day] && cardRecs[day][String(p)] === 'B');
-          if (isBlocked) return;
+          if (isBlocked) {
+            if (deepRelaxed && phase !== 1) neutralTier1.push(createCandidate(day, slotGroup));
+            return;
+          }
 
           // Global locked or semester blocked period: strictly skip for all courses in this semester
           const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
@@ -2022,7 +2147,10 @@ export function generateDepartmentSchedule({
         // Course-specific slot block: strictly skip blocked periods for this course
         const cardRecs = card.recommendations || (courseMetaMap[card.courseCode] && courseMetaMap[card.courseCode].recommendations) || (courseMetaMap[card.baseCode] && courseMetaMap[card.baseCode].recommendations);
         const isBlocked = slotGroup.some(p => cardRecs && cardRecs[day] && cardRecs[day][String(p)] === 'B');
-        if (isBlocked) return;
+        if (isBlocked) {
+          if (deepRelaxed && phase !== 1) relaxTier.push(createCandidate(day, slotGroup));
+          return;
+        }
 
         // Global locked or semester blocked period: strictly skip for all courses in this semester
         const courseObj = courseMetaMap[card.courseCode] || courseMetaMap[card.baseCode] || card;
@@ -2421,6 +2549,101 @@ export function generateDepartmentSchedule({
         });
       }
     });
+
+    // Detect any teachers who haven't been allocated their assigned full hours due to constraints
+    var unassignedTeacherHours = [];
+    targetCourses.forEach(c => {
+      const cCode = c.code;
+      const binding = courseFacultyConfig[cCode] || {};
+      const cAlloc = bestSolution[cCode] || {};
+      const placedCounts = {};
+      WEEKDAYS.forEach(d => {
+        Object.keys(cAlloc[d] || {}).forEach(p => {
+          const facs = cAlloc[d][p] || [];
+          facs.forEach(f => {
+            placedCounts[f] = (placedCounts[f] || 0) + 1;
+          });
+        });
+      });
+
+      const isPrac = (binding.courseType === 'P' || c.courseType === 'P');
+      if (isPrac) {
+        const pracHours = parseInt(binding.practicalHours !== undefined ? binding.practicalHours : c.practicalHours) || 0;
+        const pracTeachers = (binding.practicalTeachers && binding.practicalTeachers.length > 0)
+          ? binding.practicalTeachers
+          : (c.practicalTeachers || []);
+        const thTeachers = (binding.theoryTeachers && binding.theoryTeachers.length > 0)
+          ? binding.theoryTeachers
+          : (c.theoryTeachers || []);
+        const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || c.theoryTeacherHours || {};
+
+        pracTeachers.forEach(f => {
+          const placed = placedCounts[f] || 0;
+          if (placed < pracHours) {
+            const facObj = (db.faculty || []).find(fc => fc.code === f) || { name: f };
+            unassignedTeacherHours.push({
+              facultyCode: f,
+              facultyName: facObj.name || f,
+              courseCode: cCode,
+              courseName: c.name || cCode,
+              courseAlias: c.alias || cCode,
+              mappedHours: pracHours,
+              allocatedHours: placed,
+              unassignedHours: pracHours - placed,
+              type: 'Practical'
+            });
+          }
+        });
+
+        thTeachers.forEach(f => {
+          const expectedTh = parseInt(thTeacherHours[f]) || 0;
+          if (expectedTh > 0) {
+            const pracPlaced = pracTeachers.includes(f) ? Math.min(placedCounts[f] || 0, pracHours) : 0;
+            const thPlaced = Math.max(0, (placedCounts[f] || 0) - pracPlaced);
+            if (thPlaced < expectedTh) {
+              const facObj = (db.faculty || []).find(fc => fc.code === f) || { name: f };
+              unassignedTeacherHours.push({
+                facultyCode: f,
+                facultyName: facObj.name || f,
+                courseCode: cCode,
+                courseName: c.name || cCode,
+                courseAlias: c.alias || cCode,
+                mappedHours: expectedTh,
+                allocatedHours: thPlaced,
+                unassignedHours: expectedTh - thPlaced,
+                type: 'Theory'
+              });
+            }
+          }
+        });
+      } else {
+        const thTeachers = (binding.teachers && binding.teachers.length > 0) ? binding.teachers : (c.teachers || []);
+        const thTeacherHours = binding.theoryTeacherHours || binding.teacherHours || c.teacherHours || null;
+        const totalHours = courseTotalHours[cCode] || c.hours || 4;
+        const fairQuota = Math.ceil(totalHours / Math.max(1, thTeachers.length));
+
+        thTeachers.forEach(f => {
+          const expected = (thTeacherHours && thTeacherHours[f] !== undefined && !isNaN(parseInt(thTeacherHours[f])))
+            ? parseInt(thTeacherHours[f])
+            : (thTeachers.length > 1 ? fairQuota : totalHours);
+          const placed = placedCounts[f] || 0;
+          if (placed < expected) {
+            const facObj = (db.faculty || []).find(fc => fc.code === f) || { name: f };
+            unassignedTeacherHours.push({
+              facultyCode: f,
+              facultyName: facObj.name || f,
+              courseCode: cCode,
+              courseName: c.name || cCode,
+              courseAlias: c.alias || cCode,
+              mappedHours: expected,
+              allocatedHours: placed,
+              unassignedHours: expected - placed,
+              type: 'Theory'
+            });
+          }
+        });
+      }
+    });
   }
 
   // Generate Suggestions from Diagnostics
@@ -2531,6 +2754,7 @@ export function generateDepartmentSchedule({
       bottleneckCourses: diagnostics.bottleneckCourses
     },
     exceptions: loggedExceptions,
+    unassignedTeacherHours: unassignedTeacherHours || [],
     suggestions: actionableSuggestions
   };
 }

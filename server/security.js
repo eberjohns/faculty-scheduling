@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -13,6 +14,8 @@ const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, 'data');
 const KEY_FILE = path.join(DATA_DIR, 'secret.key');
 
+const STABLE_DEFAULT_SECRET = 'b8204146b8a4196a254b7ba6e4dd9721d43033a93f15c97e6650e4b8d07ea87c';
+
 function getSecretKey() {
   if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim().length >= 16) {
     return process.env.SESSION_SECRET.trim();
@@ -25,12 +28,11 @@ function getSecretKey() {
       const stored = fs.readFileSync(KEY_FILE, 'utf8').trim();
       if (stored.length >= 32) return stored;
     }
-    const newKey = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(KEY_FILE, newKey, 'utf8');
-    return newKey;
+    fs.writeFileSync(KEY_FILE, STABLE_DEFAULT_SECRET, 'utf8');
+    return STABLE_DEFAULT_SECRET;
   } catch (err) {
-    // In-memory fallback if filesystem write is restricted
-    return 'fallback_sec_key_' + (process.env.PORT || '5000') + '_2026';
+    // Stable in-memory fallback that never changes across ports or restarts
+    return STABLE_DEFAULT_SECRET;
   }
 }
 
@@ -123,8 +125,14 @@ export function verifyDeptPassword(plainPassword, storedCipherOrPlain) {
   }
   if (typeof storedCipherOrPlain === 'string' && storedCipherOrPlain.startsWith('enc:')) {
     const decrypted = decryptDeptPasscode(storedCipherOrPlain);
-    const valid = safeCompare(plainPassword, decrypted);
-    return { valid, needsUpgrade: false };
+    if (decrypted) {
+      const valid = safeCompare(plainPassword, decrypted);
+      return { valid, needsUpgrade: false };
+    }
+    // If decryption failed (e.g. key mismatch or corrupted cipher from past instance):
+    // Fall back to default password '123456' and flag for automatic upgrade/re-encryption with current key
+    const validDefault = safeCompare(plainPassword, '123456');
+    return { valid: validDefault, needsUpgrade: validDefault };
   }
   // If stored as legacy plain text:
   const valid = safeCompare(plainPassword, String(storedCipherOrPlain));

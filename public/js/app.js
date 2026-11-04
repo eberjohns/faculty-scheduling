@@ -1967,16 +1967,60 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
   // 1. Explicit suffix in course key always takes precedence
   if (codeStr.endsWith('-P') || codeStr.includes('-P_') || codeStr.includes('_P-') || codeStr.includes('-P(')) return 'P';
   if (codeStr.endsWith('-T') || codeStr.includes('-T_') || codeStr.includes('_T-') || codeStr.includes('-T(')) return 'T';
-  
-  // 2. Multidisciplinary / Minor category check
-  if ((course && course.courseType === 'M') || (course && course.category === 'MDC')) return 'M';
 
-  // 3. Curriculum Recommendation check (if set for this slot in course)
-  if (course && course.recommendations && course.recommendations[day]) {
-    const rec = course.recommendations[day][period];
+  // 1b. Explicit manual assignment type (set via manual modal when user selects Theory or Practical)
+  if (typeof state !== 'undefined' && state.manualSlots) {
+    const cleanB = codeStr.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+    const keysToCheck = [
+      `${codeStr}_${day}_${period}`,
+      `${cCode}_${day}_${period}`,
+      `${cleanB}_${day}_${period}`
+    ];
+    for (const k of keysToCheck) {
+      if (state.manualSlots[k] === 'P') return 'P';
+      if (state.manualSlots[k] === 'T') return 'T';
+    }
+  }
+
+  // 2. Curriculum Recommendation check (takes priority so recommended T/P slots receive their typical color)
+  const recObj = (course && course.recommendations && course.recommendations[day])
+    ? course.recommendations[day]
+    : ((typeof state !== 'undefined' && Array.isArray(state.courses)) ? (state.courses.find(c => c.code === codeStr || c.code === codeStr.replace(/-(T|P)$/, ''))?.recommendations?.[day]) : null);
+  if (recObj) {
+    const rec = recObj[period];
     if (rec === 'P') return 'P';
     if (rec === 'T') return 'T';
     if (rec === 'B') return 'B';
+    if (rec === 'M') return 'M';
+  }
+
+  // 3. Multidisciplinary / Minor category check (when slot has no explicit T/P recommendation)
+  if ((course && course.courseType === 'M') || (course && course.category === 'MDC')) return 'M';
+
+  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
+
+  // 3b. Multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> always Practical lab session
+  if (assignedList.length > 1) {
+    return 'P';
+  }
+
+  // 3c. Consecutive periods with the same faculty on the same day (labs are 2+ periods) -> Practical session
+  if (dayAllocations && typeof dayAllocations === 'object' && assignedList.length > 0) {
+    const allPeriods = (typeof state !== 'undefined' && state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+    const teachingPeriods = allPeriods.filter(p => String(p).toUpperCase() !== 'LB').map(p => String(p).trim());
+    const pIdx = teachingPeriods.indexOf(String(period).trim());
+    const prevPeriod = (pIdx > 0) ? teachingPeriods[pIdx - 1] : null;
+    const nextPeriod = (pIdx !== -1 && pIdx + 1 < teachingPeriods.length) ? teachingPeriods[pIdx + 1] : null;
+
+    const prevList = prevPeriod && Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
+    const nextList = nextPeriod && Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
+    
+    const sharesFacultyPrev = assignedList.some(f => prevList.includes(f));
+    const sharesFacultyNext = assignedList.some(f => nextList.includes(f));
+    
+    if (sharesFacultyPrev || sharesFacultyNext) {
+      return 'P';
+    }
   }
 
   // 4. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
@@ -1988,32 +2032,6 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
     if (thHours === 0 && prHours > 0) return 'P';
   } else if (course && course.courseType === 'T') {
     return 'T';
-  }
-
-  // 5. Composite / Hybrid courses (courses with both Theory and Practical hours)
-  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
-
-  // 5a. If multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
-  if (assignedList.length > 1) {
-    return 'P';
-  }
-
-  // 5b. Check consecutive periods with the same faculty on the same day (labs are 2+ periods)
-  if (dayAllocations && typeof dayAllocations === 'object') {
-    const pNum = parseInt(String(period).replace(/\D+/g, ''), 10);
-    if (!isNaN(pNum)) {
-      const prevPeriod = String(pNum - 1);
-      const nextPeriod = String(pNum + 1);
-      const prevList = Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
-      const nextList = Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
-      
-      const sharesFacultyPrev = assignedList.length > 0 && assignedList.some(f => prevList.includes(f));
-      const sharesFacultyNext = assignedList.length > 0 && assignedList.some(f => nextList.includes(f));
-      
-      if (sharesFacultyPrev || sharesFacultyNext) {
-        return 'P';
-      }
-    }
   }
 
   // 5c. Check Subject-Teacher Mapping if available
@@ -2111,25 +2129,18 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     highlightClass = 'slot-recommend-blocked';
     slotLabel = 'Blocked';
     activeCourseCode = courseTCode || coursePCode || classDefaultCode;
-  } else if (isM) {
+  } else if (recT === 'T' || recP === 'T') {
+    highlightClass = 'slot-recommend-t';
+    slotLabel = 'Theory Rec';
+    activeCourseCode = recT === 'T' ? (courseTCode || classDefaultCode) : (coursePCode || classDefaultCode);
+  } else if (recP === 'P' || recT === 'P') {
+    highlightClass = 'slot-recommend-p';
+    slotLabel = 'Practical Rec';
+    activeCourseCode = recP === 'P' ? (coursePCode || classDefaultCode) : (courseTCode || classDefaultCode);
+  } else if (curRec === 'M' || recT === 'M' || recP === 'M' || isM) {
     highlightClass = 'slot-recommend-m';
     slotLabel = '';
-  } else if (recT === 'T') {
-    highlightClass = 'slot-recommend-t';
-    slotLabel = 'Theory Rec';
-    activeCourseCode = courseTCode || classDefaultCode;
-  } else if (recP === 'P') {
-    highlightClass = 'slot-recommend-p';
-    slotLabel = 'Practical Rec';
-    activeCourseCode = coursePCode || classDefaultCode;
-  } else if (recT === 'P') {
-    highlightClass = 'slot-recommend-p';
-    slotLabel = 'Practical Rec';
-    activeCourseCode = courseTCode || classDefaultCode;
-  } else if (recP === 'T') {
-    highlightClass = 'slot-recommend-t';
-    slotLabel = 'Theory Rec';
-    activeCourseCode = coursePCode || classDefaultCode;
+    activeCourseCode = courseTCode || coursePCode || classDefaultCode;
   } else {
     activeCourseCode = courseTCode || coursePCode || classDefaultCode;
     highlightClass = (courseSemNum >= 5 || !hasRecs) ? '' : 'slot-recommend-none';
@@ -2148,8 +2159,7 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
       `${cleanBaseCode}_C${effClass}-P`,
       `${cleanBaseCode}_G${effClass}`,
       `${cleanBaseCode}_G${effClass}-T`,
-      `${cleanBaseCode}_G${effClass}-P`,
-      baseCode
+      `${cleanBaseCode}_G${effClass}-P`
     ].filter(Boolean);
   } else {
     candidateKeys = [
@@ -2229,23 +2239,56 @@ function renderCellSlot(baseCode, courseT, courseP, day, period, classIndex = nu
     const assignedSlotType = determineSlotType(currentCourse, activeCourseCode, day, period, mergedAssigned, dayAllocations);
     
     // Clear out default none/unassigned classes so assigned coloring applies cleanly
-    highlightClass = highlightClass.replace(/\bslot-recommend-(none|t|p|m)\b/g, '').trim();
-    if (hasRecs && (recT || recP)) {
-      if (recP === 'P' || assignedSlotType === 'P') {
-        highlightClass += ' slot-recommend-p';
+    highlightClass = highlightClass.replace(/\bslot-recommend-(none|t|p|m)\b/g, '').replace(/\bslot-manual-assigned-(t|p)\b/g, '').replace(/\bslot-open-assigned\b/g, '').trim();
+
+    const slotKey = `${activeCourseCode}_${day}_${period}`;
+    const cleanSlotKey = `${cleanBaseCode}_${day}_${period}`;
+    const allSlotKeys = [slotKey, cleanSlotKey, `${baseCode}_${day}_${period}`, ...candidateKeys.map(k => `${k}_${day}_${period}`)];
+    
+    let explicitManualType = null;
+    if (state.manualSlots) {
+      for (const k of allSlotKeys) {
+        if (state.manualSlots[k] === 'P') {
+          explicitManualType = 'P';
+          break;
+        } else if (state.manualSlots[k] === 'T' && !explicitManualType) {
+          explicitManualType = 'T';
+        }
+      }
+    }
+    const isExplicitManual = !!(explicitManualType || allSlotKeys.some(k => state.manualSlots && state.manualSlots[k]));
+    const isNonRecSlot = !(hasRecs && (recT || recP || curRec));
+    const isManualAssigned = isExplicitManual || isNonRecSlot;
+    const effectiveSlotType = explicitManualType || assignedSlotType;
+
+    if ((effectiveSlotType === 'M' || curRec === 'M') && recT !== 'T' && recT !== 'P' && recP !== 'P' && recP !== 'T') {
+      highlightClass += ' slot-recommend-m';
+      slotLabel = '';
+    } else if (isManualAssigned) {
+      // Manual assignment slot: Orange for Theory, Green for Practical, with BLACK leftmost line
+      if (effectiveSlotType === 'P') {
+        highlightClass += ' slot-manual-assigned-p';
+        slotLabel = 'Practical (Manual)';
         if (coursePCode) activeCourseCode = coursePCode;
-      } else if (assignedSlotType === 'M') {
+      } else if (effectiveSlotType === 'M') {
         highlightClass += ' slot-recommend-m';
+        slotLabel = '';
       } else {
-        highlightClass += ' slot-recommend-t';
+        highlightClass += ' slot-manual-assigned-t';
+        slotLabel = 'Theory (Manual)';
         if (courseTCode) activeCourseCode = courseTCode;
       }
     } else {
-      // Non-recommended course or open/unlocked slot: do NOT make it a recommended cell badge
-      highlightClass += ' slot-open-assigned';
-      slotLabel = '';
-      if (assignedSlotType === 'P' && coursePCode) activeCourseCode = coursePCode;
-      else if (courseTCode) activeCourseCode = courseTCode;
+      // Recommended slot: darker orange for Theory, darker green for Practical
+      if (recP === 'P' || recT === 'P' || curRec === 'P' || effectiveSlotType === 'P') {
+        highlightClass += ' slot-recommend-p';
+        slotLabel = 'Practical Rec';
+        if (coursePCode) activeCourseCode = coursePCode;
+      } else {
+        highlightClass += ' slot-recommend-t';
+        slotLabel = 'Theory Rec';
+        if (courseTCode) activeCourseCode = courseTCode;
+      }
     }
   }
 
@@ -2503,12 +2546,60 @@ window.activateSlot = function(cellContainer, baseCode, activeCourseCode, day, p
   openSelector();
 };
 
+// Helper to find the next right teaching period in order on a day
+function getNextRightPeriod(period) {
+  const allPeriods = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
+  const teachingPeriods = allPeriods.filter(p => String(p).toUpperCase() !== 'LB');
+  const idx = teachingPeriods.map(p => String(p).trim()).indexOf(String(period).trim());
+  if (idx !== -1 && idx + 1 < teachingPeriods.length) {
+    return teachingPeriods[idx + 1];
+  }
+  return null;
+}
+
 // Global active slot context
 let activeSlotContext = null;
 
+window.setManualAssignType = function(type) {
+  if (!activeSlotContext) return;
+  const { period, courseCode } = activeSlotContext;
+  const nextPeriod = getNextRightPeriod(period);
+  if (type === 'P' && !nextPeriod) {
+    showModalAlert('No Next Slot', `Cannot allocate a 2-period practical session starting at Period ${period} because it is the last period of the day.`, 'warning');
+    return;
+  }
+  activeSlotContext.assignmentType = type;
+
+  // Update button active states in UI
+  const btnT = document.getElementById('btn-manual-assign-type-theory');
+  const btnP = document.getElementById('btn-manual-assign-type-practical');
+  if (btnT && btnP) {
+    if (type === 'T') {
+      btnT.className = 'btn btn-xs btn-warning active';
+      btnP.className = 'btn btn-xs btn-outline';
+    } else {
+      btnT.className = 'btn btn-xs btn-outline';
+      btnP.className = 'btn btn-xs btn-success active';
+    }
+  }
+
+  // Update details badge
+  const badge = document.getElementById('fac-select-type-badge');
+  if (badge) {
+    if (type === 'T') {
+      badge.className = 'badge badge-warning';
+      badge.textContent = `Theory (1 Slot: P${period})`;
+    } else {
+      badge.className = 'badge badge-success';
+      badge.textContent = `Practical (2 Slots: P${period} + P${nextPeriod})`;
+    }
+  }
+
+  // Re-render faculty list to reflect availability for 1 vs 2 slots
+  renderFacultySelectList();
+};
+
 window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
-  activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement };
-  
   const course = findCourseForDept(courseCode) || findCourseForDept(baseCode);
   const classNumMatch = (courseCode || baseCode).match(/(_G|_C)(\d+)/);
   const classNum = classNumMatch ? parseInt(classNumMatch[2]) : (course ? (course.class || course.group || 0) : 0);
@@ -2518,21 +2609,42 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   
   const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCode] || localSubjectMappings[baseCodeForRec] || {};
-  const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
-  const typeText = isPrac ? 'Practical' : 'Theory';
+  const slotKey = `${courseCode}_${day}_${period}`;
+  const baseSlotKey = `${baseCode}_${day}_${period}`;
+  const cleanSlotKey = `${cleanBase}_${day}_${period}`;
+  const isPracRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'P' || state.manualSlots[baseSlotKey] === 'P' || state.manualSlots[cleanSlotKey] === 'P'));
+  const isPracByDefault = isPracRecorded || (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+  
+  const nextPeriod = getNextRightPeriod(period);
+  const initialType = (isPracByDefault && nextPeriod) ? 'P' : 'T';
+
+  activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement, assignmentType: initialType };
 
   const pracTeachers = (mData.practicalTeachers && mData.practicalTeachers.length > 0)
     ? mData.practicalTeachers
     : ((course && course.practicalTeachers && course.practicalTeachers.length > 0) ? course.practicalTeachers : []);
 
   let detailsHtml = `
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
-      <div>Course: <strong>${formattedCode}</strong> <span class="badge ${isPrac ? 'badge-success' : 'badge-warning'}">${typeText}</span> | Day: <strong>${day}</strong> | Period: <strong>${period}</strong></div>
-      ${(isPrac && pracTeachers.length > 1) ? `
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+      <div>Course: <strong>${formattedCode}</strong> <span id="fac-select-type-badge" class="badge ${initialType === 'P' ? 'badge-success' : 'badge-warning'}">${initialType === 'P' ? `Practical (2 Slots: P${period} + P${nextPeriod})` : `Theory (1 Slot: P${period})`}</span> | Day: <strong>${day}</strong> | Period: <strong>${period}</strong></div>
+      ${(initialType === 'P' && pracTeachers.length > 1) ? `
         <button type="button" class="btn btn-success btn-xs" onclick="assignAllPracticalCoTeachers('${courseCode}', '${day}', '${period}')" style="font-weight: 700; padding: 3px 8px;">
           <i class="fa-solid fa-users"></i> Assign All Co-Teachers (${pracTeachers.join(' + ')})
         </button>
       ` : ''}
+    </div>
+
+    <!-- Theory / Practical Toggle Option -->
+    <div style="display:flex; align-items:center; justify-content:space-between; background:var(--background); padding:8px 12px; border-radius:var(--radius-sm); border:1.5px solid var(--border); margin-bottom:12px;">
+      <span style="font-size:12px; font-weight:700; color:var(--text-muted);"><i class="fa-solid fa-shapes text-primary"></i> Allocation Type:</span>
+      <div style="display:flex; gap:6px;">
+        <button type="button" id="btn-manual-assign-type-theory" class="btn btn-xs ${initialType === 'T' ? 'btn-warning active' : 'btn-outline'}" onclick="setManualAssignType('T')" style="font-weight:700; padding:4px 10px; display:inline-flex; align-items:center; gap:5px;">
+          <i class="fa-solid fa-book"></i> Theory (1 Slot: P${period})
+        </button>
+        <button type="button" id="btn-manual-assign-type-practical" class="btn btn-xs ${initialType === 'P' ? 'btn-success active' : 'btn-outline'}" onclick="setManualAssignType('P')" style="font-weight:700; padding:4px 10px; display:inline-flex; align-items:center; gap:5px;" ${!nextPeriod ? 'disabled title="Last period of the day cannot extend to next slot"' : ''}>
+          <i class="fa-solid fa-flask"></i> Practical (2 Slots: P${period} + P${nextPeriod || 'None'})
+        </button>
+      </div>
     </div>
   `;
   document.getElementById('fac-select-details').innerHTML = detailsHtml;
@@ -2557,29 +2669,49 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
     : ((course && course.practicalTeachers && course.practicalTeachers.length > 0) ? course.practicalTeachers : []);
   if (pracTeachers.length === 0) return;
 
+  const nextPeriod = getNextRightPeriod(period);
+  const periodsToAssign = nextPeriod ? [period, nextPeriod] : [period];
   const deptName = state.currentUser.departmentName;
-  for (const facCode of pracTeachers) {
-    const res = await authFetch(`${API_BASE}/allocations/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        departmentName: deptName,
-        courseCode,
-        weekday: day,
-        period,
-        facultyCodes: [facCode]
-      })
-    });
-    const validation = await res.json();
-    if (!validation.valid) {
-      showModalAlert('Booking Conflict', `Faculty '${facCode}' is already allocated elsewhere during ${day} Period ${period}.`, 'danger');
-      return;
+
+  for (const p of periodsToAssign) {
+    for (const facCode of pracTeachers) {
+      if (checkLocalClash(facCode, day, p, courseCode)) {
+        showModalAlert('Booking Conflict', `Faculty '${facCode}' is already allocated elsewhere during ${day} Period ${p}.`, 'danger');
+        return;
+      }
+      const res = await authFetch(`${API_BASE}/allocations/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departmentName: deptName,
+          courseCode,
+          weekday: day,
+          period: p,
+          facultyCodes: [facCode]
+        })
+      });
+      const validation = await res.json();
+      if (!validation.valid) {
+        showModalAlert('Booking Conflict', `Faculty '${facCode}' is already allocated elsewhere during ${day} Period ${p}.`, 'danger');
+        return;
+      }
     }
   }
 
-  if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-  if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
-  state.allocations[courseCode][day][period] = Array.from(new Set([...pracTeachers]));
+  periodsToAssign.forEach(p => {
+    if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
+    if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
+    state.allocations[courseCode][day][p] = Array.from(new Set([...pracTeachers]));
+  });
+
+  // Track explicit manual assignments as 'P'
+  if (!state.manualSlots) state.manualSlots = {};
+  const cleanB = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  periodsToAssign.forEach(p => {
+    state.manualSlots[`${courseCode}_${day}_${p}`] = 'P';
+    state.manualSlots[`${baseCodeForRec}_${day}_${p}`] = 'P';
+    state.manualSlots[`${cleanB}_${day}_${p}`] = 'P';
+  });
 
   // Auto-fill other practical recommended slots if toggle is ON
   const toggleAutofill = document.getElementById('toggle-autofill-recommended');
@@ -2594,10 +2726,6 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
   const clickedSlotRec = (recs[day] && recs[day][period]) || '';
   const isClickedSlotRecommended = (clickedSlotRec === 'P');
 
-  // Auto-fill ONLY runs if:
-  // 1. Toggle is ON
-  // 2. The course has recommendations
-  // 3. The user clicked on an actual recommended practical slot ('P'). Clicking an unrecommended slot will NOT auto-fill!
   if (isAutofillOn && course && isClickedSlotRecommended) {
     const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
     const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
@@ -2606,7 +2734,7 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
       const dayRecs = recs[d] || {};
       Object.keys(dayRecs).forEach(p => {
         if (dayRecs[p] === 'P') {
-          if (d === day && String(p) === String(period)) return;
+          if (d === day && periodsToAssign.includes(String(p))) return;
 
           const isLockedByAdmin = globalLocks.some(l => isPeriodLockedForCourse(l, course, d, p, state.commonBatches || []));
           if (isLockedByAdmin) return;
@@ -2644,7 +2772,9 @@ window.assignAllPracticalCoTeachers = async function(courseCode, day, period) {
 
 function renderFacultySelectList() {
   if (!activeSlotContext) return;
-  const { courseCode, day, period } = activeSlotContext;
+  const { courseCode, day, period, assignmentType } = activeSlotContext;
+  const nextPeriod = getNextRightPeriod(period);
+  const isPracticalMode = (assignmentType === 'P' && nextPeriod);
   
   const tbody = document.querySelector('#table-fac-select-list tbody');
   tbody.innerHTML = '';
@@ -2665,14 +2795,29 @@ function renderFacultySelectList() {
   deptFaculty.forEach(f => {
     const isAssigned = mergedAssigned.includes(f.code);
     const unavailList = (state.teacherUnavailability && state.teacherUnavailability[f.code]) || [];
-    const isUnavail = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(period)));
     
-    // Check if faculty has an approved cross-department teaching commitment on this slot
-    const crossReq = (state.crossDepartmentRequests || []).find(r => 
+    // Check slot 1 (selected period)
+    const isUnavail1 = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(period)));
+    const crossReq1 = (state.crossDepartmentRequests || []).find(r => 
       r.status === 'APPROVED' && 
       (r.assignedFacultyCode || '').toUpperCase() === (f.code || '').toUpperCase() &&
       (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period))
     );
+    const hasLocalDeptClash1 = checkLocalClash(f.code, day, period, courseCode);
+
+    // Check slot 2 (next right period) if Practical mode is selected
+    let isUnavail2 = false;
+    let crossReq2 = null;
+    let hasLocalDeptClash2 = false;
+    if (isPracticalMode && !isAssigned) {
+      isUnavail2 = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(nextPeriod)));
+      crossReq2 = (state.crossDepartmentRequests || []).find(r => 
+        r.status === 'APPROVED' && 
+        (r.assignedFacultyCode || '').toUpperCase() === (f.code || '').toUpperCase() &&
+        (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(nextPeriod))
+      );
+      hasLocalDeptClash2 = checkLocalClash(f.code, day, nextPeriod, courseCode);
+    }
 
     const tr = document.createElement('tr');
     
@@ -2684,13 +2829,20 @@ function renderFacultySelectList() {
       else if (assignedP.includes(f.code)) assignedCourseCode = coursePCode;
     }
     
+    const crossReq = crossReq1 || crossReq2;
+    const isUnavail = isUnavail1 || isUnavail2;
+    const hasClash = hasLocalDeptClash1 || hasLocalDeptClash2;
+    const conflictPeriod = (crossReq2 || isUnavail2 || hasLocalDeptClash2) ? nextPeriod : period;
+
     let actionBtn = '';
     if (isAssigned) {
       actionBtn = `<button class="btn btn-outline btn-xs btn-danger" onclick="unassignFacultyFromModal('${assignedCourseCode}', '${f.code}')"><i class="fa-solid fa-user-minus"></i> Remove</button>`;
     } else if (crossReq) {
-      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member is teaching cross-department course ${crossReq.courseCode} in ${crossReq.requestingDept}"><i class="fa-solid fa-ban"></i> Cross-Dept Busy</button>`;
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member is teaching cross-department course ${crossReq.courseCode} in ${crossReq.requestingDept} on Period ${conflictPeriod}"><i class="fa-solid fa-ban"></i> Cross-Dept Busy</button>`;
     } else if (isUnavail) {
-      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member marked this slot off as unavailable"><i class="fa-solid fa-ban"></i> Unavailable</button>`;
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member marked Period ${conflictPeriod} as unavailable"><i class="fa-solid fa-ban"></i> Unavailable</button>`;
+    } else if (hasClash) {
+      actionBtn = `<button class="btn btn-outline btn-xs btn-danger" disabled title="Faculty member is already allocated to another course on Period ${conflictPeriod}"><i class="fa-solid fa-ban"></i> Busy</button>`;
     } else {
       actionBtn = `<button class="btn btn-primary btn-xs" onclick="assignFacultyFromModal('${courseCode}', '${f.code}')"><i class="fa-solid fa-user-plus"></i> Assign</button>`;
     }
@@ -2699,7 +2851,7 @@ function renderFacultySelectList() {
       <td style="text-align: center;"><span class="fac-pill">${f.code}</span></td>
       <td>
         <strong>${f.name}</strong>
-        ${crossReq ? `<span class="badge" style="background: #fef3c7; color: #b45309; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-people-arrows"></i> Cross-Dept (${crossReq.courseCode} in ${crossReq.requestingDept})</span>` : (isUnavail ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-calendar-xmark"></i> Blackout Slot</span>` : '')}
+        ${crossReq ? `<span class="badge" style="background: #fef3c7; color: #b45309; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-people-arrows"></i> Cross-Dept (${crossReq.courseCode} P${conflictPeriod})</span>` : (isUnavail ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-calendar-xmark"></i> Blackout Slot (P${conflictPeriod})</span>` : (hasClash ? `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 10px; margin-left: 6px;"><i class="fa-solid fa-triangle-exclamation"></i> Clash (Busy on ${day} P${conflictPeriod})</span>` : ''))}
       </td>
       <td style="text-align: center;">
         ${actionBtn}
@@ -2711,49 +2863,133 @@ function renderFacultySelectList() {
 
 window.assignFacultyFromModal = async function(courseCode, facultyCode) {
   if (!activeSlotContext) return;
-  const { day, period } = activeSlotContext;
+  const { day, period, assignmentType, baseCode } = activeSlotContext;
+  const nextPeriod = getNextRightPeriod(period);
+  const isPrac = (assignmentType === 'P' && nextPeriod);
+  const periodsToAssign = isPrac ? [period, nextPeriod] : [period];
   const deptName = state.currentUser.departmentName;
-  
-  try {
-    const res = await authFetch(`${API_BASE}/allocations/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        departmentName: deptName,
-        courseCode,
-        weekday: day,
-        period,
-        facultyCodes: [facultyCode]
-      })
-    });
-    const validation = await res.json();
-    
-    if (!validation.valid) {
-      const conf = validation.conflicts[0];
-      const clashingCourse = findCourseForDept(conf.clashingCourseCode);
-      const clashingClassNum = (clashingCourse && (clashingCourse.class || clashingCourse.group)) || (conf.clashingCourseCode.match(/(_G|_C)(\d+)/) ? conf.clashingCourseCode.match(/(_G|_C)(\d+)/)[2] : null);
-      const clashingGroupSuffix = clashingClassNum ? ` (Class C${clashingClassNum})` : '';
+
+  // Resolve target course code for T vs P if course has split -T / -P codes
+  const allCoursesList = (typeof state !== 'undefined' && Array.isArray(state.courses)) ? state.courses : [];
+  const cleanBase = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = (courseCode || baseCode).match(/(_G|_C)(\d+)/);
+  const effClass = classNumMatch ? parseInt(classNumMatch[2]) : null;
+  const hasRealSplitT = !!allCoursesList.find(c => c.code === (cleanBase + '-T') || (c.code.startsWith(cleanBase + '_C') && c.code.endsWith('-T')));
+  const hasRealSplitP = !!allCoursesList.find(c => c.code === (cleanBase + '-P') || (c.code.startsWith(cleanBase + '_C') && c.code.endsWith('-P')));
+  const classSuffix = effClass ? `_C${effClass}` : '';
+
+  let targetCourseCode = courseCode;
+  let oppositeCode = null;
+  if (isPrac && hasRealSplitP) {
+    targetCourseCode = `${cleanBase}${classSuffix}-P`;
+    oppositeCode = `${cleanBase}${classSuffix}-T`;
+  } else if (!isPrac && hasRealSplitT) {
+    targetCourseCode = `${cleanBase}${classSuffix}-T`;
+    oppositeCode = `${cleanBase}${classSuffix}-P`;
+  }
+
+  // 1. Check local clash across periodsToAssign
+  for (const p of periodsToAssign) {
+    if (checkLocalClash(facultyCode, day, p, targetCourseCode)) {
       showModalAlert(
-        'Hard Booking Clash!', 
-        `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}${clashingGroupSuffix}) on ${day} Period ${period} in department ${conf.department}.`,
+        'Hard Booking Clash!',
+        `Double-booking violation!\n\nFaculty member '${facultyCode}' is already allocated to another course on ${day} Period ${p}.`,
         'danger'
       );
       return;
     }
-    
-    // Save locally
-    if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-    if (!state.allocations[courseCode][day]) state.allocations[courseCode][day] = {};
-    if (!state.allocations[courseCode][day][period]) state.allocations[courseCode][day][period] = [];
-    
-    if (!state.allocations[courseCode][day][period].includes(facultyCode)) {
-      state.allocations[courseCode][day][period].push(facultyCode);
+  }
+
+  // 2. Check Teacher Unavailability across periodsToAssign
+  const unavailList = (state.teacherUnavailability && state.teacherUnavailability[facultyCode]) || [];
+  for (const p of periodsToAssign) {
+    const isUnavail = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(p)));
+    if (isUnavail) {
+      showModalAlert('Unavailable Slot', `Faculty member '${facultyCode}' marked ${day} Period ${p} as unavailable.`, 'danger');
+      return;
+    }
+  }
+
+  // 3. Check Cross-Department Requests across periodsToAssign
+  for (const p of periodsToAssign) {
+    const crossReq = (state.crossDepartmentRequests || []).find(r => 
+      r.status === 'APPROVED' && 
+      (r.assignedFacultyCode || '').toUpperCase() === facultyCode.toUpperCase() &&
+      (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(p))
+    );
+    if (crossReq) {
+      showModalAlert('Cross-Dept Busy', `Faculty '${facultyCode}' is teaching cross-department course ${crossReq.courseCode} in ${crossReq.requestingDept} on ${day} Period ${p}.`, 'danger');
+      return;
+    }
+  }
+
+  // 4. Validate with backend /api/allocations/validate for each period in periodsToAssign
+  try {
+    for (const p of periodsToAssign) {
+      const res = await authFetch(`${API_BASE}/allocations/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departmentName: deptName,
+          courseCode: targetCourseCode,
+          weekday: day,
+          period: p,
+          facultyCodes: [facultyCode]
+        })
+      });
+      const validation = await res.json();
+      
+      if (!validation.valid) {
+        const conf = validation.conflicts[0];
+        const clashingCourse = findCourseForDept(conf.clashingCourseCode);
+        const clashingClassNum = (clashingCourse && (clashingCourse.class || clashingCourse.group)) || (conf.clashingCourseCode.match(/(_G|_C)(\d+)/) ? conf.clashingCourseCode.match(/(_G|_C)(\d+)/)[2] : null);
+        const clashingGroupSuffix = clashingClassNum ? ` (Class C${clashingClassNum})` : '';
+        showModalAlert(
+          'Hard Booking Clash!', 
+          `Double-booking violation!\n\nFaculty member '${conf.facultyName}' (${conf.facultyCode}) is already allocated to '${conf.clashingCourseName}' (${conf.clashingCourseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}${clashingGroupSuffix}) on ${day} Period ${p} in department ${conf.department}.`,
+          'danger'
+        );
+        return;
+      }
     }
     
-    const course = findCourseForDept(courseCode);
-    const baseCodeForRec = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
-    const mData = localSubjectMappings[courseCode] || localSubjectMappings[baseCodeForRec] || {};
-    const isPrac = (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+    // Save locally for all assigned periods
+    periodsToAssign.forEach(p => {
+      if (!state.allocations[targetCourseCode]) state.allocations[targetCourseCode] = {};
+      if (!state.allocations[targetCourseCode][day]) state.allocations[targetCourseCode][day] = {};
+      if (!state.allocations[targetCourseCode][day][p]) state.allocations[targetCourseCode][day][p] = [];
+      
+      if (!state.allocations[targetCourseCode][day][p].includes(facultyCode)) {
+        state.allocations[targetCourseCode][day][p].push(facultyCode);
+      }
+    });
+
+    // Track explicit manual assignment with exact type ('P' or 'T')
+    const manualType = isPrac ? 'P' : 'T';
+    if (!state.manualSlots) state.manualSlots = {};
+    periodsToAssign.forEach(p => {
+      state.manualSlots[`${targetCourseCode}_${day}_${p}`] = manualType;
+      state.manualSlots[`${courseCode}_${day}_${p}`] = manualType;
+      state.manualSlots[`${baseCode}_${day}_${p}`] = manualType;
+      state.manualSlots[`${cleanBase}_${day}_${p}`] = manualType;
+      if (classSuffix) {
+        state.manualSlots[`${cleanBase}${classSuffix}_${day}_${p}`] = manualType;
+        state.manualSlots[`${cleanBase}${classSuffix}-P_${day}_${p}`] = manualType;
+        state.manualSlots[`${cleanBase}${classSuffix}-T_${day}_${p}`] = manualType;
+      }
+    });
+
+    // Clean up opposite code if teacher was previously in that slot under opposite variant
+    if (oppositeCode && oppositeCode !== targetCourseCode) {
+      periodsToAssign.forEach(p => {
+        if (state.allocations[oppositeCode]?.[day]?.[p]) {
+          state.allocations[oppositeCode][day][p] = state.allocations[oppositeCode][day][p].filter(c => c !== facultyCode);
+        }
+      });
+    }
+
+    const course = findCourseForDept(targetCourseCode) || findCourseForDept(baseCode);
+    const baseCodeForRec = targetCourseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
 
     // Check if auto-fill recommended toggle is ON
     const toggleAutofill = document.getElementById('toggle-autofill-recommended');
@@ -2777,12 +3013,33 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
       const globalLocks = (state.config && state.config.globalLockedPeriods) || [];
 
+      // STRICT QUOTA ENFORCEMENT: Never assign more hours to this teacher than mapped!
+      const mapping = localSubjectMappings[targetCourseCode] || localSubjectMappings[baseCodeForRec] || {};
+      const teacherQuota = (targetType === 'P')
+        ? (parseInt(mapping.practicalHours || course.practicalHours) || 2)
+        : (parseInt((mapping.theoryTeacherHours && mapping.theoryTeacherHours[facultyCode]) ||
+                    (mapping.teacherHours && mapping.teacherHours[facultyCode]) ||
+                    (course.theoryTeacherHours && course.theoryTeacherHours[facultyCode]) ||
+                    course.theoryHours || course.hours) || 4);
+
+      // Count hours already assigned to this faculty member in this course
+      let currentFacultyHours = 0;
+      const cDays = state.allocations[targetCourseCode] || {};
+      Object.values(cDays).forEach(pMap => {
+        Object.values(pMap || {}).forEach(fList => {
+          if (Array.isArray(fList) && fList.includes(facultyCode)) currentFacultyHours++;
+        });
+      });
+
       weekdays.forEach(d => {
         const dayRecs = recs[d] || {};
         Object.keys(dayRecs).forEach(p => {
           if (dayRecs[p] === targetType) {
-            // Skip the current period which was already assigned
-            if (d === day && String(p) === String(period)) return;
+            // Stop if teacher's quota for this course is reached
+            if (currentFacultyHours >= teacherQuota) return;
+
+            // Skip the current periods which were already assigned
+            if (d === day && periodsToAssign.includes(String(p))) return;
 
             // Check admin lock
             const isLockedByAdmin = globalLocks.some(l => isPeriodLockedForCourse(l, course, d, p, state.commonBatches || []));
@@ -2796,15 +3053,16 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
               (r.assignedFacultyCode || '').toUpperCase() === facultyCode.toUpperCase() &&
               (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === d.toUpperCase() && String(s.period) === String(p))
             );
-            const hasClash = checkLocalClash(facultyCode, d, p, courseCode);
+            const hasClash = checkLocalClash(facultyCode, d, p, targetCourseCode);
 
             if (!hasClash && !isUnavail && !crossReq) {
-              if (!state.allocations[courseCode]) state.allocations[courseCode] = {};
-              if (!state.allocations[courseCode][d]) state.allocations[courseCode][d] = {};
-              if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
+              if (!state.allocations[targetCourseCode]) state.allocations[targetCourseCode] = {};
+              if (!state.allocations[targetCourseCode][d]) state.allocations[targetCourseCode][d] = {};
+              if (!state.allocations[targetCourseCode][d][p]) state.allocations[targetCourseCode][d][p] = [];
 
-              if (!state.allocations[courseCode][d][p].includes(facultyCode)) {
-                state.allocations[courseCode][d][p].push(facultyCode);
+              if (!state.allocations[targetCourseCode][d][p].includes(facultyCode)) {
+                state.allocations[targetCourseCode][d][p].push(facultyCode);
+                currentFacultyHours++;
               }
             }
           }
@@ -2814,14 +3072,14 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
 
     // For practical slots: keep modal open so helpers can be assigned to the same period, with real-time update
     if (isPrac) {
-      syncAllocationsToSubjectMapping(courseCode);
+      syncAllocationsToSubjectMapping(targetCourseCode);
       renderFacultySelectList();
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
       triggerAutosave();
     } else {
       // Close faculty selector modal for single-teacher theory slots
-      syncAllocationsToSubjectMapping(courseCode);
+      syncAllocationsToSubjectMapping(targetCourseCode);
       document.getElementById('modal-faculty-select').classList.add('hidden');
       renderAllocationMatrix();
       updateDeptLiveWorkloadTracker();
@@ -2829,48 +3087,72 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       triggerAutosave();
     }
   } catch (err) {
-    console.error(err);
+    console.error("Assign faculty error:", err);
+    showModalAlert('Error', 'Failed to communicate with server.', 'danger');
   }
 };
 
 window.unassignFacultyFromModal = function(courseCode, facultyCode) {
   if (!activeSlotContext) return;
-  const { day, period } = activeSlotContext;
+  const { day, period, assignmentType } = activeSlotContext;
+  const nextPeriod = getNextRightPeriod(period);
+  const isPrac = (assignmentType === 'P' && nextPeriod);
+  const periodsToRemove = isPrac ? [period, nextPeriod] : [period];
   const myDept = ((state.currentUser && state.currentUser.departmentName) || '').trim().toUpperCase();
 
-  const isCross = (state.crossDepartmentRequests || []).some(r =>
-    r.status === 'APPROVED' &&
-    (r.assignedFacultyCode || '').toUpperCase() === (facultyCode || '').toUpperCase() &&
-    (r.requestingDept || '').trim().toUpperCase() === myDept &&
-    (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (day || '').toUpperCase() && String(s.period) === String(period))
-  );
-
-  if (isCross) {
-    showModalAlert(
-      'Cross-Department Assignment',
-      `Faculty member '${facultyCode}' is permanently assigned to this slot via Cross-Department Teaching.\n\nIt cannot be removed manually from the timetable. To remove this assignment, open Advanced Features > Cross-Dept Teaching > Outgoing Requests and click "Delete Request & Clear Allocation".`,
-      'info'
+  for (const p of periodsToRemove) {
+    const isCross = (state.crossDepartmentRequests || []).some(r =>
+      r.status === 'APPROVED' &&
+      (r.assignedFacultyCode || '').toUpperCase() === (facultyCode || '').toUpperCase() &&
+      (r.requestingDept || '').trim().toUpperCase() === myDept &&
+      (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === (day || '').toUpperCase() && String(s.period) === String(p))
     );
-    return;
+
+    if (isCross) {
+      showModalAlert(
+        'Cross-Department Assignment',
+        `Faculty member '${facultyCode}' is permanently assigned to this slot via Cross-Department Teaching.\n\nIt cannot be removed manually from the timetable. To remove this assignment, open Advanced Features > Cross-Dept Teaching > Outgoing Requests and click "Delete Request & Clear Allocation".`,
+        'info'
+      );
+      return;
+    }
   }
   
+  const cleanBase = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = (courseCode || '').match(/(_G|_C)(\d+)/);
+  const effClass = classNumMatch ? parseInt(classNumMatch[2]) : null;
+  const classSuffix = effClass ? `_C${effClass}` : '';
   const keysToTry = [
     courseCode,
     `${courseCode}-T`,
     `${courseCode}-P`,
-    courseCode.replace(/-(T|P)$/, '')
+    courseCode.replace(/-(T|P)$/, ''),
+    cleanBase,
+    `${cleanBase}${classSuffix}`,
+    `${cleanBase}${classSuffix}-T`,
+    `${cleanBase}${classSuffix}-P`
   ];
   let changed = false;
   keysToTry.forEach(k => {
-    if (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][period]) {
-      if (state.allocations[k][day][period].includes(facultyCode)) {
-        state.allocations[k][day][period] = state.allocations[k][day][period].filter(code => code !== facultyCode);
-        changed = true;
+    periodsToRemove.forEach(p => {
+      if (state.allocations[k] && state.allocations[k][day] && state.allocations[k][day][p]) {
+        if (state.allocations[k][day][p].includes(facultyCode)) {
+          state.allocations[k][day][p] = state.allocations[k][day][p].filter(code => code !== facultyCode);
+          changed = true;
+        }
       }
-    }
+    });
   });
 
   if (changed) {
+    if (state.manualSlots) {
+      periodsToRemove.forEach(p => {
+        const anyRemaining = keysToTry.some(k => (state.allocations[k]?.[day]?.[p]?.length || 0) > 0);
+        if (!anyRemaining) {
+          keysToTry.forEach(k => delete state.manualSlots[`${k}_${day}_${p}`]);
+        }
+      });
+    }
     syncAllocationsToSubjectMapping(courseCode);
     renderFacultySelectList(); // refresh list in modal
     renderAllocationMatrix(); // refresh grid
@@ -2898,11 +3180,19 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
     return;
   }
 
+  const cleanBase = courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = (courseCode || '').match(/(_G|_C)(\d+)/);
+  const effClass = classNumMatch ? parseInt(classNumMatch[2]) : null;
+  const classSuffix = effClass ? `_C${effClass}` : '';
   const keysToTry = [
     courseCode,
     `${courseCode}-T`,
     `${courseCode}-P`,
-    courseCode.replace(/-(T|P)$/, '')
+    courseCode.replace(/-(T|P)$/, ''),
+    cleanBase,
+    `${cleanBase}${classSuffix}`,
+    `${cleanBase}${classSuffix}-T`,
+    `${cleanBase}${classSuffix}-P`
   ];
   let changed = false;
   keysToTry.forEach(k => {
@@ -2915,6 +3205,12 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
   });
 
   if (changed) {
+    if (state.manualSlots) {
+      const anyRemaining = keysToTry.some(k => (state.allocations[k]?.[day]?.[period]?.length || 0) > 0);
+      if (!anyRemaining) {
+        keysToTry.forEach(k => delete state.manualSlots[`${k}_${day}_${period}`]);
+      }
+    }
     syncAllocationsToSubjectMapping(courseCode);
     renderAllocationMatrix();
     updateDeptLiveWorkloadTracker();
@@ -2954,6 +3250,23 @@ document.getElementById('btn-autofill-all').addEventListener('click', () => {
             if (!state.allocations[courseCode][d][p]) state.allocations[courseCode][d][p] = [];
             
             teachersToAssign.forEach(fc => {
+              const teacherQuota = (type === 'P')
+                ? (parseInt(mData.practicalHours || (course && course.practicalHours)) || 2)
+                : (parseInt((mData.theoryTeacherHours && mData.theoryTeacherHours[fc]) ||
+                            (mData.teacherHours && mData.teacherHours[fc]) ||
+                            (course && course.theoryTeacherHours && course.theoryTeacherHours[fc]) ||
+                            (course && (course.theoryHours || course.hours))) || 4);
+
+              let currentFcHours = 0;
+              const curDays = state.allocations[courseCode] || {};
+              Object.values(curDays).forEach(pMap => {
+                Object.values(pMap || {}).forEach(list => {
+                  if (Array.isArray(list) && list.includes(fc)) currentFcHours++;
+                });
+              });
+
+              if (currentFcHours >= teacherQuota) return;
+
               const hasClash = checkLocalClash(fc, d, p, courseCode);
               if (!hasClash && !state.allocations[courseCode][d][p].includes(fc)) {
                 state.allocations[courseCode][d][p].push(fc);
@@ -6197,8 +6510,30 @@ function updateSubjectMappingWorkloadTracker() {
     }
   });
 
+  // Render pills with a leading TOTAL tile
+  let totalEntireHours = 0;
+  let totalTheoryHours = 0;
+  let totalPracticalHours = 0;
+
+  deptFaculty.forEach(f => {
+    const data = facWorkload[f.code] || { totalHours: 0, theoryHours: 0, practicalHours: 0 };
+    totalEntireHours += data.totalHours;
+    totalTheoryHours += data.theoryHours;
+    totalPracticalHours += data.practicalHours;
+  });
+
+  const totalTileHtml = `
+    <div class="mapping-workload-pill mapping-workload-total" title="Entire Assigned Hours (All Teachers in Subject Teacher Mapping)">
+      <span class="fac-code"><i class="fa-solid fa-calculator" style="font-size: 11px; margin-right: 3px;"></i>TOTAL</span>
+      <span class="fac-hours">${totalEntireHours} hrs</span>
+      <div class="fac-detail">
+        <span>TH: ${totalTheoryHours}</span> • <span>PR: ${totalPracticalHours}</span>
+      </div>
+    </div>
+  `;
+
   // Render pills
-  container.innerHTML = deptFaculty.map(f => {
+  container.innerHTML = totalTileHtml + deptFaculty.map(f => {
     const data = facWorkload[f.code] || { totalHours: 0, theoryHours: 0, practicalHours: 0 };
     const badgeColor = data.totalHours > 16 ? '#dc2626' : (data.totalHours === 0 ? '#94a3b8' : '#2563eb');
     return `
@@ -8462,7 +8797,7 @@ function renderAutoGeneratorBindings() {
 
     autoGenCourseFacultyConfig[c.code] = {
       teachers: autoGenCourseFacultyBindings[c.code],
-      distribute: isPrac ? false : ((autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false) && autoGenCourseFacultyBindings[c.code].length > 1),
+      distribute: isPrac ? false : ((!autoGenCourseFacultyConfig[c.code] || autoGenCourseFacultyConfig[c.code].distribute !== false) && autoGenCourseFacultyBindings[c.code].length > 1),
       teacherHours: mapObj.teacherHours || c.teacherHours || null,
       courseType: isPrac ? 'P' : 'T',
       practicalHours: mapObj.practicalHours !== undefined ? mapObj.practicalHours : c.practicalHours,
@@ -8473,7 +8808,7 @@ function renderAutoGeneratorBindings() {
     };
 
     const selectedFacs = autoGenCourseFacultyBindings[c.code] || [];
-    const isDistribute = !isPrac && (autoGenCourseFacultyConfig[c.code] && autoGenCourseFacultyConfig[c.code].distribute !== false);
+    const isDistribute = !isPrac && (!autoGenCourseFacultyConfig[c.code] || autoGenCourseFacultyConfig[c.code].distribute !== false);
 
     let summaryText = 'Not Assigned';
     let summaryIcon = 'fa-solid fa-circle-exclamation';
@@ -8989,6 +9324,109 @@ async function executeAutoGenerationAfterChanges(coursesWithChanges, coursesToPr
   await runAutoGeneration(forceRelaxed, true, coursesToPreserve);
 }
 
+// Helper: Detect any teachers who haven't been allocated their full mapped hours
+function computeClientUnassignedTeacherHours(selectedCodes, allocations) {
+  const list = [];
+  if (!Array.isArray(selectedCodes) || !allocations) return list;
+  const deptFaculty = state.faculty || [];
+
+  selectedCodes.forEach(cCode => {
+    const cObj = state.courses.find(c => c.code === cCode) || { code: cCode };
+    const mapping = localSubjectMappings[cCode] || {};
+    const cAlloc = allocations[cCode] || {};
+    const placedCounts = {};
+    const weekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    weekdays.forEach(d => {
+      Object.keys(cAlloc[d] || {}).forEach(p => {
+        const facs = cAlloc[d][p] || [];
+        facs.forEach(f => {
+          placedCounts[f] = (placedCounts[f] || 0) + 1;
+        });
+      });
+    });
+
+    const isPrac = (mapping.courseType === 'P' || cObj.courseType === 'P');
+    if (isPrac) {
+      const pracHours = parseInt(mapping.practicalHours !== undefined ? mapping.practicalHours : cObj.practicalHours) || 0;
+      const pracTeachers = (mapping.practicalTeachers && mapping.practicalTeachers.length > 0)
+        ? mapping.practicalTeachers
+        : (cObj.practicalTeachers || []);
+      const thTeachers = (mapping.theoryTeachers && mapping.theoryTeachers.length > 0)
+        ? mapping.theoryTeachers
+        : (cObj.theoryTeachers || []);
+      const thTeacherHours = mapping.theoryTeacherHours || mapping.teacherHours || cObj.theoryTeacherHours || {};
+
+      pracTeachers.forEach(f => {
+        const placed = placedCounts[f] || 0;
+        if (placed < pracHours) {
+          const facObj = deptFaculty.find(fc => fc.code === f) || { name: f };
+          list.push({
+            facultyCode: f,
+            facultyName: facObj.name || f,
+            courseCode: cCode,
+            courseName: cObj.name || cCode,
+            courseAlias: cObj.alias || cCode,
+            mappedHours: pracHours,
+            allocatedHours: placed,
+            unassignedHours: pracHours - placed,
+            type: 'Practical'
+          });
+        }
+      });
+
+      thTeachers.forEach(f => {
+        const expectedTh = parseInt(thTeacherHours[f]) || 0;
+        if (expectedTh > 0) {
+          const pracPlaced = pracTeachers.includes(f) ? Math.min(placedCounts[f] || 0, pracHours) : 0;
+          const thPlaced = Math.max(0, (placedCounts[f] || 0) - pracPlaced);
+          if (thPlaced < expectedTh) {
+            const facObj = deptFaculty.find(fc => fc.code === f) || { name: f };
+            list.push({
+              facultyCode: f,
+              facultyName: facObj.name || f,
+              courseCode: cCode,
+              courseName: cObj.name || cCode,
+              courseAlias: cObj.alias || cCode,
+              mappedHours: expectedTh,
+              allocatedHours: thPlaced,
+              unassignedHours: expectedTh - thPlaced,
+              type: 'Theory'
+            });
+          }
+        }
+      });
+    } else {
+      const thTeachers = (mapping.teachers && mapping.teachers.length > 0) ? mapping.teachers : (cObj.teachers || []);
+      const thTeacherHours = mapping.theoryTeacherHours || mapping.teacherHours || cObj.teacherHours || null;
+      const totalHours = parseInt(mapping.hours || cObj.hours) || 4;
+      const fairQuota = Math.ceil(totalHours / Math.max(1, thTeachers.length));
+
+      thTeachers.forEach(f => {
+        const expected = (thTeacherHours && thTeacherHours[f] !== undefined && !isNaN(parseInt(thTeacherHours[f])))
+          ? parseInt(thTeacherHours[f])
+          : (thTeachers.length > 1 ? fairQuota : totalHours);
+        const placed = placedCounts[f] || 0;
+        if (placed < expected) {
+          const facObj = deptFaculty.find(fc => fc.code === f) || { name: f };
+          list.push({
+            facultyCode: f,
+            facultyName: facObj.name || f,
+            courseCode: cCode,
+            courseName: cObj.name || cCode,
+            courseAlias: cObj.alias || cCode,
+            mappedHours: expected,
+            allocatedHours: placed,
+            unassignedHours: expected - placed,
+            type: 'Theory'
+          });
+        }
+      });
+    }
+  });
+
+  return list;
+}
+
 async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false, preservedCodes = null) {
   const deptName = state.currentUser ? state.currentUser.departmentName : '';
   const semSelect = document.getElementById('auto-gen-sem-select');
@@ -9070,7 +9508,7 @@ async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false,
       courseFacultyConfig[cCode] = {
         teachers: facList,
         teacherHours: mapping.teacherHours || course.teacherHours || (autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].teacherHours) || null,
-        distribute: isPrac ? false : ((autoGenCourseFacultyConfig[cCode] && autoGenCourseFacultyConfig[cCode].distribute !== false) && facList.length > 1),
+        distribute: isPrac ? false : ((!autoGenCourseFacultyConfig[cCode] || autoGenCourseFacultyConfig[cCode].distribute !== false) && facList.length > 1),
         courseType: courseType,
         practicalHours: mapping.practicalHours !== undefined ? mapping.practicalHours : course.practicalHours,
         theoryHours: mapping.theoryHours !== undefined ? mapping.theoryHours : course.theoryHours,
@@ -9085,15 +9523,24 @@ async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false,
   let pinnedSlots = {};
   if (pinSlotsCheck && pinSlotsCheck.checked) {
     pinnedSlots = JSON.parse(JSON.stringify(state.allocations || {}));
+    // Target courses being regenerated must not be pre-pinned into initialAllocation,
+    // otherwise their slots accumulate, exceed mapped quotas, and cause double-booking clashes.
+    (selectedCourseCodes || []).forEach(cCode => {
+      if (!coursesToPreserve.includes(cCode)) {
+        delete pinnedSlots[cCode];
+        delete pinnedSlots[`${cCode}-T`];
+        delete pinnedSlots[`${cCode}-P`];
+      }
+    });
+  } else if (Array.isArray(preservedCodes) && preservedCodes.length > 0) {
+    // Preserve allocated slots for courses ONLY if explicitly confirmed in preservedCodes
+    preservedCodes.forEach(cCode => {
+      const existingAlloc = getCourseExistingAllocations(cCode);
+      if (existingAlloc) {
+        pinnedSlots[cCode] = JSON.parse(JSON.stringify(existingAlloc));
+      }
+    });
   }
-
-  // Preserve allocated slots for courses with unchanged parameters
-  coursesToPreserve.forEach(cCode => {
-    const existingAlloc = getCourseExistingAllocations(cCode);
-    if (existingAlloc) {
-      pinnedSlots[cCode] = JSON.parse(JSON.stringify(existingAlloc));
-    }
-  });
 
   btnRun.disabled = true;
   btnRun.innerHTML = forceRelaxed 
@@ -9133,28 +9580,114 @@ async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false,
         sessionStorage.setItem('allocatedCourseParamSnapshots', JSON.stringify(state.allocatedCourseParamSnapshots));
       } catch (e) {}
       
+      const resultsHeading = document.getElementById('auto-gen-results-heading');
       const resultsMsg = document.getElementById('auto-gen-results-msg');
-      if (result.status === 'relaxed_with_exceptions') {
-        const excCount = result.exceptions ? result.exceptions.length : 0;
-        let exceptionsListHtml = '';
-        if (result.exceptions && result.exceptions.length > 0) {
-          exceptionsListHtml = `
+
+      // Unassigned Teacher Hours & Constraint Violations Display
+      let unassignedBoxes = Array.isArray(result.unassignedTeacherHours) ? result.unassignedTeacherHours : [];
+      if (unassignedBoxes.length === 0) {
+        unassignedBoxes = computeClientUnassignedTeacherHours(selectedCourseCodes, result.allocations || tempGeneratedAllocations);
+      }
+      const otherViolations = (result.exceptions || []).filter(e => e.type !== 'PARTIAL_ALLOCATION');
+
+      if (unassignedBoxes.length > 0) {
+        if (resultsHeading) {
+          resultsHeading.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #b45309;"></i> Schedule Generated with Allocation Bottlenecks`;
+          resultsHeading.style.color = '#b45309';
+        }
+        if (resultsCard) {
+          resultsCard.style.backgroundColor = '#fffbeb';
+          resultsCard.style.borderColor = '#f59e0b';
+        }
+
+        const boxesHtml = `
+          <div style="margin-top: 10px; margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 700; color: #92400e; margin-bottom: 8px;">
+              <i class="fa-solid fa-user-clock" style="color: #d97706;"></i> Unassigned Faculty Hours due to Constraints (${unassignedBoxes.length}):
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px;">
+              ${unassignedBoxes.map(box => `
+                <div style="background: #ffffff; border: 1.5px solid #f59e0b; border-left: 5px solid #d97706; border-radius: 8px; padding: 10px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                    <div style="font-weight: 700; font-size: 13px; color: #1e293b;">
+                      <i class="fa-solid fa-user-xmark" style="color: #d97706; margin-right: 4px;"></i>
+                      ${escapeHtml(box.facultyName)} <span style="font-size: 11px; color: #64748b; font-weight: 500;">(${escapeHtml(box.facultyCode)})</span>
+                    </div>
+                    <span style="background: #fef3c7; color: #b45309; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 12px; border: 1px solid #fde68a; white-space: nowrap;">
+                      ${box.unassignedHours} ${box.unassignedHours === 1 ? 'hr' : 'hrs'} not assigned
+                    </span>
+                  </div>
+                  <div style="font-size: 12px; color: #334155; margin-bottom: 6px; font-weight: 500;">
+                    <span style="font-weight: 600; color: #475569;">Course:</span> ${escapeHtml(box.courseName)}
+                    <span style="color: #64748b; font-size: 11px;">(${escapeHtml(box.courseAlias || box.courseCode)})</span>
+                  </div>
+                  <div style="font-size: 11px; color: #64748b; display: flex; gap: 10px; background: #f8fafc; padding: 4px 8px; border-radius: 6px;">
+                    <span>Mapped: <strong style="color: #1e293b;">${box.mappedHours}h</strong></span>
+                    <span>Allocated: <strong style="color: #10b981;">${box.allocatedHours}h</strong></span>
+                    <span>Shortfall: <strong style="color: #dc2626;">${box.unassignedHours}h</strong></span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+        let otherViolationsHtml = '';
+        if (otherViolations.length > 0) {
+          otherViolationsHtml = `
+            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed #d97706;">
+              <div style="font-weight: 700; font-size: 12px; color: #92400e; margin-bottom: 6px;">
+                <i class="fa-solid fa-triangle-exclamation" style="color: #d97706;"></i> Other Violated / Relaxed Rules (${otherViolations.length}):
+              </div>
+              <ul style="margin: 0; padding-left: 20px; font-size: 11px; color: #78350f; line-height: 1.6;">
+                ${otherViolations.map(e => `<li>${escapeHtml(e.reason || e.message || String(e))}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        }
+
+        if (resultsMsg) {
+          resultsMsg.innerHTML = `
+            ${boxesHtml}
+            ${otherViolationsHtml}
+          `;
+        }
+      } else if (result.status === 'relaxed_with_exceptions' || otherViolations.length > 0) {
+        if (resultsHeading) {
+          resultsHeading.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Generation Feasible with Exceptions`;
+          resultsHeading.style.color = '#166534';
+        }
+        if (resultsCard) {
+          resultsCard.style.backgroundColor = 'var(--success-light)';
+          resultsCard.style.borderColor = 'var(--success)';
+        }
+        let otherViolationsHtml = '';
+        if (otherViolations.length > 0) {
+          otherViolationsHtml = `
             <div style="margin-top: 6px; font-size: 11px; color: #92400e;">
-              <strong>Applied Smart Exceptions (${excCount}):</strong>
+              <strong>Applied Smart Exceptions (${otherViolations.length}):</strong>
               <ul style="margin: 2px 0 0 16px; padding: 0;">
-                ${result.exceptions.map(e => `<li>${e.reason}</li>`).join('')}
+                ${otherViolations.map(e => `<li>${escapeHtml(e.reason || e.message || String(e))}</li>`).join('')}
               </ul>
             </div>
           `;
         }
         if (resultsMsg) {
           resultsMsg.innerHTML = `
-            <span style="color: #b45309; font-weight: 700;"><i class="fa-solid fa-triangle-exclamation"></i> Feasible Schedule Generated via Smart Exceptions:</span>
-            ${result.message}
-            ${exceptionsListHtml}
+            <span style="color: #b45309; font-weight: 700;"><i class="fa-solid fa-triangle-exclamation"></i> Feasible Schedule Generated:</span>
+            ${escapeHtml(result.message)}
+            ${otherViolationsHtml}
           `;
         }
       } else {
+        if (resultsHeading) {
+          resultsHeading.innerHTML = `<i class="fa-solid fa-circle-check"></i> Generation Successful!`;
+          resultsHeading.style.color = 'var(--success-dark)';
+        }
+        if (resultsCard) {
+          resultsCard.style.backgroundColor = 'var(--success-light)';
+          resultsCard.style.borderColor = 'var(--success)';
+        }
         if (resultsMsg) resultsMsg.textContent = result.message;
       }
 
@@ -9282,6 +9815,12 @@ async function applyAutoGeneratedSchedule() {
   if (!tempGeneratedAllocations) return;
 
   Object.keys(tempGeneratedAllocations).forEach(cCode => {
+    // When applying allocations for a course, clean up any split variant keys (-T / -P)
+    // so stale assignments from prior runs do not remain in state.allocations
+    if (!cCode.endsWith('-T') && !cCode.endsWith('-P')) {
+      delete state.allocations[`${cCode}-T`];
+      delete state.allocations[`${cCode}-P`];
+    }
     state.allocations[cCode] = tempGeneratedAllocations[cCode];
     if (!state.allocatedCourseParamSnapshots) state.allocatedCourseParamSnapshots = {};
     state.allocatedCourseParamSnapshots[cCode] = captureCourseParamSnapshot(cCode);
@@ -9383,6 +9922,9 @@ function bindCurriculumSlotAllocatorEvents() {
           // If "ALL" was selected and user switches to T or P, auto-select first actual course
           if (targetSelect && targetSelect.value === 'ALL' && targetSelect.options.length > 1) {
             targetSelect.value = targetSelect.options[1].value;
+            curriculumSelectedFilterCourse = targetSelect.value;
+            renderCurriculumSlotMatrix();
+            renderCurriculumHoursBreakdown();
           }
         } else if (curriculumActiveToolMode === 'B') {
           targetLabel.innerHTML = `<i class="fa-solid fa-ban"></i> Block Target:`;
@@ -9415,19 +9957,11 @@ function bindCurriculumSlotAllocatorEvents() {
     });
   }
 
-  // Course Filter
-  const courseFilter = document.getElementById('curriculum-course-filter');
-  if (courseFilter) {
-    courseFilter.addEventListener('change', () => {
-      curriculumSelectedFilterCourse = courseFilter.value;
-      const assignSelect = document.getElementById('curriculum-target-subject-select');
-      if (assignSelect) {
-        if (curriculumSelectedFilterCourse !== 'ALL') {
-          assignSelect.value = curriculumSelectedFilterCourse;
-        } else if (curriculumActiveToolMode === 'B' || curriculumActiveToolMode === 'CLEAR') {
-          assignSelect.value = 'ALL';
-        }
-      }
+  // Target Subject Select (Filters matrix by selected subject and selects target for assignment)
+  const targetSelect = document.getElementById('curriculum-target-subject-select');
+  if (targetSelect) {
+    targetSelect.addEventListener('change', () => {
+      curriculumSelectedFilterCourse = targetSelect.value;
       renderCurriculumSlotMatrix();
       renderCurriculumHoursBreakdown();
     });
@@ -9446,6 +9980,21 @@ function bindCurriculumSlotAllocatorEvents() {
   if (btnSave) {
     btnSave.addEventListener('click', async () => {
       await saveCurriculumSlotAllocations();
+    });
+  }
+
+  // Copy / Transfer Structure to Other Courses Buttons
+  const btnCopyStructure = document.getElementById('btn-copy-curriculum-structure');
+  if (btnCopyStructure) {
+    btnCopyStructure.addEventListener('click', () => {
+      openCopyCurriculumModal();
+    });
+  }
+
+  const btnHeaderCopy = document.getElementById('btn-header-copy-curriculum-slots');
+  if (btnHeaderCopy) {
+    btnHeaderCopy.addEventListener('click', () => {
+      openCopyCurriculumModal();
     });
   }
 }
@@ -9789,9 +10338,8 @@ function populateCurriculumSemesterDropdown() {
 }
 
 function populateCurriculumCourseDropdowns() {
-  const courseFilter = document.getElementById('curriculum-course-filter');
   const targetSelect = document.getElementById('curriculum-target-subject-select');
-  if (!courseFilter || !targetSelect) return;
+  if (!targetSelect) return;
 
   const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
   
@@ -9808,22 +10356,9 @@ function populateCurriculumCourseDropdowns() {
     }
   });
 
-  // Filter dropdown
-  const curFilterVal = courseFilter.value;
-  courseFilter.innerHTML = '<option value="ALL">All Courses in Semester</option>';
-  uniqueBases.forEach(u => {
-    courseFilter.innerHTML += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
-  });
-  if (curFilterVal && (curFilterVal === 'ALL' || uniqueBases.some(u => u.baseCode === curFilterVal))) {
-    courseFilter.value = curFilterVal;
-  } else {
-    courseFilter.value = 'ALL';
-  }
-  curriculumSelectedFilterCourse = courseFilter.value;
-
-  // Target Subject select
+  // Target Subject select (also drives matrix filtering)
   const curTargetVal = targetSelect.value;
-  let targetHtml = '<option value="ALL">Entire Semester (All Courses)</option>';
+  let targetHtml = '<option value="ALL">All Subjects in Semester</option>';
   uniqueBases.forEach(u => {
     targetHtml += `<option value="${u.baseCode}">${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)}</option>`;
   });
@@ -9831,8 +10366,6 @@ function populateCurriculumCourseDropdowns() {
 
   if (curTargetVal && (curTargetVal === 'ALL' || uniqueBases.some(u => u.baseCode === curTargetVal))) {
     targetSelect.value = curTargetVal;
-  } else if (uniqueBases.length > 0) {
-    targetSelect.value = uniqueBases[0].baseCode;
   } else {
     targetSelect.value = 'ALL';
   }
@@ -9841,6 +10374,8 @@ function populateCurriculumCourseDropdowns() {
   if ((curriculumActiveToolMode === 'T' || curriculumActiveToolMode === 'P') && targetSelect.value === 'ALL' && uniqueBases.length > 0) {
     targetSelect.value = uniqueBases[0].baseCode;
   }
+
+  curriculumSelectedFilterCourse = targetSelect.value;
 }
 
 function renderCurriculumSlotAllocator() {
@@ -9964,6 +10499,7 @@ function renderCurriculumSlotMatrix() {
 
         if (thisRec) {
           totalRecCount++;
+          const otherRecs = recCourses.filter(rc => rc.baseCode !== curriculumSelectedFilterCourse);
           const badgeBg = thisRec.recType === 'T' ? 'var(--warning)' : 'var(--success)';
           const badgeLabel = thisRec.recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
           const badgeIcon = thisRec.recType === 'T' ? 'fa-book' : 'fa-flask';
@@ -9972,7 +10508,7 @@ function renderCurriculumSlotMatrix() {
           bodyHtml += `
             <td class="curriculum-slot-cell ${cellClass}" 
                 onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
-                title="${escapeHtml(thisRec.baseCode)} - ${escapeHtml(thisRec.course.name || '')} (${badgeLabel}). Click to change or toggle off."
+                title="${escapeHtml(thisRec.baseCode)} - ${escapeHtml(thisRec.course.name || '')} (${badgeLabel})${otherRecs.length > 0 ? ` (+${otherRecs.length} other subjects share slot)` : ''}. Click to change or toggle off."
                 style="vertical-align: middle; height: 58px; padding: 4px 6px;">
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
                 <span class="badge" style="background: ${badgeBg}; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
@@ -9982,13 +10518,38 @@ function renderCurriculumSlotMatrix() {
                 <span style="font-size: 9.5px; color: var(--text-muted); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                   ${escapeHtml(thisRec.course.name || '')}
                 </span>
+                ${otherRecs.length > 0 ? `
+                  <span style="font-size: 8.5px; color: #4338ca; font-weight: 700;" title="Shared with: ${otherRecs.map(r => r.baseCode).join(', ')}">
+                    +${otherRecs.length} other subject${otherRecs.length > 1 ? 's' : ''}
+                  </span>
+                ` : ''}
               </div>
             </td>
           `;
           return;
         }
 
-        // Open slot for this filtered course
+        // Open slot for this filtered course (check if other courses occupy slot)
+        const otherRecs = recCourses;
+        if (otherRecs.length > 0) {
+          bodyHtml += `
+            <td class="curriculum-slot-cell" 
+                onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
+                title="Open for ${escapeHtml(curriculumSelectedFilterCourse)} (Occupied by: ${otherRecs.map(r => `${r.baseCode} [${r.recType}]`).join(', ')}). Click with selected tool to assign or block."
+                style="vertical-align: middle; height: 58px; background: #ffffff;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+                <div style="color: #94a3b8; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                  <i class="fa-solid fa-plus opacity-40"></i> Open
+                </div>
+                <span style="font-size: 8.5px; color: #64748b; font-weight: 600;" title="${otherRecs.map(r => `${r.baseCode} (${r.recType})`).join(', ')}">
+                  (${otherRecs.length} other subject${otherRecs.length > 1 ? 's' : ''})
+                </span>
+              </div>
+            </td>
+          `;
+          return;
+        }
+
         bodyHtml += `
           <td class="curriculum-slot-cell" 
               onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
@@ -10005,27 +10566,28 @@ function renderCurriculumSlotMatrix() {
       // "ALL" Courses View Mode
       if (recCourses.length > 0) {
         totalRecCount++;
-        const first = recCourses[0];
-        const badgeBg = first.recType === 'T' ? 'var(--warning)' : 'var(--success)';
-        const badgeLabel = first.recType === 'T' ? 'Theory (TH)' : 'Practical (PR)';
-        const badgeIcon = first.recType === 'T' ? 'fa-book' : 'fa-flask';
-        const cellClass = (first.recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p');
+        const isMultiple = recCourses.length > 1;
+        const cellClass = isMultiple ? 'slot-recommend-multiple' : (recCourses[0].recType === 'T' ? 'slot-recommend-t' : 'slot-recommend-p');
 
         bodyHtml += `
           <td class="curriculum-slot-cell ${cellClass}" 
               onclick="handleCurriculumSlotCellClick('${day}', '${p}')" 
-              title="${escapeHtml(first.baseCode)} - ${escapeHtml(first.course.name || '')} (${badgeLabel}). Click to change or toggle off."
-              style="vertical-align: middle; height: 58px; padding: 4px 6px;">
+              title="${recCourses.map(rc => `${rc.baseCode} (${rc.recType === 'T' ? 'Theory' : 'Practical'})`).join(', ')}. Click to change or toggle off."
+              style="vertical-align: middle; height: 58px; padding: 3px 5px;">
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
-              <span class="badge" style="background: ${badgeBg}; color: #ffffff; font-size: 9.5px; padding: 1px 6px; font-weight: 700; border-radius: 4px;">
-                <i class="fa-solid ${badgeIcon}"></i> ${badgeLabel}
-              </span>
-              <strong style="font-size: 12.5px; color: var(--text-main);">${escapeHtml(first.baseCode)}</strong>
-              <span style="font-size: 9.5px; color: var(--text-muted); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                ${escapeHtml(first.course.name || '')}
-              </span>
+              ${recCourses.slice(0, 2).map(rc => `
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <span class="badge" style="background: ${rc.recType === 'T' ? 'var(--warning)' : 'var(--success)'}; color: #ffffff; font-size: 8px; padding: 0px 4px; font-weight: 700; border-radius: 3px;">
+                    ${rc.recType === 'T' ? 'TH' : 'PR'}
+                  </span>
+                  <strong style="font-size: 11px; color: var(--text-main);">${escapeHtml(rc.baseCode)}</strong>
+                </div>
+              `).join('')}
+              ${recCourses.length > 2 ? `
+                <span style="font-size: 8px; color: #4338ca; font-weight: 700;">+${recCourses.length - 2} more</span>
+              ` : ''}
               ${blockedCourses.length > 0 ? `
-                <span style="font-size: 8.5px; color: #dc2626; font-weight: 700;" title="Also blocked for: ${blockedCourses.join(', ')}">
+                <span style="font-size: 8px; color: #dc2626; font-weight: 700;" title="Also blocked for: ${blockedCourses.join(', ')}">
                   <i class="fa-solid fa-ban"></i> +${blockedCourses.length} blocked
                 </span>
               ` : ''}
@@ -10283,18 +10845,7 @@ function handleCurriculumSlotCellClick(day, period) {
       return !(b.day === day && String(b.period) === String(period) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
-    // Clear existing Theory/Practical teaching recommendations in this slot for this semester
-    // (Preserve course-specific 'B' blocked slots of other courses)
-    deptCourses.forEach(c => {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        const val = localCurriculumCourseRecs[c.code][day][period];
-        if (val === 'T' || val === 'P') {
-          delete localCurriculumCourseRecs[c.code][day][period];
-        }
-      }
-    });
-
-    // Assign 'T'
+    // Assign 'T' to target subject (allows other subjects to also have recommendations in the same period)
     const matchingCourses = (state.courses || []).filter(c => {
       const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
@@ -10364,20 +10915,7 @@ function handleCurriculumSlotCellClick(day, period) {
       return !(b.day === day && pairToAssign.includes(String(b.period)) && isMatchingCurriculumSem(b.semester, curriculumSelectedSem));
     });
 
-    // Clear existing Theory/Practical recommendations on both periods in pairToAssign
-    // (Preserve course-specific 'B' blocked slots of other courses)
-    deptCourses.forEach(c => {
-      if (localCurriculumCourseRecs[c.code] && localCurriculumCourseRecs[c.code][day]) {
-        pairToAssign.forEach(p => {
-          const val = localCurriculumCourseRecs[c.code][day][p];
-          if (val === 'T' || val === 'P') {
-            delete localCurriculumCourseRecs[c.code][day][p];
-          }
-        });
-      }
-    });
-
-    // Assign 'P' to both periods in pairToAssign
+    // Assign 'P' to both periods in pairToAssign for target subject (allows other subjects to also have recommendations)
     const matchingCourses = (state.courses || []).filter(c => {
       const b = c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
       return b === targetBaseCode && (c.department || '').toUpperCase() === deptName;
@@ -10631,6 +11169,381 @@ async function saveCurriculumSlotAllocations() {
       btnSave.innerHTML = originalText;
     }
   }
+}
+
+// -------------------------------------------------------------
+// Copy / Transfer Curriculum Slot Structure & Blocks
+// -------------------------------------------------------------
+function openCopyCurriculumModal() {
+  const modal = document.getElementById('modal-copy-curriculum-slots');
+  if (!modal) return;
+
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+
+  // Extract unique bases from the currently filtered semester
+  const uniqueBases = [];
+  semCourses.forEach(c => {
+    const baseCode = cleanBase(c.code);
+    if (!uniqueBases.some(u => u.baseCode === baseCode)) {
+      const targets = getCourseHourTargets(baseCode, semCourses);
+      uniqueBases.push({
+        baseCode,
+        name: c.name || baseCode,
+        totalHours: targets.total,
+        thTarget: targets.thTarget,
+        prTarget: targets.prTarget
+      });
+    }
+  });
+
+  if (uniqueBases.length <= 1) {
+    showModalAlert(
+      'Not Enough Courses',
+      `There is only ${uniqueBases.length} course registered under the current semester filter. At least two courses are needed to copy and transfer schedule structure.`,
+      'info'
+    );
+    return;
+  }
+
+  // Populate source dropdown
+  const sourceSelect = document.getElementById('copy-curriculum-source-select');
+  if (sourceSelect) {
+    const curAssignVal = document.getElementById('curriculum-target-subject-select') ? document.getElementById('curriculum-target-subject-select').value : '';
+    let selectedSource = (curAssignVal && curAssignVal !== 'ALL') ? curAssignVal : uniqueBases[0].baseCode;
+
+    sourceSelect.innerHTML = uniqueBases.map(u => {
+      const isSel = (u.baseCode === selectedSource) ? 'selected' : '';
+      return `<option value="${escapeHtml(u.baseCode)}" ${isSel}>${escapeHtml(u.baseCode)} - ${escapeHtml(u.name)} (${u.totalHours} hrs)</option>`;
+    }).join('');
+
+    sourceSelect.onchange = () => {
+      updateCopyCurriculumSourceSummary();
+      renderCopyCurriculumTargetList();
+    };
+  }
+
+  // Bind modal close buttons
+  const btnClose = document.getElementById('btn-close-copy-curriculum-modal');
+  if (btnClose) {
+    btnClose.onclick = () => modal.classList.add('hidden');
+  }
+  const btnCancel = document.getElementById('btn-cancel-copy-curriculum');
+  if (btnCancel) {
+    btnCancel.onclick = () => modal.classList.add('hidden');
+  }
+
+  // Search input
+  const searchInput = document.getElementById('copy-target-search');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.oninput = () => {
+      const q = searchInput.value.trim().toLowerCase();
+      document.querySelectorAll('#copy-target-courses-list .copy-target-item').forEach(el => {
+        const text = (el.getAttribute('data-code') + ' ' + el.getAttribute('data-name')).toLowerCase();
+        if (!q || text.includes(q)) {
+          el.style.display = 'flex';
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    };
+  }
+
+  // Select All / Deselect All
+  const btnSelectAll = document.getElementById('btn-copy-select-all');
+  if (btnSelectAll) {
+    btnSelectAll.onclick = () => {
+      document.querySelectorAll('#copy-target-courses-list .copy-target-cb').forEach(cb => {
+        const item = cb.closest('.copy-target-item');
+        if (item && item.style.display !== 'none') {
+          cb.checked = true;
+        }
+      });
+      updateCopyTargetSelectedCount();
+    };
+  }
+
+  const btnDeselectAll = document.getElementById('btn-copy-deselect-all');
+  if (btnDeselectAll) {
+    btnDeselectAll.onclick = () => {
+      document.querySelectorAll('#copy-target-courses-list .copy-target-cb').forEach(cb => {
+        cb.checked = false;
+      });
+      updateCopyTargetSelectedCount();
+    };
+  }
+
+  // Confirm Transfer Button
+  const btnConfirm = document.getElementById('btn-confirm-copy-curriculum');
+  if (btnConfirm) {
+    btnConfirm.onclick = () => {
+      executeCopyCurriculumStructure();
+    };
+  }
+
+  updateCopyCurriculumSourceSummary();
+  renderCopyCurriculumTargetList();
+  modal.classList.remove('hidden');
+}
+
+function updateCopyCurriculumSourceSummary() {
+  const summaryEl = document.getElementById('copy-curriculum-source-summary');
+  const sourceSelect = document.getElementById('copy-curriculum-source-select');
+  if (!summaryEl || !sourceSelect) return;
+
+  const sourceBase = sourceSelect.value;
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+  const matchingCourses = semCourses.filter(c => cleanBase(c.code) === sourceBase);
+
+  let thCount = 0;
+  let prCount = 0;
+  let blockCount = 0;
+  const seenSlots = new Set();
+
+  matchingCourses.forEach(c => {
+    const recs = localCurriculumCourseRecs[c.code] || {};
+    Object.keys(recs).forEach(day => {
+      Object.keys(recs[day]).forEach(p => {
+        const key = `${day}_${p}`;
+        if (!seenSlots.has(key)) {
+          seenSlots.add(key);
+          const val = recs[day][p];
+          if (val === 'T') thCount++;
+          else if (val === 'P') prCount++;
+          else if (val === 'B') blockCount++;
+        }
+      });
+    });
+  });
+
+  const totalSlots = thCount + prCount + blockCount;
+
+  let html = `
+    <span class="badge" style="background: var(--warning-light); color: var(--warning-dark); font-weight: 600; font-size: 11px; padding: 3px 8px; border-radius: 4px;">
+      <i class="fa-solid fa-book"></i> Theory (TH): ${thCount} slots
+    </span>
+    <span class="badge" style="background: var(--success-light); color: var(--success-dark); font-weight: 600; font-size: 11px; padding: 3px 8px; border-radius: 4px;">
+      <i class="fa-solid fa-flask"></i> Practical (PR): ${prCount} slots
+    </span>
+    <span class="badge" style="background: #fee2e2; color: #991b1b; font-weight: 600; font-size: 11px; padding: 3px 8px; border-radius: 4px;">
+      <i class="fa-solid fa-ban"></i> Blocked (B): ${blockCount} slots
+    </span>
+    <span class="text-muted" style="margin-left: 4px; font-weight: 500;">Total: <strong>${totalSlots}</strong> periods</span>
+  `;
+
+  if (totalSlots === 0) {
+    html += `
+      <div style="width: 100%; color: #b45309; font-weight: 600; margin-top: 4px;">
+        <i class="fa-solid fa-triangle-exclamation"></i> Notice: This source course currently has no recommended slots or blocks configured.
+      </div>
+    `;
+  }
+
+  summaryEl.innerHTML = html;
+}
+
+function renderCopyCurriculumTargetList() {
+  const container = document.getElementById('copy-target-courses-list');
+  const sourceSelect = document.getElementById('copy-curriculum-source-select');
+  if (!container || !sourceSelect) return;
+
+  const sourceBase = sourceSelect.value;
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const semCourses = getCurriculumDeptCourses(curriculumSelectedSem);
+
+  // Extract unique bases excluding the sourceBase
+  const targetBases = [];
+  semCourses.forEach(c => {
+    const baseCode = cleanBase(c.code);
+    if (baseCode !== sourceBase && !targetBases.some(u => u.baseCode === baseCode)) {
+      const targets = getCourseHourTargets(baseCode, semCourses);
+      targetBases.push({
+        baseCode,
+        name: c.name || baseCode,
+        totalHours: targets.total,
+        thTarget: targets.thTarget,
+        prTarget: targets.prTarget
+      });
+    }
+  });
+
+  if (targetBases.length === 0) {
+    container.innerHTML = `<div class="text-muted text-xs p-2 text-center">No other courses found in this semester filter.</div>`;
+    updateCopyTargetSelectedCount();
+    return;
+  }
+
+  let html = '';
+  targetBases.forEach(u => {
+    // Count existing slots on this target course
+    const matchingCourses = semCourses.filter(c => cleanBase(c.code) === u.baseCode);
+    let existingCount = 0;
+    const seen = new Set();
+    matchingCourses.forEach(c => {
+      const recs = localCurriculumCourseRecs[c.code] || {};
+      Object.keys(recs).forEach(day => {
+        Object.keys(recs[day]).forEach(p => {
+          const key = `${day}_${p}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            existingCount++;
+          }
+        });
+      });
+    });
+
+    const existingBadge = existingCount > 0
+      ? `<span class="badge" style="background: #e2e8f0; color: #475569; font-size: 10.5px; padding: 2px 6px;">${existingCount} existing slot(s)</span>`
+      : `<span class="badge" style="background: #f1f5f9; color: #94a3b8; font-size: 10.5px; padding: 2px 6px;">0 slots</span>`;
+
+    html += `
+      <label class="copy-target-item" data-code="${escapeHtml(u.baseCode)}" data-name="${escapeHtml(u.name)}"
+        style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; margin-bottom: 4px; border-radius: 4px; border: 1px solid var(--border); background: #f8fafc; cursor: pointer; transition: all 0.15s ease;">
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+          <input type="checkbox" class="copy-target-cb" value="${escapeHtml(u.baseCode)}" style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0;">
+          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <span class="bold" style="font-size: 12.5px; color: var(--primary);">${escapeHtml(u.baseCode)}</span>
+            <span class="text-muted" style="font-size: 12px; margin-left: 6px;">${escapeHtml(u.name)}</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: 8px;">
+          <span class="badge badge-light" style="font-size: 10.5px; padding: 2px 6px;">${u.totalHours} hrs</span>
+          ${existingBadge}
+        </div>
+      </label>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Bind change events
+  container.querySelectorAll('.copy-target-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      updateCopyTargetSelectedCount();
+    });
+  });
+
+  updateCopyTargetSelectedCount();
+}
+
+function updateCopyTargetSelectedCount() {
+  const checked = document.querySelectorAll('#copy-target-courses-list .copy-target-cb:checked');
+  const countEl = document.getElementById('copy-target-selected-count');
+  if (countEl) {
+    countEl.textContent = `${checked.length} Selected`;
+    if (checked.length > 0) {
+      countEl.className = 'badge badge-success text-xs';
+    } else {
+      countEl.className = 'badge badge-primary text-xs';
+    }
+  }
+}
+
+function executeCopyCurriculumStructure() {
+  const sourceSelect = document.getElementById('copy-curriculum-source-select');
+  if (!sourceSelect) return;
+  const sourceBase = sourceSelect.value;
+  if (!sourceBase) {
+    showModalAlert('Select Source Course', 'Please select a source course to copy from.', 'warning');
+    return;
+  }
+
+  const checkedBoxes = Array.from(document.querySelectorAll('#copy-target-courses-list .copy-target-cb:checked'));
+  const targetCodes = checkedBoxes.map(cb => cb.value);
+
+  if (targetCodes.length === 0) {
+    showModalAlert('No Target Courses', 'Please select at least one course from the list to transfer the structure to.', 'warning');
+    return;
+  }
+
+  const optRecs = document.getElementById('copy-opt-recommendations') ? document.getElementById('copy-opt-recommendations').checked : true;
+  const optBlocks = document.getElementById('copy-opt-blocks') ? document.getElementById('copy-opt-blocks').checked : true;
+  const optOverwrite = document.getElementById('copy-opt-overwrite') ? document.getElementById('copy-opt-overwrite').checked : true;
+
+  if (!optRecs && !optBlocks) {
+    showModalAlert('No Transfer Options', 'Please check at least Recommended Slots or Course Blocks to transfer.', 'warning');
+    return;
+  }
+
+  const cleanBase = (code) => String(code || '').replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const deptName = (state.currentUser && state.currentUser.departmentName) ? state.currentUser.departmentName.toUpperCase() : '';
+  const deptCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === deptName);
+
+  // Extract source structure
+  const sourceCourses = deptCourses.filter(c => cleanBase(c.code) === sourceBase);
+  const sourceSlots = {};
+  sourceCourses.forEach(c => {
+    const recs = localCurriculumCourseRecs[c.code] || {};
+    Object.keys(recs).forEach(day => {
+      Object.keys(recs[day]).forEach(p => {
+        const val = recs[day][p];
+        if ((val === 'T' || val === 'P') && !optRecs) return;
+        if (val === 'B' && !optBlocks) return;
+        if (!sourceSlots[day]) sourceSlots[day] = {};
+        sourceSlots[day][p] = val;
+      });
+    });
+  });
+
+  // Apply to all selected target courses and their variants
+  targetCodes.forEach(targetBase => {
+    const targetCourses = deptCourses.filter(c => cleanBase(c.code) === targetBase);
+    targetCourses.forEach(tc => {
+      if (!localCurriculumCourseRecs[tc.code]) {
+        localCurriculumCourseRecs[tc.code] = {};
+      }
+
+      if (optOverwrite) {
+        if (optRecs && optBlocks) {
+          localCurriculumCourseRecs[tc.code] = JSON.parse(JSON.stringify(sourceSlots));
+        } else {
+          // Clear only the selected types
+          Object.keys(localCurriculumCourseRecs[tc.code]).forEach(day => {
+            Object.keys(localCurriculumCourseRecs[tc.code][day]).forEach(p => {
+              const val = localCurriculumCourseRecs[tc.code][day][p];
+              if ((val === 'T' || val === 'P') && optRecs) delete localCurriculumCourseRecs[tc.code][day][p];
+              if (val === 'B' && optBlocks) delete localCurriculumCourseRecs[tc.code][day][p];
+            });
+          });
+          // Merge sourceSlots
+          Object.keys(sourceSlots).forEach(day => {
+            if (!localCurriculumCourseRecs[tc.code][day]) localCurriculumCourseRecs[tc.code][day] = {};
+            Object.keys(sourceSlots[day]).forEach(p => {
+              localCurriculumCourseRecs[tc.code][day][p] = sourceSlots[day][p];
+            });
+          });
+        }
+      } else {
+        // Merge without overwriting
+        Object.keys(sourceSlots).forEach(day => {
+          if (!localCurriculumCourseRecs[tc.code][day]) localCurriculumCourseRecs[tc.code][day] = {};
+          Object.keys(sourceSlots[day]).forEach(p => {
+            if (!localCurriculumCourseRecs[tc.code][day][p]) {
+              localCurriculumCourseRecs[tc.code][day][p] = sourceSlots[day][p];
+            }
+          });
+        });
+      }
+    });
+  });
+
+  // Re-render matrices and breakdowns
+  renderCurriculumSlotMatrix();
+  renderCurriculumHoursBreakdown();
+
+  // Close modal
+  const modal = document.getElementById('modal-copy-curriculum-slots');
+  if (modal) modal.classList.add('hidden');
+
+  showModalAlert(
+    'Structure Transferred Successfully',
+    `Successfully transferred recommended slots & blocks from <strong>${escapeHtml(sourceBase)}</strong> to <strong>${targetCodes.length}</strong> course(s):<br>
+     <div style="margin-top: 6px; font-size: 12px; color: var(--primary); font-weight: 600;">${targetCodes.join(', ')}</div>
+     <div class="mt-2 text-xs text-muted">Click <strong>"Save Slot Allocations"</strong> when you are ready to persist these changes to the server.</div>`,
+    'success'
+  );
 }
 
 // -------------------------------------------------------------
@@ -10978,7 +11891,7 @@ function syncHoursFromSelectedCourse() {
   handleCrossDeptCategoryChange();
 }
 
-function handleCrossDeptCategoryChange() {
+function handleCrossDeptCategoryChange(keepSlots = false) {
   const typeSelect = document.getElementById('cross-req-type');
   const thBox = document.getElementById('cross-req-th-box');
   const prBox = document.getElementById('cross-req-pr-box');
@@ -11006,10 +11919,10 @@ function handleCrossDeptCategoryChange() {
     if (prInput && parseInt(prInput.value, 10) <= 0) prInput.value = 2;
   }
 
-  recalcCrossDeptTotalHours();
+  recalcCrossDeptTotalHours(keepSlots);
 }
 
-function recalcCrossDeptTotalHours() {
+function recalcCrossDeptTotalHours(keepSlots = false) {
   const thInput = document.getElementById('cross-req-th-hours');
   const prInput = document.getElementById('cross-req-pr-hours');
   const hoursInput = document.getElementById('cross-req-hours');
@@ -11022,7 +11935,9 @@ function recalcCrossDeptTotalHours() {
   if (hoursInput) hoursInput.value = total;
   if (totalDisplay) totalDisplay.textContent = `${total} hrs`;
 
-  crossDeptSelectedSlots = [];
+  if (!keepSlots) {
+    crossDeptSelectedSlots = [];
+  }
   updateCrossDeptSlotPickerCount();
   renderCrossDeptSlotPicker();
 }
@@ -11222,6 +12137,11 @@ function renderOutgoingCrossDeptRequests(requests) {
         ` : ''}
 
         <div class="flex-row justify-end gap-2 mt-2 pt-2" style="border-top: 1px solid var(--border);">
+          ${isPending ? `
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="openEditCrossDeptModal('${req.id}')" title="Edit this pending request">
+              <i class="fa-solid fa-pen-to-square"></i> Edit Request
+            </button>
+          ` : ''}
           <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteCrossDeptRequest('${req.id}', '${escapeHtml(req.courseCode)}', '${req.status}')">
             <i class="fa-solid fa-trash-can"></i> ${isApproved ? 'Delete Request & Clear Allocation' : 'Cancel Request'}
           </button>
@@ -11237,8 +12157,14 @@ function openNewCrossDeptRequestModal() {
   const courseSelect = document.getElementById('cross-req-course');
   const courseSearchInput = document.getElementById('cross-req-course-search');
   const feedback = document.getElementById('cross-req-feedback');
+  const hiddenId = document.getElementById('cross-req-id');
+  const titleEl = document.getElementById('modal-cross-dept-title');
+  const btnSubmit = document.getElementById('btn-submit-cross-req');
   if (!modal) return;
 
+  if (hiddenId) hiddenId.value = '';
+  if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-paper-plane text-primary"></i> Request Faculty from Other Department';
+  if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Teaching Request';
   if (feedback) { feedback.className = 'mb-2 hidden'; feedback.textContent = ''; }
   if (courseSearchInput) courseSearchInput.value = '';
 
@@ -11390,6 +12316,8 @@ function updateCrossDeptSlotPickerCount() {
 }
 
 async function submitNewCrossDeptRequest() {
+  const reqId = document.getElementById('cross-req-id')?.value;
+  const isEditing = Boolean(reqId);
   const offeringDept = document.getElementById('cross-req-offering-dept')?.value;
   const courseCode = document.getElementById('cross-req-course')?.value;
   const courseType = document.getElementById('cross-req-type')?.value;
@@ -11422,12 +12350,15 @@ async function submitNewCrossDeptRequest() {
 
   if (btnSubmit) {
     btnSubmit.disabled = true;
-    btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
+    btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
   }
 
   try {
-    const res = await authFetch('/api/cross-dept-requests', {
-      method: 'POST',
+    const url = isEditing ? `/api/cross-dept-requests/${reqId}/edit` : '/api/cross-dept-requests';
+    const method = isEditing ? 'PUT' : 'POST';
+
+    const res = await authFetch(url, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         offeringDept,
@@ -11446,7 +12377,11 @@ async function submitNewCrossDeptRequest() {
     if (data.success) {
       const modal = document.getElementById('modal-new-cross-dept-request');
       if (modal) modal.classList.add('hidden');
-      showModalAlert('Request Sent', `Your teaching request for ${courseObj.name || courseCode} has been sent to the Department of ${offeringDept}.`, 'success');
+      showModalAlert(
+        isEditing ? 'Request Updated' : 'Request Sent', 
+        isEditing ? `Your teaching request for ${courseObj.name || courseCode} has been updated successfully.` : `Your teaching request for ${courseObj.name || courseCode} has been sent to the Department of ${offeringDept}.`, 
+        'success'
+      );
       switchCrossDeptSubtab('outgoing');
       await renderCrossDeptTeachingTab();
     } else {
@@ -11464,7 +12399,7 @@ async function submitNewCrossDeptRequest() {
   } finally {
     if (btnSubmit) {
       btnSubmit.disabled = false;
-      btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Teaching Request';
+      btnSubmit.innerHTML = isEditing ? '<i class="fa-solid fa-floppy-disk"></i> Update Teaching Request' : '<i class="fa-solid fa-paper-plane"></i> Send Teaching Request';
     }
   }
 }
@@ -11577,6 +12512,83 @@ async function handleCrossDeptAction(reqId, action, facultyCode = null, rejectio
     }
   }
 }
+
+window.openEditCrossDeptModal = function(reqId) {
+  const req = (state.crossDepartmentRequests || []).find(r => r.id === reqId);
+  if (!req) {
+    showModalAlert('Not Found', 'Request not found.', 'danger');
+    return;
+  }
+
+  // Strictly enforce that only pending requests can be edited
+  if (req.status !== 'PENDING') {
+    showModalAlert('Cannot Edit', 'This request has already been reviewed/approved and cannot be edited.', 'warning');
+    return;
+  }
+
+  const modal = document.getElementById('modal-new-cross-dept-request');
+  const titleEl = document.getElementById('modal-cross-dept-title');
+  const hiddenId = document.getElementById('cross-req-id');
+  const btnSubmit = document.getElementById('btn-submit-cross-req');
+  const deptSelect = document.getElementById('cross-req-offering-dept');
+  const courseSelect = document.getElementById('cross-req-course');
+  const typeSelect = document.getElementById('cross-req-type');
+  const thInput = document.getElementById('cross-req-th-hours');
+  const prInput = document.getElementById('cross-req-pr-hours');
+  const hoursInput = document.getElementById('cross-req-hours');
+  const totalDisplay = document.getElementById('cross-req-total-hours-display');
+  const feedback = document.getElementById('cross-req-feedback');
+  const courseSearchInput = document.getElementById('cross-req-course-search');
+
+  if (!modal) return;
+  if (feedback) { feedback.className = 'mb-2 hidden'; feedback.textContent = ''; }
+  if (courseSearchInput) courseSearchInput.value = '';
+
+  if (hiddenId) hiddenId.value = req.id;
+  if (titleEl) titleEl.innerHTML = '<i class="fa-solid fa-pen-to-square text-primary"></i> Edit Cross-Department Request';
+  if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Teaching Request';
+
+  const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+
+  // Populate offering departments (excluding own department)
+  if (deptSelect) {
+    deptSelect.innerHTML = '<option value="" disabled>Select Department (e.g. STATISTICS)</option>';
+    const depts = (state.departments || []).filter(d => (d.name || d).toUpperCase() !== myDept);
+    depts.forEach(d => {
+      const dName = (d.name || d).toUpperCase();
+      deptSelect.innerHTML += `<option value="${escapeHtml(dName)}">${escapeHtml(dName)}</option>`;
+    });
+    deptSelect.value = (req.offeringDept || '').toUpperCase();
+  }
+
+  // Populate own department courses
+  if (courseSelect) {
+    courseSelect.innerHTML = '<option value="" disabled>Select Course from your Department</option>';
+    const myCourses = (state.courses || []).filter(c => (c.department || '').toUpperCase() === myDept);
+    myCourses.forEach(c => {
+      courseSelect.innerHTML += `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} - ${escapeHtml(c.name || c.code)} (Sem ${c.semester})</option>`;
+    });
+    courseSelect.value = req.courseCode;
+  }
+
+  const thH = req.theoryHours !== undefined ? req.theoryHours : (req.courseType === 'P' ? 0 : req.hours);
+  const prH = req.practicalHours !== undefined ? req.practicalHours : (req.courseType === 'P' ? req.hours : 0);
+
+  if (typeSelect) typeSelect.value = req.courseType || (prH > 0 && thH > 0 ? 'BOTH' : (prH > 0 ? 'P' : 'T'));
+  if (thInput) thInput.value = thH;
+  if (prInput) prInput.value = prH;
+  if (hoursInput) hoursInput.value = req.hours;
+  if (totalDisplay) totalDisplay.textContent = `${req.hours} hrs`;
+
+  crossDeptSelectedSlots = (req.pinnedSlots || []).map(s => ({ ...s }));
+
+  handleCrossDeptCategoryChange(true);
+  setCrossSlotMarkMode(req.pinnedSlots && req.pinnedSlots[0] ? req.pinnedSlots[0].type : 'T');
+  updateCrossDeptSlotPickerCount();
+  renderCrossDeptSlotPicker();
+
+  modal.classList.remove('hidden');
+};
 
 window.deleteCrossDeptRequest = function(reqId, courseCode, status) {
   const isApproved = status === 'APPROVED';

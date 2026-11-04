@@ -1296,6 +1296,10 @@
                   </p>
                 </div>
                 <div class="flex-row items-center gap-2">
+                  <button type="button" id="btn-header-copy-curriculum-slots" class="btn btn-outline-primary btn-sm"
+                    title="Copy / Transfer recommended slots & blocks to other courses in this semester">
+                    <i class="fa-solid fa-clone"></i> Copy Structure
+                  </button>
                   <button type="button" id="btn-reset-curriculum-slots" class="btn btn-outline btn-sm">
                     <i class="fa-solid fa-rotate-left"></i> Reset
                   </button>
@@ -1341,7 +1345,7 @@
                 style="padding: 12px 16px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
                 <!-- Row 1: Selectors -->
                 <div
-                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
                   <div>
                     <label for="curriculum-program-select" class="text-xs bold text-muted"
                       style="display: block; margin-bottom: 4px;">
@@ -1361,17 +1365,6 @@
                     </label>
                     <select id="curriculum-sem-select" class="form-control" style="font-size: 13px; height: 36px;">
                       <!-- Populated dynamically with all loaded semesters -->
-                    </select>
-                  </div>
-
-                  <div>
-                    <label for="curriculum-course-filter" class="text-xs bold text-muted"
-                      style="display: block; margin-bottom: 4px;">
-                      <i class="fa-solid fa-filter text-primary"></i> View / Filter Course:
-                    </label>
-                    <select id="curriculum-course-filter" class="form-control" style="font-size: 13px; height: 36px;">
-                      <option value="ALL">All Courses in Semester</option>
-                      <!-- Populated dynamically -->
                     </select>
                   </div>
                 </div>
@@ -1418,6 +1411,11 @@
                       style="font-size: 12px; height: 28px; min-width: 200px; max-width: 280px; font-weight: 600;">
                       <!-- Populated dynamically with courses of the selected semester -->
                     </select>
+                    <button type="button" id="btn-copy-curriculum-structure" class="btn btn-outline-primary btn-sm"
+                      style="font-size: 11.5px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;"
+                      title="Transfer the current subject's recommended slots and blocks to other courses in this semester">
+                      <i class="fa-solid fa-clone"></i> Copy to Courses
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1778,14 +1776,15 @@
     </div>
 
     <!-- MODAL: CREATE CROSS-DEPARTMENT REQUEST -->
-    <div id="modal-new-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020;">
-      <div class="modal-content modal-md" style="max-width: 620px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
-        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border);">
-          <h3 style="margin: 0; font-size: 16px;"><i class="fa-solid fa-paper-plane text-primary"></i> Request Faculty from Other Department</h3>
+    <div id="modal-new-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020; overflow-y: auto; padding: 20px 10px;">
+      <div class="modal-content modal-md" style="max-width: 620px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; margin: auto; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border); flex-shrink: 0;">
+          <h3 id="modal-cross-dept-title" style="margin: 0; font-size: 16px;"><i class="fa-solid fa-paper-plane text-primary"></i> Request Faculty from Other Department</h3>
           <button type="button" id="btn-close-new-cross-dept-modal" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
-        <form id="form-new-cross-dept-request">
+        <form id="form-new-cross-dept-request" style="overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; padding-right: 6px; display: flex; flex-direction: column;">
+          <input type="hidden" id="cross-req-id" value="">
           <div class="form-group mb-2">
             <label for="cross-req-offering-dept" class="text-xs bold text-muted">Select Target Offering Department *</label>
             <select id="cross-req-offering-dept" class="form-control" required>
@@ -1849,14 +1848,14 @@
             <p class="text-muted text-xs mb-1">
               Select the exact periods when the faculty will teach. Colors match standard Theory (Amber) and Practical (Green).
             </p>
-            <div id="cross-req-slot-picker-grid" style="border: 1.5px solid var(--border); border-radius: 6px; padding: 6px; background: #ffffff; max-height: 200px; overflow-y: auto;">
+            <div id="cross-req-slot-picker-grid" style="border: 1.5px solid var(--border); border-radius: 6px; padding: 6px; background: #ffffff; max-height: 200px; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch;">
               <!-- Slot table rendered dynamically -->
             </div>
           </div>
 
           <div id="cross-req-feedback" class="mb-2 hidden" style="font-size: 12px; padding: 8px 12px; border-radius: 4px;"></div>
 
-          <div class="actions flex-row justify-end gap-2 pt-2" style="border-top: 1px solid var(--border);">
+          <div class="actions flex-row justify-end gap-2 pt-2" style="border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface); position: sticky; bottom: 0; z-index: 5; margin-top: auto; padding-top: 10px;">
             <button type="button" id="btn-cancel-cross-req" class="btn btn-outline btn-sm">Cancel</button>
             <button type="submit" id="btn-submit-cross-req" class="btn btn-primary btn-sm">
               <i class="fa-solid fa-paper-plane"></i> Send Teaching Request
@@ -1867,9 +1866,9 @@
     </div>
 
     <!-- MODAL: APPROVE INCOMING CROSS-DEPARTMENT REQUEST -->
-    <div id="modal-approve-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020;">
-      <div class="modal-content modal-md" style="max-width: 540px; width: 92%; padding: 22px; border-radius: var(--radius-md);">
-        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border);">
+    <div id="modal-approve-cross-dept-request" class="modal flex-center hidden no-print" style="z-index: 10020; overflow-y: auto; padding: 20px 10px;">
+      <div class="modal-content modal-md" style="max-width: 540px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; margin: auto; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border); flex-shrink: 0;">
           <h3 style="margin: 0; font-size: 16px;"><i class="fa-solid fa-user-check text-success"></i> Assign Teacher & Approve Request</h3>
           <button type="button" id="btn-close-approve-cross-dept-modal" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
         </div>
@@ -1878,7 +1877,7 @@
           <!-- Request summary rendered here -->
         </div>
 
-        <form id="form-approve-cross-dept">
+        <form id="form-approve-cross-dept" style="overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; padding-right: 6px;">
           <input type="hidden" id="approve-cross-req-id">
           <div class="form-group mb-3">
             <label for="approve-cross-faculty-select" class="text-xs bold text-muted">Select Teacher from Your Department to Assign *</label>
@@ -1889,7 +1888,7 @@
 
           <div id="approve-cross-feedback" class="mb-2 hidden" style="font-size: 12px; padding: 8px 12px; border-radius: 4px;"></div>
 
-          <div class="actions flex-row justify-between gap-2 pt-2" style="border-top: 1px solid var(--border);">
+          <div class="actions flex-row justify-between gap-2 pt-2" style="border-top: 1px solid var(--border); flex-shrink: 0; background: var(--surface); position: sticky; bottom: 0; z-index: 5; margin-top: auto; padding-top: 10px;">
             <button type="button" id="btn-reject-cross-dept" class="btn btn-outline-danger btn-sm">
               <i class="fa-solid fa-ban"></i> Reject Request
             </button>
@@ -1901,6 +1900,94 @@
             </div>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- MODAL: COPY CURRICULUM SLOTS & BLOCKS TO OTHER COURSES -->
+    <div id="modal-copy-curriculum-slots" class="modal flex-center hidden no-print" style="z-index: 10025; overflow-y: auto; padding: 20px 10px;">
+      <div class="modal-content modal-md" style="max-width: 620px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; margin: auto; padding: 22px; border-radius: var(--radius-md);">
+        <div class="flex-row justify-between items-center mb-3 pb-2" style="border-bottom: 1.5px solid var(--border); flex-shrink: 0;">
+          <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-clone text-primary"></i> Copy Structure to Other Courses
+          </h3>
+          <button type="button" id="btn-close-copy-curriculum-modal" class="btn-close" style="background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted);">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="modal-body" style="overflow-y: auto; padding: 4px 2px 14px 2px; flex: 1;">
+          <p class="text-sm text-muted mb-3" style="line-height: 1.4;">
+            Duplicate the recommended Theory/Practical slots and blocked periods from a configured course to other courses in this semester that share the same schedule structure.
+          </p>
+
+          <!-- Source Course Selection & Status Card -->
+          <div class="card bg-slate-50 mb-3" style="padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 6px;">
+            <label for="copy-curriculum-source-select" class="text-xs bold text-muted mb-1" style="display: block;">
+              <i class="fa-solid fa-arrow-right-from-bracket text-primary"></i> Source Subject (Copy from):
+            </label>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <select id="copy-curriculum-source-select" class="form-control form-control-sm" style="flex: 1; min-width: 220px; font-weight: 600; font-size: 13px;">
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+            <div id="copy-curriculum-source-summary" class="mt-2 text-xs" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <!-- Dynamic slot pills (e.g. TH: 3, PR: 2, Blocks: 1) -->
+            </div>
+          </div>
+
+          <!-- Transfer Options -->
+          <div class="mb-3" style="display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; border: 1px solid var(--border); font-size: 12px;">
+            <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 0; cursor: pointer;">
+              <input type="checkbox" id="copy-opt-recommendations" checked style="cursor: pointer;">
+              <span class="bold">Recommended Slots</span> <span class="text-muted text-xs">(Theory & Practical)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 0; cursor: pointer;">
+              <input type="checkbox" id="copy-opt-blocks" checked style="cursor: pointer;">
+              <span class="bold">Course Blocks</span> <span class="text-muted text-xs">(Subject-specific)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 0; cursor: pointer;">
+              <input type="checkbox" id="copy-opt-overwrite" checked style="cursor: pointer;">
+              <span>Replace existing target slots</span>
+            </label>
+          </div>
+
+          <!-- Target Courses Selection Header & Search -->
+          <div class="flex-row justify-between items-center mb-2">
+            <div>
+              <span class="text-xs bold text-muted">
+                <i class="fa-solid fa-arrow-right-to-bracket text-success"></i> Select Target Courses to Apply To:
+              </span>
+              <span id="copy-target-selected-count" class="badge badge-primary text-xs" style="margin-left: 6px; padding: 2px 7px;">0 Selected</span>
+            </div>
+            <div class="flex-row items-center gap-2">
+              <button type="button" id="btn-copy-select-all" class="btn btn-outline btn-xs" style="font-size: 11px; padding: 2px 8px;">
+                Select All
+              </button>
+              <button type="button" id="btn-copy-deselect-all" class="btn btn-outline btn-xs" style="font-size: 11px; padding: 2px 8px;">
+                Clear All
+              </button>
+            </div>
+          </div>
+
+          <!-- Search Filter -->
+          <div class="mb-2">
+            <input type="text" id="copy-target-search" class="form-control form-control-sm" placeholder="Filter courses by code or name..." style="font-size: 12px; height: 30px;">
+          </div>
+
+          <!-- Target Course Checkbox Container (Scrollable) -->
+          <div id="copy-target-courses-list" style="max-height: 220px; overflow-y: auto; border: 1.5px solid var(--border); border-radius: 6px; padding: 6px; background: #ffffff;">
+            <!-- Populated dynamically with checkboxes -->
+          </div>
+        </div>
+
+        <div class="modal-footer flex-row justify-between items-center pt-3" style="border-top: 1.5px solid var(--border); flex-shrink: 0; margin-top: 8px;">
+          <button type="button" id="btn-cancel-copy-curriculum" class="btn btn-outline btn-sm">
+            Cancel
+          </button>
+          <button type="button" id="btn-confirm-copy-curriculum" class="btn btn-primary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-clone"></i> Transfer Structure
+          </button>
+        </div>
       </div>
     </div>
 

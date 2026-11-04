@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
-  "commit": "d06a9e7",
-  "commitFull": "d06a9e7",
+  "commit": "f7ab698",
+  "commitFull": "f7ab698c84146b4a5efde3a06b9751c071aefc13",
   "branch": "main",
-  "commitDate": "2026-11-03 00:26:42 +0530",
-  "commitMessage": "Merge upstream/main into main",
-  "builtAt": "2026-11-02T18:57:00.000Z",
+  "commitDate": "2026-11-03 00:27:17 +0530",
+  "commitMessage": "Merge upstream/main into main and resolve version.json",
+  "builtAt": "2026-11-04T06:59:16.312Z",
   "nodeVersion": "v24.17.0",
   "platform": "win32",
   "environment": "production"

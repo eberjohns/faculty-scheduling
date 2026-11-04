@@ -692,15 +692,43 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-main) !important;
 }
 
-/* Open / Non-recommended slot with assignments (clean surface with primary accent border) */
+/* Manual Assignment Slots: Orange for Theory, Green for Practical, with BLACK leftmost line */
+.slot-manual-assigned-t,
+.slot-manual-assigned-t.slot-has-assignments {
+  background-color: var(--warning-light) !important;
+  border-left: 5px solid #000000 !important;
+  color: var(--warning-dark) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.slot-manual-assigned-t.slot-active {
+  border: 2px solid #000000 !important;
+  border-left: 5px solid #000000 !important;
+}
+
+.slot-manual-assigned-p,
+.slot-manual-assigned-p.slot-has-assignments {
+  background-color: var(--success-light) !important;
+  border-left: 5px solid #000000 !important;
+  color: var(--success-dark) !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.slot-manual-assigned-p.slot-active {
+  border: 2px solid #000000 !important;
+  border-left: 5px solid #000000 !important;
+}
+
+/* Open / Non-recommended slot with assignments: Black accent line on left */
 .slot-open-assigned,
 .slot-open-assigned.slot-has-assignments {
-  background-color: var(--surface) !important;
-  border-left: 4px solid var(--primary) !important;
-  color: var(--text-main) !important;
+  background-color: var(--warning-light) !important;
+  border-left: 5px solid #000000 !important;
+  color: var(--warning-dark) !important;
 }
 .slot-open-assigned.slot-active {
-  border: 2px solid var(--primary) !important;
+  border: 2px solid #000000 !important;
+  border-left: 5px solid #000000 !important;
 }
 
 
@@ -801,6 +829,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 .table-grid tbody tr.row-pg td.slot-recommend-p {
   background-color: var(--success-light) !important;
+}
+.table-grid tbody tr.row-pg td.slot-manual-assigned-t {
+  background-color: var(--warning-light) !important;
+  border-left: 5px solid #000000 !important;
+}
+.table-grid tbody tr.row-pg td.slot-manual-assigned-p {
+  background-color: var(--success-light) !important;
+  border-left: 5px solid #000000 !important;
 }
 .table-grid tbody tr.row-pg td.slot-recommend-m {
   background-color: #f3e8ff !important;
@@ -921,6 +957,30 @@ h1, h2, h3, h4, h5, h6 {
   margin-top: 2px;
   display: flex;
   gap: 4px;
+}
+
+.mapping-workload-pill.mapping-workload-total {
+  background: linear-gradient(135deg, #ede9fe 0%, #f5f3ff 100%);
+  border: 1.5px solid #8b5cf6;
+  box-shadow: 0 2px 6px rgba(139, 92, 246, 0.15);
+}
+.mapping-workload-pill.mapping-workload-total:hover {
+  background: #ede9fe;
+  border-color: #7c3aed;
+}
+.mapping-workload-pill.mapping-workload-total .fac-code {
+  color: #6d28d9;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.mapping-workload-pill.mapping-workload-total .fac-hours {
+  color: #5b21b6;
+  font-size: 13px;
+  font-weight: 800;
+}
+.mapping-workload-pill.mapping-workload-total .fac-detail {
+  color: #6d28d9;
+  font-weight: 600;
 }
 
 /* Modal overlays */
@@ -1164,12 +1224,26 @@ h1, h2, h3, h4, h5, h6 {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  .slot-manual-assigned-t {
+    background-color: var(--warning-light) !important;
+    color: var(--warning-dark) !important;
+    border-left: 5px solid #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   .print-table td.print-recommend-p,
   .teacher-grid-table td.teacher-slot-pr,
   .slot-recommend-p {
     background-color: var(--success-light) !important;
     color: var(--success-dark) !important;
     border-left: 5px solid var(--success) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .slot-manual-assigned-p {
+    background-color: var(--success-light) !important;
+    color: var(--success-dark) !important;
+    border-left: 5px solid #000000 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -2384,6 +2458,11 @@ input:checked + .slider:before {
   background-color: var(--success-light) !important;
   border-left: 5px solid var(--success) !important;
   color: var(--success-dark) !important;
+}
+
+.curriculum-slot-cell.slot-recommend-multiple {
+  background-color: #f1f5f9 !important;
+  border-left: 5px solid #6366f1 !important;
 }
 
 .curriculum-slot-cell.slot-recommend-blocked,

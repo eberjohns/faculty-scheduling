@@ -479,7 +479,7 @@ export function getActiveDepartments(db) {
 
 // Helper to ensure all active departments have a default password of '123456'
 // and prune orphan / deleted departments from db.departments
-function ensureDepartmentDefaults(db) {
+export function ensureDepartmentDefaults(db) {
   if (!db.departments) db.departments = {};
   let changed = false;
   const activeDepts = getActiveDepartments(db);
@@ -493,15 +493,20 @@ function ensureDepartmentDefaults(db) {
     }
   }
 
-  // Ensure each active department has a password entry (default: 123456)
+  // Ensure each active department has a valid, decryptable password entry (default: 123456)
   activeDepts.forEach(name => {
     const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
-    if (!existingKey) {
-      db.departments[name] = { password: encryptDeptPasscode('123456') };
+    const targetKey = existingKey || name;
+    if (!db.departments[targetKey]) {
+      db.departments[targetKey] = { password: encryptDeptPasscode('123456') };
       changed = true;
-    } else if (!db.departments[existingKey].password) {
-      db.departments[existingKey].password = encryptDeptPasscode('123456');
-      changed = true;
+    } else {
+      const stored = db.departments[targetKey].password;
+      const decrypted = decryptDeptPasscode(stored);
+      if (!stored || !decrypted) {
+        db.departments[targetKey].password = encryptDeptPasscode('123456');
+        changed = true;
+      }
     }
   });
 
@@ -554,14 +559,18 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     let deptKey = existingKey || departmentName.trim();
     let dept = db.departments[deptKey];
 
-    // Any newly added department has default password "123456"
+    // Any newly added or un-decryptable department has default password "123456"
     if (!dept) {
       db.departments[deptKey] = { password: encryptDeptPasscode('123456') };
       writeDb(db);
       dept = db.departments[deptKey];
-    } else if (!dept.password) {
-      dept.password = encryptDeptPasscode('123456');
-      writeDb(db);
+    } else {
+      const stored = dept.password;
+      const decrypted = decryptDeptPasscode(stored);
+      if (!stored || !decrypted) {
+        dept.password = encryptDeptPasscode('123456');
+        writeDb(db);
+      }
     }
 
     const check = verifyDeptPassword(password, dept.password);
@@ -834,7 +843,7 @@ app.get('/api/admin/departments', requireAdmin, (req, res) => {
   const result = depts.map(name => {
     const existingKey = Object.keys(db.departments).find(k => k.trim().toLowerCase() === name.toLowerCase());
     const storedPasscode = (existingKey && db.departments[existingKey]) ? db.departments[existingKey].password || '123456' : '123456';
-    const passcode = decryptDeptPasscode(storedPasscode);
+    const passcode = decryptDeptPasscode(storedPasscode) || '123456';
     const submission = (db.submissions && db.submissions[name]) || { status: 'Draft', comments: '' };
     return {
       name,
@@ -3521,12 +3530,23 @@ app.get('/api/department/import-template', requireUser, (req, res) => {
       c.category || ''
     ];
 
-    const courseAlloc = deptAlloc[c.code] || {};
+    const candidateAllocKeys = [
+      c.code,
+      `${c.code}-T`,
+      `${c.code}-P`,
+      c.code.replace(/-(T|P)$/, '')
+    ];
+
     weekdays.forEach(d => {
-      const dayAlloc = courseAlloc[d] || {};
       periods.forEach(p => {
-        const facs = dayAlloc[p] || [];
-        row.push(Array.isArray(facs) ? facs.join(' / ') : '');
+        const facs = [];
+        candidateAllocKeys.forEach(k => {
+          const list = (deptAlloc[k] && deptAlloc[k][d] && deptAlloc[k][d][p]) || [];
+          if (Array.isArray(list)) {
+            list.forEach(fc => { if (fc && !facs.includes(fc)) facs.push(fc); });
+          }
+        });
+        row.push(facs.join(' / '));
       });
     });
 
@@ -3851,7 +3871,40 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
       return null;
     }
 
+    function findDeptCourse(rawCode) {
+      // 1. Exact match on course code (case-insensitive)
+      let matched = deptCourses.find(c => c.code.toUpperCase() === rawCode.toUpperCase());
+      if (matched) return matched;
+
+      // 2. Exact match on course alias (case-insensitive)
+      matched = deptCourses.find(c => (c.alias || "").toUpperCase() === rawCode.toUpperCase());
+      if (matched) return matched;
+
+      // 3. Exact match with/without -T or -P suffix
+      matched = deptCourses.find(c => c.code.replace(/-(T|P)$/i, "").toUpperCase() === rawCode.replace(/-(T|P)$/i, "").toUpperCase());
+      if (matched) return matched;
+
+      // 4. If rawCode specifies a class (e.g. _C1, _C2, _G1, _G2), match that specific class
+      const classNumMatch = rawCode.match(/(_G|_C)(\d+)/i);
+      const effClassNum = classNumMatch ? parseInt(classNumMatch[2], 10) : null;
+      const cleanBaseRaw = rawCode.replace(/-(T|P)$/i, "").replace(/(_G|_C)\d+$/i, "").toUpperCase();
+
+      if (effClassNum !== null) {
+        matched = deptCourses.find(c => {
+          const cClassMatch = c.code.match(/(_G|_C)(\d+)/i);
+          const cClassNum = cClassMatch ? parseInt(cClassMatch[2], 10) : (c.class || c.group || null);
+          const cCleanBase = c.code.replace(/-(T|P)$/i, "").replace(/(_G|_C)\d+$/i, "").toUpperCase();
+          return cCleanBase === cleanBaseRaw && cClassNum === effClassNum;
+        });
+        if (matched) return matched;
+      }
+
+      // 5. Fallback: match base course code ONLY if no class distinction exists
+      return deptCourses.find(c => c.code.replace(/-(T|P)$/i, "").replace(/(_G|_C)\d+$/i, "").toUpperCase() === cleanBaseRaw);
+    }
+
     const newDeptAlloc = JSON.parse(JSON.stringify(db.allocations[deptUpper] || {}));
+    const seenCoursesInImport = new Set();
     let updatedCoursesCount = 0;
     let allocatedSlotsCount = 0;
 
@@ -3862,7 +3915,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
       const rawCode = String(row[codeColIdx] || '').trim();
       if (!rawCode || rawCode.toLowerCase() === 'course code') continue;
 
-      const matchedCourse = deptCourses.find(c => c.code === rawCode || c.alias === rawCode || c.code.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === rawCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, ''));
+      const matchedCourse = findDeptCourse(rawCode);
 
       if (!matchedCourse) {
         warnings.push(`Row ${r + 1}: Course code '${rawCode}' not found in ${deptUpper} department catalog. Skipped.`);
@@ -3870,7 +3923,8 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
       }
 
       const targetCourseCode = matchedCourse.code;
-      if (!newDeptAlloc[targetCourseCode]) {
+      if (!seenCoursesInImport.has(targetCourseCode)) {
+        seenCoursesInImport.add(targetCourseCode);
         newDeptAlloc[targetCourseCode] = {};
       }
 
@@ -3878,12 +3932,7 @@ app.post('/api/department/import-timetable', requireDepartment, upload.single('f
 
       slotCols.forEach(({ idx, day, period }) => {
         const cellVal = String(row[idx] || '').trim();
-        if (!cellVal) {
-          if (newDeptAlloc[targetCourseCode][day]) {
-            delete newDeptAlloc[targetCourseCode][day][period];
-          }
-          return;
-        }
+        if (!cellVal) return;
 
         const rawTokens = cellVal.split(/[/,;+&]/).map(t => t.trim()).filter(Boolean);
         const resolvedFacs = [];
@@ -4124,6 +4173,71 @@ app.post('/api/cross-dept-requests', requireDepartment, (req, res) => {
   writeDb(db);
 
   res.json({ success: true, message: 'Cross-department teaching request submitted successfully.', request: newRequest });
+});
+
+// PUT edit an existing pending cross-department request (by sender/requesting department or admin)
+app.put('/api/cross-dept-requests/:id/edit', requireDepartment, (req, res) => {
+  const reqId = req.params.id;
+  const callerDept = (req.departmentName || '').trim().toUpperCase();
+  const isAdmin = req.user && req.user.role === 'admin';
+
+  const db = readDb();
+  if (!db.crossDepartmentRequests) db.crossDepartmentRequests = [];
+  const request = db.crossDepartmentRequests.find(r => r.id === reqId);
+
+  if (!request) {
+    return res.status(404).json({ success: false, message: 'Request not found.' });
+  }
+
+  // Only the requesting department (sender) or admin can edit the request
+  if (!isAdmin && request.requestingDept.toUpperCase() !== callerDept) {
+    return res.status(403).json({ success: false, message: 'Only the requesting department that created this request can edit it.' });
+  }
+
+  // Strictly check that the request is PENDING (waiting). If approved or rejected, it cannot be edited.
+  if (request.status !== 'PENDING') {
+    return res.status(400).json({ success: false, message: `Request is already ${request.status} and cannot be modified.` });
+  }
+
+  const { offeringDept, courseCode, courseName, semester, courseType, hours, theoryHours, practicalHours, pinnedSlots } = req.body;
+
+  if (!offeringDept || !courseCode || !hours || !Array.isArray(pinnedSlots)) {
+    return res.status(400).json({ success: false, message: 'All fields including offering department, course, hours, and pinned slots are required.' });
+  }
+
+  if (request.requestingDept === offeringDept.trim().toUpperCase()) {
+    return res.status(400).json({ success: false, message: 'Requesting department and offering department cannot be the same.' });
+  }
+
+  const numHours = parseInt(hours, 10);
+  if (isNaN(numHours) || numHours <= 0) {
+    return res.status(400).json({ success: false, message: 'Hours must be a positive integer.' });
+  }
+
+  if (pinnedSlots.length !== numHours) {
+    return res.status(400).json({ 
+      success: false, 
+      message: `You must select exactly ${numHours} recommended period slots matching the requested hours (currently selected: ${pinnedSlots.length}).` 
+    });
+  }
+
+  const thNeed = parseInt(theoryHours, 10) || 0;
+  const prNeed = parseInt(practicalHours, 10) || 0;
+
+  request.offeringDept = offeringDept.trim().toUpperCase();
+  request.courseCode = courseCode.trim();
+  request.courseName = (courseName || courseCode).trim();
+  request.semester = String(semester || '1').trim();
+  request.courseType = courseType || (prNeed > 0 && thNeed > 0 ? 'BOTH' : (prNeed > 0 ? 'P' : 'T'));
+  request.hours = numHours;
+  request.theoryHours = thNeed;
+  request.practicalHours = prNeed;
+  request.pinnedSlots = pinnedSlots;
+  request.updatedAt = new Date().toISOString();
+
+  writeDb(db);
+
+  res.json({ success: true, message: 'Cross-department teaching request updated successfully.', request });
 });
 
 // PUT handle approve or reject by offering department
@@ -5192,6 +5306,15 @@ app.use((err, req, res, next) => {
 // Start Server
 initDb().then(() => {
   initAuditLogger();
+  try {
+    const db = readDb();
+    if (ensureDepartmentDefaults(db)) {
+      writeDb(db);
+      console.log('[Auth] Department credentials verified and synchronized on startup.');
+    }
+  } catch (err) {
+    console.warn('[Auth] Startup credential sync warning:', err.message);
+  }
   app.listen(PORT, () => {
     console.log(`Timetable Allocation Server running at http://localhost:${PORT}`);
 
