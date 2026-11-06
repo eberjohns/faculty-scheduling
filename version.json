@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
-  "commit": "5f3518a",
-  "commitFull": "5f3518a0e3f0a671bf270e0e3b618ab215bf6ae4",
+  "commit": "e987f2e",
+  "commitFull": "e987f2e1318b8eb4c82526c659ee60a2d2620cf9",
   "branch": "main",
-  "commitDate": "2026-11-04 17:17:53 +0530",
-  "commitMessage": "Fix timetable Excel import for split courses, practical manual assignment coloring, and quota rules",
-  "builtAt": "2026-11-06T17:26:27.044Z",
+  "commitDate": "2026-11-06 22:59:44 +0530",
+  "commitMessage": "changes done in the view table and some css",
+  "builtAt": "2026-11-06T18:07:17.570Z",
   "nodeVersion": "v24.17.0",
   "platform": "win32",
   "environment": "production"

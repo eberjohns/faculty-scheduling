@@ -60,7 +60,7 @@ function findAllocationClashes(allocations, targetDept = null) {
         }
 
         const uniqueKeys = new Set(
-          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}`)
+          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '')}`)
         );
 
         if (uniqueKeys.size > 1) {
@@ -112,6 +112,20 @@ assert.strictEqual(crossClashes[0].facultyCode, "SSK", "Clashing faculty should 
 assert.ok(crossClashes[0].courses.some(c => c.includes('PHYSICS')), "Course label should include PHYSICS");
 assert.ok(crossClashes[0].courses.some(c => c.includes('CHEMISTRY')), "Course label should include CHEMISTRY");
 console.log('--- Test 3: Cross-Department Clash Attribution: PASSED (Detected SSK across PHYSICS & CHEMISTRY)');
+
+// Test 4: Parallel Class Split Double-Booking Detection
+// When a faculty member is assigned to both Class 1 and Class 2 of the same course in the same period
+const parallelClassAllocations = {
+  "COMMERCE_SF": {
+    "COM4CJ204_C1": { "MONDAY": { "1": ["NTM"] } },
+    "COM4CJ204_C2": { "MONDAY": { "1": ["NTM"] } }
+  }
+};
+const parallelClassClashes = findAllocationClashes(parallelClassAllocations, "COMMERCE_SF");
+assert.strictEqual(parallelClassClashes.length, 1, "Should detect parallel class double-booking clash on MONDAY 1");
+assert.strictEqual(parallelClassClashes[0].facultyCode, "NTM", "Clashing faculty should be NTM");
+assert.deepStrictEqual(parallelClassClashes[0].courses, ["COM4CJ204_C1", "COM4CJ204_C2"], "Clashing courses should be C1 and C2");
+console.log('--- Test 4: Parallel Class Split Double-Booking Detection: PASSED (Detected NTM on COM4CJ204_C1 & COM4CJ204_C2)');
 
 console.log('\n======================================================');
 console.log('ALL CLASH DETECTION SCOPING TESTS PASSED IN FULL!');

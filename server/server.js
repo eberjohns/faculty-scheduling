@@ -365,9 +365,9 @@ function findAllocationClashes(allocations, targetDept = null) {
         }
 
         // Check if bookings are different courses or different departments
-        // Exclude split variants of the same base course in the same department (e.g. T/P or class splits)
+        // Exclude Theory/Practical suffix variants of the exact same course/class in the same department (e.g. -T vs -P)
         const uniqueKeys = new Set(
-          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '')}`)
+          bookings.map(b => `${(b.department || '').toUpperCase()}::${b.courseCode.replace(/-(T|P)$/, '')}`)
         );
 
         if (uniqueKeys.size > 1) {
