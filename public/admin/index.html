@@ -762,32 +762,7 @@
               <h1><i class="fa-solid fa-graduation-cap text-primary"></i> Batch Allocation & Mapping</h1>
             </div>
 
-            <!-- Informatics Guide Banner -->
-            <div class="informatics-card mt-2">
-              <div class="informatics-header">
-                <div class="informatics-title">
-                  <i class="fa-solid fa-graduation-cap text-primary"></i>
-                  <span>Batch Allocation & Course Mapping Informatics</span>
-                </div>
-              </div>
-              <div class="informatics-body">
-                Manage how generated student batches are mapped to courses, parallel elective classes, and single-batch majors.
-                <div class="informatics-grid">
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-diagram-project text-primary"></i> Course Classes / Electives</strong>
-                    <p>For courses with multiple classes (C1, C2) or shared electives, map multiple student batches across departments.</p>
-                  </div>
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-user-graduate text-success"></i> Major Courses</strong>
-                    <p>Assign exactly one batch to major departmental courses, with automated recommendations based on program and year.</p>
-                  </div>
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-chart-pie text-warning"></i> Allocation Status</strong>
-                    <p>Audit all batches to ensure every generated batch has all required course hours allocated without gaps.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+
 
             <div class="tab-sub-nav">
               <button class="tab-sub-item active" data-subtab="subtab-alloc-electives">Course Classes / Electives</button>
@@ -912,32 +887,7 @@
               </div>
             </div>
 
-            <!-- Informatics Guide Banner -->
-            <div class="informatics-card mt-2">
-              <div class="informatics-header">
-                <div class="informatics-title">
-                  <i class="fa-solid fa-circle-info text-primary"></i>
-                  <span>Central Common Subject & Batch Mapping Informatics</span>
-                </div>
-              </div>
-              <div class="informatics-body">
-                Centralized coordination for institution-wide common courses (AEC, SEC, MDC, VAC) and their parallel batch connections.
-                <div class="informatics-grid">
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-layer-group text-primary"></i> 1. Select Common Course</strong>
-                    <p>Click any category card (e.g. AEC1, MDC1, VAC1) to view connected curriculum courses and their parallel class sections.</p>
-                  </div>
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-link text-success"></i> 2. Map Department Batches</strong>
-                    <p>Click "Map Batches" on any class (e.g. Class C1) to assign participating batches from Batch Allocation & Mapping.</p>
-                  </div>
-                  <div class="informatics-item">
-                    <strong><i class="fa-solid fa-chalkboard-user text-warning"></i> 3. Department Teacher Mapping</strong>
-                    <p>The offering department assigns teachers in their portal. Assigned faculty automatically display on participating departments' locked timetable slots.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+
 
             <!-- Sub-view A: Subject Cards Grid -->
             <div id="admin-common-main-view">
@@ -1479,7 +1429,7 @@
                     <select id="print-mode-select" class="form-control" style="width: auto; min-width: 220px;">
                       <option value="short">Short Mode (EJ OOPS)</option>
                       <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
-                      <option value="full">Full Mode (Eber Johns - Object Oriented Programming)</option>
+                      <option value="full">Full Mode</option>
                     </select>
                   </div>
                 </div>
@@ -1558,6 +1508,7 @@
                   </div>
                 </div>
                 <div class="export-options-right">
+                  <button id="btn-switch-to-dept-timetable" class="btn btn-outline" style="border-color: #6366f1; color: #4338ca;"><i class="fa-solid fa-table-cells text-primary"></i> View Entire Department</button>
                   <button id="btn-trigger-teacher-print" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i> Export to PDF / Print</button>
                   <button id="btn-export-teacher-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i> Export CSV Grid</button>
                 </div>

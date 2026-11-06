@@ -112,8 +112,10 @@
                 class="bold text-sm">Non-Recommended Slot</span> (Click to Unlock)</div> -->
           </div>
           <div class="view-toggle-actions flex-row gap-2" style="align-items: center; flex-wrap: wrap;">
-            <button id="btn-open-advanced-features" class="btn btn-primary"><i
-                class="fa-solid fa-wand-magic-sparkles"></i> Advanced Feature</button>
+            <button id="btn-open-advanced-features" class="btn btn-primary" style="position: relative;"><i
+                class="fa-solid fa-wand-magic-sparkles"></i> Advanced Feature
+              <span id="adv-features-notification-badge" class="adv-notification-badge hidden" title="Cross-Department Teaching Notifications">0</span>
+            </button>
             <button id="btn-dept-format-excel" class="btn btn-outline"><i
                 class="fa-solid fa-file-excel text-success"></i> Format Excel</button>
             <button id="btn-dept-import-excel" class="btn btn-outline"><i
@@ -219,39 +221,7 @@
         </div>
       </div>
 
-      <!-- Timetable Informatics Guide -->
-      <div class="informatics-card mt-3 mb-2" id="timetable-informatics-guide">
-        <div class="informatics-header">
-          <div class="informatics-title">
-            <i class="fa-solid fa-compass text-primary"></i>
-            <span>Department Timetable Scheduling Informatics</span>
-          </div>
-          <button type="button" class="informatics-toggle-btn" onclick="document.getElementById('timetable-informatics-body').classList.toggle('hidden')">
-            <i class="fa-solid fa-chevron-down"></i> Quick Guide
-          </button>
-        </div>
-        <div class="informatics-body" id="timetable-informatics-body">
-          Interactive master timetable for course allocations, period locks, and conflict-free faculty assignment.
-          <div class="informatics-grid">
-            <div class="informatics-item">
-              <strong><i class="fa-solid fa-hand-pointer text-primary"></i> Assigning Faculty</strong>
-              <p>Click any active slot cell to open the faculty selector and assign one or more teachers for that period.</p>
-            </div>
-            <div class="informatics-item">
-              <strong><i class="fa-solid fa-lock text-warning"></i> Admin-Locked Slots</strong>
-              <p>College-wide slots (AEC, SEC, MDC, Assemblies) display the connected course, class (C1), and offering department's assigned teacher.</p>
-            </div>
-            <div class="informatics-item">
-              <strong><i class="fa-solid fa-bolt text-success"></i> Auto-Add Rec Slots</strong>
-              <p>When the "Auto-Add Rec Slots" toggle is ON, assigning a teacher in any recommended slot automatically fills the other recommended slots for that course.</p>
-            </div>
-            <div class="informatics-item">
-              <strong><i class="fa-solid fa-triangle-exclamation text-danger"></i> Conflict Protection</strong>
-              <p>The system automatically checks for teacher double-booking, cross-department clashes, and blackout periods in real time.</p>
-            </div>
-          </div>
-        </div>
-      </div>
+
 
       <!-- Core Allocation Grid -->
       <div class="card mt-2">
@@ -491,7 +461,7 @@
                     <select id="print-mode-select" class="form-control" style="width: auto; min-width: 220px;">
                       <option value="short">Short Mode (EJ OOPS)</option>
                       <option value="medium" selected>Medium Mode (EJ - OOPS)</option>
-                      <option value="full">Full Mode (Eber Johns - Object Oriented Programming)</option>
+                      <option value="full">Full Mode</option>
                     </select>
                   </div>
                 </div>
@@ -580,6 +550,9 @@
                   </div>
                 </div>
                 <div class="export-options-right">
+                  <button id="btn-switch-to-dept-timetable" class="btn btn-outline"
+                    style="border-color: #6366f1; color: #4338ca;"><i
+                      class="fa-solid fa-table-cells text-primary"></i> View Entire Department</button>
                   <button id="btn-trigger-teacher-print" class="btn btn-primary"><i class="fa-solid fa-file-pdf"></i>
                     Export to PDF / Print</button>
                   <button id="btn-export-teacher-csv" class="btn btn-outline"><i class="fa-solid fa-file-excel"></i>
@@ -869,9 +842,12 @@
               <i class="fa-solid fa-wand-magic-sparkles text-primary"></i>
               <span>Auto Generate</span>
             </button>
-            <button type="button" class="adv-tab-btn" data-pane="adv-pane-cross-dept">
-              <i class="fa-solid fa-people-arrows text-primary"></i>
-              <span>Cross-Dept Teaching</span>
+            <button type="button" class="adv-tab-btn" data-pane="adv-pane-cross-dept" style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="display: inline-flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-people-arrows text-primary"></i>
+                <span>Cross-Dept Teaching</span>
+              </span>
+              <span id="adv-cross-dept-tab-badge" class="badge badge-danger hidden" style="font-size: 10px; padding: 1px 6px; border-radius: 10px; background: #ef4444; color: #fff; font-weight: 700;">0</span>
             </button>
             <button type="button" class="adv-tab-btn" data-pane="adv-pane-change-password">
               <i class="fa-solid fa-key text-primary"></i>
@@ -894,32 +870,7 @@
                   Save Availability</button>
               </div>
 
-              <!-- Informatics Guide Banner -->
-              <div class="informatics-card warning-theme">
-                <div class="informatics-header">
-                  <div class="informatics-title">
-                    <i class="fa-solid fa-lightbulb text-warning"></i>
-                    <span>Teacher Availability & Blackout Informatics</span>
-                  </div>
-                </div>
-                <div class="informatics-body">
-                  Configure teacher schedule constraints and unavailable periods before generating or assigning timetables.
-                  <div class="informatics-grid">
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-hand-pointer text-warning"></i> 1. Select & Toggle Slots</strong>
-                      <p>Choose a teacher from the dropdown, then click any period cell in the grid to mark it as unavailable/blackout.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-shield-halved text-danger"></i> 2. Strict Constraint Protection</strong>
-                      <p>Auto-generator strictly skips blocked slots. Manual assignment displays a cautionary prompt if attempted.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-floppy-disk text-primary"></i> 3. Remember to Save</strong>
-                      <p>Click "Save Availability" after making adjustments. Blocked periods update across all semester schedules.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               <div class="card bg-slate-50 mb-3"
                 style="padding: 12px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);">
@@ -968,36 +919,7 @@
                 </div>
               </div>
 
-              <!-- Informatics Guide Banner -->
-              <div class="informatics-card">
-                <div class="informatics-header">
-                  <div class="informatics-title">
-                    <i class="fa-solid fa-circle-info text-primary"></i>
-                    <span>Subject Teacher Mapping Informatics & Workflow</span>
-                  </div>
-                </div>
-                <div class="informatics-body">
-                  Map faculty members, configure weekly teaching hours, division splits, and practical lab arrangements for each course.
-                  <div class="informatics-grid">
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-clock text-primary"></i> Weekly Total Hours</strong>
-                      <p>Set total lecture/lab hours per week. Changing total hours dynamically re-balances teacher workloads.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-flask text-success"></i> Theory vs Practical (PR)</strong>
-                      <p>Select Practical to enable 2-hour continuous lab blocks and assign co-teachers for simultaneous lab batches.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-users-viewfinder text-primary"></i> Classes & Mapped Batches</strong>
-                      <p>Courses with parallel classes (C1, C2) show their mapped batches from Admin Batch Allocation for accurate assignment.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-calculator text-warning"></i> Auto-Balanced Hour Split</strong>
-                      <p>Assigning multiple faculty automatically splits hours equally. You can fine-tune specific hours per teacher.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               <!-- Dedicated Subject Teacher Mapping Workload Calculator -->
               <div class="card mb-3" id="subject-mapping-workload-card" style="background: #ffffff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
@@ -1074,36 +996,7 @@
                 </div>
               </div>
 
-              <!-- Informatics Guide Banner -->
-              <div class="informatics-card success-theme">
-                <div class="informatics-header">
-                  <div class="informatics-title">
-                    <i class="fa-solid fa-wand-magic-sparkles text-success"></i>
-                    <span>Auto-Generator Engine Informatics & Constraints</span>
-                  </div>
-                </div>
-                <div class="informatics-body">
-                  Intelligent constraint-satisfaction scheduling engine designed specifically for college academic workflows.
-                  <div class="informatics-grid">
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-thumbtack text-primary"></i> Pinned Slots Preserved</strong>
-                      <p>Existing manual allocations and recommended curriculum slots are locked in place and never overwritten.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-clock-rotate-left text-success"></i> Continuous Practicals</strong>
-                      <p>Practicals are strictly placed into 2-hour contiguous blocks (P1-P2, P4-P5, P6-P7) and never split across lunch break.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-battery-half text-warning"></i> Workload & Rest Rules</strong>
-                      <p>Faculty members are limited to maximum 2 continuous teaching hours to avoid fatigue, with balanced morning/afternoon distribution.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-check-double text-success"></i> Review Before Applying</strong>
-                      <p>Inspect the generated timetable preview, conflict audits, and fairness scores before clicking "Apply to Timetable".</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               <!-- Grid Layout for Generator Settings -->
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
@@ -1309,36 +1202,7 @@
                 </div>
               </div>
 
-              <!-- Informatics Guide Banner -->
-              <div class="informatics-card">
-                <div class="informatics-header">
-                  <div class="informatics-title">
-                    <i class="fa-solid fa-circle-question text-primary"></i>
-                    <span>Curriculum Slot Allocation Informatics & Guide</span>
-                  </div>
-                </div>
-                <div class="informatics-body">
-                  Guide automatic generation and manual scheduling by pre-allocating recommended period slots and restricting specific hours.
-                  <div class="informatics-grid">
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-book text-warning"></i> Theory Rec (TH)</strong>
-                      <p>Pin preferred lecture slots for a course. The auto-generator prioritizes filling these exact recommended hours first.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-flask text-success"></i> Practical Rec (PR)</strong>
-                      <p>Reserve 2-hour continuous laboratory slots. Ensures laboratory sessions occur during dedicated morning/afternoon blocks.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-ban text-danger"></i> Block Slot for Course</strong>
-                      <p>Block a specific course from a slot without affecting other courses. Or choose "General Block (BL)" to block the entire semester.</p>
-                    </div>
-                    <div class="informatics-item">
-                      <strong><i class="fa-solid fa-bolt text-primary"></i> Auto-Add Rec Slots Toggle</strong>
-                      <p>When active on the timetable, assigning a teacher to a recommended slot automatically assigns them to all recommended slots of that course.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+
 
               <!-- Filter and Palette Toolbar Card -->
               <div class="card bg-slate-50 mb-3"
@@ -1490,20 +1354,7 @@
                 </div>
               </div>
 
-              <!-- Informatics Guide Banner -->
-              <div class="informatics-card" style="max-width: 480px;">
-                <div class="informatics-header">
-                  <div class="informatics-title">
-                    <i class="fa-solid fa-shield-halved text-primary"></i>
-                    <span>Account Security Informatics</span>
-                  </div>
-                </div>
-                <div class="informatics-body">
-                  <p style="margin: 0; font-size: 11.5px; color: #475569;">
-                    Changing your password immediately invalidates old sessions. Ensure you record your new coordinator password in a safe place.
-                  </p>
-                </div>
-              </div>
+
 
               <div class="card"
                 style="max-width: 480px; padding: 22px; border-radius: var(--radius-sm); border: 1.5px solid var(--border); background: #ffffff;">

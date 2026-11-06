@@ -103,8 +103,25 @@ console.log('Teacher Double-Booking Clash Check: PASSED (Correctly blocked with 
 // Test 2: Free Teacher Assignment (No Clash)
 // -------------------------------------------------------------
 console.log('\n--- Test 2: Free Teacher Manual Assignment ---');
-// JAM1 on a period where JAM1 is NOT teaching (e.g. Wednesday Period 2)
-const freeResult = validateManualSlot(deptName, 'CSC1CJ101', 'WEDNESDAY', '2', ['JAM1'], db);
+// Find an open period where JAM1 is NOT teaching in db
+let freeDay = 'FRIDAY';
+let freePeriod = '1';
+const allWeekdays = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+for (const day of allWeekdays) {
+  for (const p of ['1', '2', '4', '5', '6']) {
+    const isBusy = Object.keys(db.allocations || {}).some(d => 
+      Object.keys(db.allocations[d] || {}).some(c => 
+        (db.allocations[d][c][day] && db.allocations[d][c][day][p] && db.allocations[d][c][day][p].includes('JAM1'))
+      )
+    );
+    if (!isBusy) {
+      freeDay = day;
+      freePeriod = p;
+      break;
+    }
+  }
+}
+const freeResult = validateManualSlot(deptName, 'CSC1CJ101', freeDay, freePeriod, ['JAM1'], db);
 assert.strictEqual(freeResult.valid, true, 'Free teacher on open period must be valid');
 assert.strictEqual(freeResult.conflicts.length, 0, 'No conflicts must be returned for free teacher');
 console.log('Free Teacher Manual Assignment: PASSED (Allowed without conflicts)');
@@ -116,9 +133,9 @@ console.log('\n--- Test 3: Teacher Unavailability / Blackout Rule ---');
 // Temporarily set an unavailable slot for test
 const mockDb = JSON.parse(JSON.stringify(db));
 if (!mockDb.teacherUnavailability) mockDb.teacherUnavailability = {};
-mockDb.teacherUnavailability['JAM1'] = [{ day: 'WEDNESDAY', period: '2', reason: 'HOD Meeting' }];
+mockDb.teacherUnavailability['JAM1'] = [{ day: freeDay, period: freePeriod, reason: 'HOD Meeting' }];
 
-const unavailResult = validateManualSlot(deptName, 'CSC1CJ101', 'WEDNESDAY', '2', ['JAM1'], mockDb);
+const unavailResult = validateManualSlot(deptName, 'CSC1CJ101', freeDay, freePeriod, ['JAM1'], mockDb);
 assert.strictEqual(unavailResult.valid, false, 'Teacher in unavailable slot must be blocked');
 assert(unavailResult.conflicts.some(c => c.type === 'TEACHER_UNAVAILABLE'), 'Must return TEACHER_UNAVAILABLE conflict');
 console.log('Teacher Unavailability Rule: PASSED (Blocked with blackout reason)');
@@ -138,8 +155,8 @@ console.log('Admin Global Locked Period Notice: PASSED (Notice attached: AEC1)')
 // Test 5: Co-Teaching Validation
 // -------------------------------------------------------------
 console.log('\n--- Test 5: Multi-Teacher Co-Teaching Validation ---');
-// Assigning 2 teachers together on an open slot (e.g. JAM1 + RRK on Friday Period 3)
-const coTeachingResult = validateManualSlot(deptName, 'CSC1CJ101', 'FRIDAY', '3', ['JAM1', 'AGK'], db);
+// Assigning 2 teachers together on an open slot (e.g. JAM1 + AGK on Friday Period 6 where both are free)
+const coTeachingResult = validateManualSlot(deptName, 'CSC1CJ101', 'FRIDAY', '6', ['JAM1', 'AGK'], db);
 assert.strictEqual(coTeachingResult.valid, true, 'Multiple teachers without individual clashes must be allowed');
 console.log('Multi-Teacher Co-Teaching Validation: PASSED (Both teachers placed simultaneously)');
 

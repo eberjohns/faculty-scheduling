@@ -160,6 +160,26 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--danger-light) !important;
 }
 
+.btn-success {
+  background-color: var(--success);
+  color: #ffffff;
+  border-color: var(--success);
+}
+.btn-success:hover {
+  background-color: var(--success-dark);
+  color: #ffffff;
+}
+
+.btn-warning {
+  background-color: #ea580c;
+  color: #ffffff;
+  border-color: #c2410c;
+}
+.btn-warning:hover {
+  background-color: #c2410c;
+  color: #ffffff;
+}
+
 .btn-block {
   display: flex;
   width: 100%;
@@ -296,6 +316,21 @@ h1, h2, h3, h4, h5, h6 {
 .badge-info {
   background-color: var(--info-light);
   color: var(--info);
+}
+.badge-warning {
+  background-color: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #f97316;
+}
+.badge-success {
+  background-color: var(--success-light);
+  color: var(--success-dark);
+  border: 1px solid var(--success);
+}
+.badge-danger {
+  background-color: var(--danger-light);
+  color: var(--danger-dark);
+  border: 1px solid var(--danger);
 }
 
 /* Card components */
@@ -2524,107 +2559,7 @@ input:checked + .slider:before {
   background: #f0fdf4;
 }
 
-/* ==========================================================================
-   Informatics & Interactive Feature Guidance Banners
-   ========================================================================== */
-.informatics-card {
-  background: linear-gradient(135deg, #f0f7ff 0%, #f8fafc 100%);
-  border: 1px solid #bfdbfe;
-  border-left: 4px solid var(--primary);
-  border-radius: var(--radius-sm);
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  position: relative;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.04);
-}
 
-.informatics-card.warning-theme {
-  background: linear-gradient(135deg, #fffbeb 0%, #f8fafc 100%);
-  border-color: #fde68a;
-  border-left-color: #f59e0b;
-}
-
-.informatics-card.success-theme {
-  background: linear-gradient(135deg, #f0fdf4 0%, #f8fafc 100%);
-  border-color: #bbf7d0;
-  border-left-color: #16a34a;
-}
-
-.informatics-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.informatics-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.informatics-title i {
-  font-size: 14px;
-}
-
-.informatics-toggle-btn {
-  background: none;
-  border: none;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.informatics-toggle-btn:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-main);
-}
-
-.informatics-body {
-  font-size: 12px;
-  color: #334155;
-  line-height: 1.5;
-}
-
-.informatics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.informatics-item {
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 11.5px;
-}
-
-.informatics-item strong {
-  display: block;
-  color: var(--text-main);
-  margin-bottom: 2px;
-  font-size: 11.5px;
-}
-
-.informatics-item p {
-  margin: 0;
-  color: #475569;
-  font-size: 11px;
-  line-height: 1.35;
-}
 
 
 
@@ -2780,4 +2715,103 @@ input:checked + .slider:before {
 .export-menu-item:hover {
   background: var(--surface-hover, #f1f5f9);
   color: var(--primary);
+}
+
+/* Notification Badge for Advanced Features (Cross-Dept Teaching) */
+.adv-notification-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  line-height: 1;
+  pointer-events: none;
+  z-index: 10;
+  box-sizing: border-box;
+  animation: advBadgePulse 2.5s infinite;
+}
+
+@keyframes advBadgePulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.adv-notification-badge.hidden,
+#adv-cross-dept-tab-badge.hidden {
+  display: none !important;
+}
+
+/* Manual Allocation Modal: Theory & Practical Type Selection */
+.btn-assign-type-theory {
+  font-weight: 700;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--surface, #ffffff);
+  border: 1.5px solid var(--border, #cbd5e1);
+  color: var(--text-main, #0f172a);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn-assign-type-theory:hover:not(.active) {
+  background-color: var(--background, #f8fafc);
+  border-color: var(--secondary, #64748b);
+  color: var(--text-main, #0f172a);
+}
+
+.btn-assign-type-theory.active {
+  background-color: #ea580c !important; /* Vibrant Orange */
+  border-color: #c2410c !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(234, 88, 12, 0.35);
+}
+
+.btn-assign-type-practical {
+  font-weight: 700;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--surface, #ffffff);
+  border: 1.5px solid var(--border, #cbd5e1);
+  color: var(--text-main, #0f172a);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.btn-assign-type-practical:hover:not(.active):not(:disabled) {
+  background-color: var(--background, #f8fafc);
+  border-color: var(--secondary, #64748b);
+  color: var(--text-main, #0f172a);
+}
+
+.btn-assign-type-practical.active {
+  background-color: #16a34a !important; /* Green */
+  border-color: #15803d !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(22, 163, 74, 0.35);
+}
+
+.btn-assign-type-practical:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--border, #cbd5e1);
+  background-color: #f1f5f9;
+  color: #94a3b8;
 }

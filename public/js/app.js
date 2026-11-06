@@ -321,11 +321,12 @@ async function initApp() {
     if (!state.currentUser || !state.currentUser.departmentName) return;
     try {
       const ts = Date.now();
-      const [cfgRes, coursesRes, mapRes, groupRes] = await Promise.all([
+      const [cfgRes, coursesRes, mapRes, groupRes, crossDeptRes] = await Promise.all([
         fetch(`${API_BASE}/config?_t=${ts}`, { cache: 'no-store' }),
         authFetch(`${API_BASE}/courses?_t=${ts}`, { cache: 'no-store' }),
         authFetch(`${API_BASE}/department/subject-mapping?_t=${ts}`, { cache: 'no-store' }),
-        authFetch(`${API_BASE}/admin/group-mappings?_t=${ts}`, { cache: 'no-store' })
+        authFetch(`${API_BASE}/admin/group-mappings?_t=${ts}`, { cache: 'no-store' }),
+        authFetch(`${API_BASE}/cross-dept-requests?_t=${ts}`, { cache: 'no-store' })
       ]);
 
       let shouldRerender = false;
@@ -371,6 +372,16 @@ async function initApp() {
         if (oldMapStr !== newMapStr) {
           state.subjectTeacherMapping = freshMap;
           shouldRerender = true;
+        }
+      }
+
+      if (crossDeptRes && crossDeptRes.ok) {
+        const freshCdr = await crossDeptRes.json();
+        const oldCdrStr = JSON.stringify(state.crossDepartmentRequests || []);
+        const newCdrStr = JSON.stringify(freshCdr.requests || []);
+        if (oldCdrStr !== newCdrStr) {
+          state.crossDepartmentRequests = freshCdr.requests || [];
+          updateAdvancedFeaturesNotificationBadge();
         }
       }
 
@@ -483,6 +494,7 @@ async function fetchGlobalData() {
     } else {
       state.crossDepartmentRequests = [];
     }
+    updateAdvancedFeaturesNotificationBadge();
     // Initialize local subject mappings immediately on startup
     initLocalSubjectMappings();
   updateSubjectMappingWorkloadTracker();
@@ -565,6 +577,7 @@ function bindAuthEvents() {
     document.getElementById('header-user-info').classList.add('hidden');
     pwdInput.value = '';
     loadLoginDepartments();
+    updateAdvancedFeaturesNotificationBadge();
     switchView('login');
   });
 }
@@ -2570,16 +2583,16 @@ window.setManualAssignType = function(type) {
   }
   activeSlotContext.assignmentType = type;
 
-  // Update button active states in UI
+  // Update button active states in UI: selected Theory is orange, selected Practical is green, unselected is normal
   const btnT = document.getElementById('btn-manual-assign-type-theory');
   const btnP = document.getElementById('btn-manual-assign-type-practical');
   if (btnT && btnP) {
     if (type === 'T') {
-      btnT.className = 'btn btn-xs btn-warning active';
-      btnP.className = 'btn btn-xs btn-outline';
+      btnT.className = 'btn btn-xs btn-assign-type-theory active';
+      btnP.className = 'btn btn-xs btn-assign-type-practical';
     } else {
-      btnT.className = 'btn btn-xs btn-outline';
-      btnP.className = 'btn btn-xs btn-success active';
+      btnT.className = 'btn btn-xs btn-assign-type-theory';
+      btnP.className = 'btn btn-xs btn-assign-type-practical active';
     }
   }
 
@@ -2616,7 +2629,8 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   const isPracByDefault = isPracRecorded || (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
   
   const nextPeriod = getNextRightPeriod(period);
-  const initialType = (isPracByDefault && nextPeriod) ? 'P' : 'T';
+  // Default to Theory ('T') as required; if this specific slot is already recorded as Practical in manualSlots, preserve Practical
+  const initialType = (isPracRecorded && nextPeriod) ? 'P' : 'T';
 
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement, assignmentType: initialType };
 
@@ -2638,10 +2652,10 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
     <div style="display:flex; align-items:center; justify-content:space-between; background:var(--background); padding:8px 12px; border-radius:var(--radius-sm); border:1.5px solid var(--border); margin-bottom:12px;">
       <span style="font-size:12px; font-weight:700; color:var(--text-muted);"><i class="fa-solid fa-shapes text-primary"></i> Allocation Type:</span>
       <div style="display:flex; gap:6px;">
-        <button type="button" id="btn-manual-assign-type-theory" class="btn btn-xs ${initialType === 'T' ? 'btn-warning active' : 'btn-outline'}" onclick="setManualAssignType('T')" style="font-weight:700; padding:4px 10px; display:inline-flex; align-items:center; gap:5px;">
+        <button type="button" id="btn-manual-assign-type-theory" class="btn btn-xs btn-assign-type-theory ${initialType === 'T' ? 'active' : ''}" onclick="setManualAssignType('T')">
           <i class="fa-solid fa-book"></i> Theory (1 Slot: P${period})
         </button>
-        <button type="button" id="btn-manual-assign-type-practical" class="btn btn-xs ${initialType === 'P' ? 'btn-success active' : 'btn-outline'}" onclick="setManualAssignType('P')" style="font-weight:700; padding:4px 10px; display:inline-flex; align-items:center; gap:5px;" ${!nextPeriod ? 'disabled title="Last period of the day cannot extend to next slot"' : ''}>
+        <button type="button" id="btn-manual-assign-type-practical" class="btn btn-xs btn-assign-type-practical ${initialType === 'P' ? 'active' : ''}" onclick="setManualAssignType('P')" ${!nextPeriod ? 'disabled title="Last period of the day cannot extend to next slot"' : ''}>
           <i class="fa-solid fa-flask"></i> Practical (2 Slots: P${period} + P${nextPeriod || 'None'})
         </button>
       </div>
@@ -4238,7 +4252,7 @@ function syncPrintViewsIfActive() {
   }
 }
 
-function openTimetablePrintPreview(deptName) {
+async function openTimetablePrintPreview(deptName) {
   activePrintDept = deptName || (state.currentUser ? state.currentUser.departmentName : '') || '';
   const printDeptElem = document.getElementById('print-dept-name');
   if (printDeptElem) printDeptElem.textContent = `DEPARTMENT OF ${activePrintDept}`;
@@ -4249,6 +4263,24 @@ function openTimetablePrintPreview(deptName) {
   
   const modeSelect = document.getElementById('print-mode-select');
   const mode = modeSelect ? modeSelect.value : 'medium';
+
+  // Always fetch latest allocations and cross-department requests for fresh display
+  try {
+    const [allocRes, crossDeptRes] = await Promise.all([
+      authFetch(`${API_BASE}/allocations?department=${encodeURIComponent(activePrintDept)}`),
+      authFetch(`${API_BASE}/cross-dept-requests`)
+    ]);
+    if (allocRes && allocRes.ok) {
+      state.allocations = await allocRes.json();
+    }
+    if (crossDeptRes && crossDeptRes.ok) {
+      const cdrData = await crossDeptRes.json();
+      state.crossDepartmentRequests = cdrData.requests || [];
+    }
+  } catch (err) {
+    console.error('Error fetching fresh preview data:', err);
+  }
+
   buildPrintTimetableHtml(mode);
   
   const modal = document.getElementById('modal-print-preview');
@@ -4272,11 +4304,53 @@ function buildPrintTimetableHtml(displayMode) {
 
   const deptUpper = (activePrintDept || (state.currentUser ? state.currentUser.departmentName : '') || '').trim().toUpperCase();
   const allocs = state.allocations || {};
-  const deptCourses = (state.courses || []).filter(c => {
+
+  const approvedCrossReqs = (state.crossDepartmentRequests || []).filter(r => r.status === 'APPROVED' && r.assignedFacultyCode);
+
+  const seenCanonical = new Set();
+  const deptCourses = [];
+
+  // 1. Department courses & courses allocated in this department
+  (state.courses || []).forEach(c => {
     const cDept = (c.department || '').trim().toUpperCase();
-    if (cDept === deptUpper) return true;
     const cBase = (c.code || '').replace(/-(T|P)$/, '');
-    return allocs[c.code] || allocs[cBase] || allocs[`${cBase}-T`] || allocs[`${cBase}-P`];
+    const isDeptCourse = (cDept === deptUpper);
+    const hasAlloc = Boolean(allocs[c.code] || allocs[cBase] || allocs[`${cBase}-T`] || allocs[`${cBase}-P`]);
+
+    const hasCrossReq = approvedCrossReqs.some(r => 
+      (r.requestingDept || '').trim().toUpperCase() === deptUpper &&
+      (r.courseCode === c.code || r.courseCode === cBase || r.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === cBase.replace(/(_G|_C)\d+$/, ''))
+    );
+
+    if (isDeptCourse || hasAlloc || hasCrossReq) {
+      const canonKey = c.code.replace(/-(T|P)$/, '');
+      if (!seenCanonical.has(canonKey)) {
+        seenCanonical.add(canonKey);
+        deptCourses.push(c);
+      }
+    }
+  });
+
+  // 2. Cross-department offerings taught by this department's teachers to other departments
+  approvedCrossReqs.forEach(r => {
+    if ((r.offeringDept || '').trim().toUpperCase() === deptUpper) {
+      const canonKey = `CROSS_${r.courseCode}_${r.id}`;
+      if (!seenCanonical.has(canonKey)) {
+        seenCanonical.add(canonKey);
+        const reqCourse = (state.courses || []).find(c => c.code === r.courseCode || c.code.replace(/-(T|P)$/, '') === r.courseCode) || {};
+        deptCourses.push({
+          code: r.courseCode,
+          name: r.courseName || reqCourse.name || r.courseCode,
+          alias: reqCourse.alias || r.courseCode,
+          semester: r.semester || reqCourse.semester || '1',
+          category: 'Cross-Dept',
+          courseType: r.courseType || reqCourse.courseType || 'T',
+          department: deptUpper,
+          isCrossDeptOffering: true,
+          crossDeptReq: r
+        });
+      }
+    }
   });
 
   renderPrintGridRows(deptCourses, allocs, periods, displayMode, tbody);
@@ -4292,6 +4366,9 @@ function formatCategory(cat) {
 }
 
 function getTimetableRowCategory(course) {
+  if (course.isCrossDeptOffering || course.category === 'Cross-Dept') {
+    return 'Cross-Dept Teaching';
+  }
   const romanMap = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII' };
   const semNum = parseInt(course.semester, 10);
   const semLabel = (!isNaN(semNum) && romanMap[semNum]) ? `${romanMap[semNum]} Sem` : (course.semester ? `Sem ${course.semester}` : '');
@@ -4311,12 +4388,24 @@ function getCourseSlotAllocations(course, day, period, allocations) {
   if (!allocations || !course) return { codes: [], type: (course && course.courseType) || 'T' };
   
   const cCode = course.code || '';
-  const baseCode = cCode.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const cleanCode = cCode.replace(/-(T|P)$/, '');
+  const baseCode = cleanCode.replace(/(_C|_G)\d+$/, '');
   const classMatch = cCode.match(/(_C|_G)(\d+)/);
   const classNum = course.classNum || (classMatch ? classMatch[2] : ((course.class && course.class > 0) ? course.class : null));
 
   const foundCodes = [];
   let detectedType = course.courseType || (cCode.endsWith('-P') ? 'P' : 'T');
+
+  // Handle virtual offering row for cross-dept request
+  if (course.isCrossDeptOffering && course.crossDeptReq) {
+    const req = course.crossDeptReq;
+    const slot = (req.pinnedSlots || []).find(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period));
+    if (slot && req.assignedFacultyCode) {
+      foundCodes.push(req.assignedFacultyCode);
+      detectedType = slot.type || req.courseType || 'T';
+      return { codes: foundCodes, type: detectedType };
+    }
+  }
 
   const keysToCheck = [];
   if (classNum) {
@@ -4326,17 +4415,18 @@ function getCourseSlotAllocations(course, day, period, allocations) {
     keysToCheck.push({ key: `${baseCode}_G${classNum}-T`, type: 'T' });
     keysToCheck.push({ key: `${baseCode}_G${classNum}-P`, type: 'P' });
     keysToCheck.push({ key: `${baseCode}_G${classNum}`, type: detectedType });
+  } else {
+    keysToCheck.push({ key: cCode, type: cCode.endsWith('-P') ? 'P' : (cCode.endsWith('-T') ? 'T' : detectedType) });
+    keysToCheck.push({ key: `${cCode}-T`, type: 'T' });
+    keysToCheck.push({ key: `${cCode}-P`, type: 'P' });
+    keysToCheck.push({ key: `${baseCode}-T`, type: 'T' });
+    keysToCheck.push({ key: `${baseCode}-P`, type: 'P' });
+    keysToCheck.push({ key: baseCode, type: detectedType });
   }
-  keysToCheck.push({ key: cCode, type: cCode.endsWith('-P') ? 'P' : (cCode.endsWith('-T') ? 'T' : detectedType) });
-  keysToCheck.push({ key: `${cCode}-T`, type: 'T' });
-  keysToCheck.push({ key: `${cCode}-P`, type: 'P' });
-  keysToCheck.push({ key: `${baseCode}-T`, type: 'T' });
-  keysToCheck.push({ key: `${baseCode}-P`, type: 'P' });
-  keysToCheck.push({ key: baseCode, type: detectedType });
 
   const seenKeys = new Set();
   keysToCheck.forEach(({ key, type }) => {
-    if (seenKeys.has(key)) return;
+    if (!key || seenKeys.has(key)) return;
     seenKeys.add(key);
 
     if (allocations[key] && allocations[key][day] && allocations[key][day][period]) {
@@ -4352,6 +4442,39 @@ function getCourseSlotAllocations(course, day, period, allocations) {
     }
   });
 
+  // Also check state.crossDepartmentRequests for approved requests!
+  const deptUpper = (activePrintDept || (state.currentUser ? state.currentUser.departmentName : '') || '').trim().toUpperCase();
+  const approvedCross = (state.crossDepartmentRequests || []).find(r => 
+    r.status === 'APPROVED' &&
+    r.assignedFacultyCode &&
+    (
+      ((r.requestingDept || '').trim().toUpperCase() === deptUpper &&
+        (
+          r.courseCode === cCode ||
+          r.courseCode === cleanCode ||
+          r.courseCode === baseCode ||
+          (classNum && (r.courseCode === `${baseCode}_C${classNum}` || r.courseCode === `${baseCode}_G${classNum}`)) ||
+          r.courseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '') === baseCode
+        )
+      ) ||
+      (course.isCrossDeptOffering && (r.offeringDept || '').trim().toUpperCase() === deptUpper && r.id === (course.crossDeptReq && course.crossDeptReq.id))
+    ) &&
+    (r.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period))
+  );
+
+  if (approvedCross && approvedCross.assignedFacultyCode) {
+    const cleanFc = approvedCross.assignedFacultyCode.trim();
+    if (cleanFc && !foundCodes.includes(cleanFc)) {
+      foundCodes.push(cleanFc);
+    }
+    const crossSlot = (approvedCross.pinnedSlots || []).find(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(period));
+    if (crossSlot && crossSlot.type) {
+      detectedType = crossSlot.type;
+    } else if (approvedCross.courseType) {
+      detectedType = approvedCross.courseType;
+    }
+  }
+
   if (foundCodes.length > 0) {
     const dayAllocations = {};
     const periodsList = (state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
@@ -4364,6 +4487,9 @@ function getCourseSlotAllocations(course, day, period, allocations) {
           }
         }
       });
+      if (approvedCross && (approvedCross.pinnedSlots || []).some(s => (s.day || '').toUpperCase() === day.toUpperCase() && String(s.period) === String(p))) {
+        dayAllocations[p] = Array.from(new Set([...(dayAllocations[p] || []), approvedCross.assignedFacultyCode]));
+      }
     });
     detectedType = determineSlotType(course, cCode, day, period, foundCodes, dayAllocations);
   }
@@ -4379,7 +4505,8 @@ function renderPrintGridRows(courses, allocations, periods, displayMode, tbody) 
   // Expand courses that have classes > 1 into virtual course objects!
   const expandedCourses = [];
   courses.forEach(c => {
-    if (c.classes && c.classes > 1) {
+    const isAlreadyClassVariant = /(_C|_G)\d+/.test(c.code);
+    if (!isAlreadyClassVariant && c.classes && c.classes > 1) {
       for (let cl = 1; cl <= c.classes; cl++) {
         const base = c.code.replace(/-(T|P)$/, '');
         const suffix = c.code.match(/-(T|P)$/) ? c.code.match(/-(T|P)$/)[0] : '';
@@ -4523,7 +4650,13 @@ function formatAllocationCell(course, day, period, allocations, mode, detectedTy
   const { codes: assignedCodes, type: allocType } = getCourseSlotAllocations(course, day, period, allocations);
   if (assignedCodes.length === 0) return '';
 
-  const alias = (course.alias || course.name || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const isOffering = Boolean(course.isCrossDeptOffering && course.crossDeptReq);
+  const reqDept = isOffering ? (course.crossDeptReq.requestingDept || '') : '';
+  const deptSuffix = reqDept ? ` (${reqDept})` : '';
+
+  const alias = isOffering
+    ? `${course.alias || course.code}${deptSuffix}`
+    : (course.alias || course.name || course.code).replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
   const classNum = course.classNum || (course.code.match(/(_G|_C)(\d+)/) ? course.code.match(/(_G|_C)(\d+)/)[2] : ((course.class && course.class > 0) ? course.class : ((course.group && course.group > 0) ? course.group : null)));
   const groupSuffix = classNum ? ` (C${classNum})` : '';
   const isPractical = (detectedType || allocType) === 'P';
@@ -4546,7 +4679,9 @@ function formatAllocationCell(course, day, period, allocations, mode, detectedTy
       const facObj = (state.faculty || []).find(f => f.code === code);
       return facObj ? facObj.name : code;
     }).join(' / ');
-    const cleanName = (course.name || course.code).replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
+    const cleanName = isOffering
+      ? `${course.name || course.code}${deptSuffix}`
+      : (course.name || course.code).replace(/-(T|P)$/, '').replace(/\s+(T|P)$/, '');
     return `<div class="bold">${facNames}</div><div class="text-sm">${cleanName}${groupSuffix}${suffix}</div>`;
   }
 }
@@ -5172,6 +5307,15 @@ function bindTeacherTimetableEvents() {
       const printModal = document.getElementById('modal-print-preview');
       if (printModal) printModal.classList.add('hidden');
       openTeacherTimetableModal('ALL');
+    });
+  }
+
+  const btnSwitchDept = document.getElementById('btn-switch-to-dept-timetable');
+  if (btnSwitchDept) {
+    btnSwitchDept.addEventListener('click', () => {
+      const teacherModal = document.getElementById('modal-teacher-timetable');
+      if (teacherModal) teacherModal.classList.add('hidden');
+      openTimetablePrintPreview();
     });
   }
 }
@@ -11942,6 +12086,81 @@ function recalcCrossDeptTotalHours(keepSlots = false) {
   renderCrossDeptSlotPicker();
 }
 
+function acknowledgeApprovedCrossDeptRequests(myDept) {
+  if (!myDept) return;
+  const requests = state.crossDepartmentRequests || [];
+  const approvedOutgoingIds = requests
+    .filter(r => (r.requestingDept || '').toUpperCase() === myDept && r.status === 'APPROVED')
+    .map(r => r.id);
+
+  if (approvedOutgoingIds.length > 0) {
+    try {
+      const storageKey = `ack_approved_cross_reqs_${myDept}`;
+      const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      const combined = Array.from(new Set([...existing, ...approvedOutgoingIds]));
+      localStorage.setItem(storageKey, JSON.stringify(combined));
+    } catch (e) {
+      console.warn('Could not persist acknowledged cross-dept requests:', e);
+    }
+  }
+}
+
+function updateAdvancedFeaturesNotificationBadge() {
+  const mainBadge = document.getElementById('adv-features-notification-badge');
+  const tabBadge = document.getElementById('adv-cross-dept-tab-badge');
+
+  if (!state.currentUser || !state.currentUser.departmentName) {
+    if (mainBadge) mainBadge.classList.add('hidden');
+    if (tabBadge) tabBadge.classList.add('hidden');
+    return;
+  }
+
+  const myDept = (state.currentUser.departmentName || '').toUpperCase();
+  const requests = state.crossDepartmentRequests || [];
+
+  // 1. Pending incoming requests that require this department's action/approval
+  const pendingIncoming = requests.filter(r => (r.offeringDept || '').toUpperCase() === myDept && r.status === 'PENDING');
+
+  // 2. Outgoing requests that have been APPROVED by the offering department and not yet acknowledged
+  let acknowledgedIds = [];
+  try {
+    acknowledgedIds = JSON.parse(localStorage.getItem(`ack_approved_cross_reqs_${myDept}`) || '[]');
+  } catch (e) {
+    acknowledgedIds = [];
+  }
+
+  const unseenApproved = requests.filter(r => 
+    (r.requestingDept || '').toUpperCase() === myDept && 
+    r.status === 'APPROVED' && 
+    !acknowledgedIds.includes(r.id)
+  );
+
+  const totalNotifications = pendingIncoming.length + unseenApproved.length;
+
+  if (mainBadge) {
+    if (totalNotifications > 0) {
+      mainBadge.textContent = totalNotifications > 99 ? '99+' : totalNotifications;
+      mainBadge.classList.remove('hidden');
+      const tooltipParts = [];
+      if (pendingIncoming.length > 0) tooltipParts.push(`${pendingIncoming.length} pending request(s) received`);
+      if (unseenApproved.length > 0) tooltipParts.push(`${unseenApproved.length} approved request(s)`);
+      mainBadge.title = tooltipParts.join(', ');
+    } else {
+      mainBadge.classList.add('hidden');
+      mainBadge.title = 'Cross-Department Teaching Notifications';
+    }
+  }
+
+  if (tabBadge) {
+    if (totalNotifications > 0) {
+      tabBadge.textContent = totalNotifications > 99 ? '99+' : totalNotifications;
+      tabBadge.classList.remove('hidden');
+    } else {
+      tabBadge.classList.add('hidden');
+    }
+  }
+}
+
 function switchCrossDeptSubtab(subtab) {
   activeCrossDeptSubtab = subtab;
   const btnIn = document.getElementById('subtab-btn-incoming');
@@ -11959,6 +12178,10 @@ function switchCrossDeptSubtab(subtab) {
     if (btnOut) { btnOut.className = 'btn btn-sm btn-primary cross-dept-subtab'; }
     if (secIn) secIn.classList.add('hidden');
     if (secOut) secOut.classList.remove('hidden');
+
+    const myDept = (state.currentUser && state.currentUser.departmentName ? state.currentUser.departmentName : '').toUpperCase();
+    acknowledgeApprovedCrossDeptRequests(myDept);
+    updateAdvancedFeaturesNotificationBadge();
   }
 }
 
@@ -11982,6 +12205,11 @@ async function renderCrossDeptTeachingTab() {
     const countOut = document.getElementById('cross-dept-outgoing-count');
     if (countIn) countIn.textContent = incoming.length;
     if (countOut) countOut.textContent = outgoing.length;
+
+    if (activeCrossDeptSubtab === 'outgoing') {
+      acknowledgeApprovedCrossDeptRequests(myDept);
+    }
+    updateAdvancedFeaturesNotificationBadge();
 
     renderIncomingCrossDeptRequests(incoming);
     renderOutgoingCrossDeptRequests(outgoing);
