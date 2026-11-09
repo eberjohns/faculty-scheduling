@@ -3615,13 +3615,14 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
   // 5. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
   const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
   const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
+  const isCodePrac = codeStr.endsWith('-P') || codeStr.includes('-P_') || codeStr.includes('_P-') || codeStr.includes('-P(');
 
   if (thHours !== null && prHours !== null) {
     if (prHours === 0 && thHours > 0) return 'T';
     if (thHours === 0 && prHours > 0) return 'P';
   } else if (course && course.courseType === 'T') {
     return 'T';
-  } else if (course && course.courseType === 'P') {
+  } else if (course && course.courseType === 'P' && isCodePrac) {
     return 'P';
   }
 
@@ -3635,7 +3636,8 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
     return 'T';
   }
 
-  return (course && course.courseType === 'P') ? 'P' : 'T';
+  // Default is ALWAYS Theory ('T') unless explicit practical code suffix (-P)
+  return (course && course.courseType === 'P' && isCodePrac) ? 'P' : 'T';
 }
 window.determineSlotType = determineSlotType;
 
@@ -4367,12 +4369,12 @@ async function exportAdminTeacherTimetableToCSV(deptName, targetFacultyCode = 'A
     const course = state.courses.find(c => c.code === cCode) || 
                    state.courses.find(c => c.code === baseCode) || 
                    { code: cCode, name: cCode, alias: cCode, semester: '-', category: '-', courseType: 'T' };
-    const isPrac = (course.courseType === 'P' || cCode.endsWith('-P'));
-
     Object.entries(dayObj || {}).forEach(([day, periodObj]) => {
       const dayUpper = day.toUpperCase();
       Object.entries(periodObj || {}).forEach(([period, facList]) => {
         if (Array.isArray(facList)) {
+          const slotType = determineSlotType(course, cCode, dayUpper, period, facList, periodObj);
+          const isPrac = (slotType === 'P');
           facList.forEach(facCode => {
             if (schedules[facCode]) {
               if (!schedules[facCode].slots[dayUpper]) schedules[facCode].slots[dayUpper] = {};

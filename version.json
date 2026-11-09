@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
-  "commit": "e8ecda0",
-  "commitFull": "e8ecda09a151cc002c36553c8d2fdf094b59e5cd",
+  "commit": "d78512b",
+  "commitFull": "d78512b1de8921d212052765fe670356e47d2078",
   "branch": "main",
-  "commitDate": "2026-11-09 20:14:06 +0530",
-  "commitMessage": "cahnged the automatic practical",
-  "builtAt": "2026-11-09T15:01:24.980Z",
+  "commitDate": "2026-11-09 20:34:24 +0530",
+  "commitMessage": "changes in the bug of the assignment in practical and theory classes",
+  "builtAt": "2026-11-09T15:49:04.925Z",
   "nodeVersion": "v24.17.0",
   "platform": "win32",
   "environment": "production"

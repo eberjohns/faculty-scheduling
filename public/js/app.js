@@ -725,6 +725,15 @@ function bindFilterEvents() {
 async function loadDepartmentWorkspace() {
   const deptName = state.currentUser.departmentName;
   document.getElementById('dept-title-name').textContent = `Department of ${deptName}`;
+
+  if (!state.manualSlots) {
+    try {
+      const stored = sessionStorage.getItem(`manualSlots_${deptName}`);
+      state.manualSlots = stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      state.manualSlots = {};
+    }
+  }
   
   try {
     const [allocRes, configRes] = await Promise.all([
@@ -942,6 +951,11 @@ function bindDeptEvents() {
         closeFacultyMappingModal();
 
         if (res.ok && result.success) {
+          const dept = state.currentUser ? state.currentUser.departmentName : '';
+          if (dept) {
+            try { sessionStorage.removeItem(`manualSlots_${dept}`); } catch(e) {}
+          }
+          state.manualSlots = {};
           let warnMsg = '';
           if (result.warnings && result.warnings.length > 0) {
             warnMsg = '\n\nNote:\n' + result.warnings.slice(0, 5).join('\n') + (result.warnings.length > 5 ? `\n...and ${result.warnings.length - 5} more warnings.` : '');
@@ -2057,13 +2071,14 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
   // 5. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
   const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
   const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
+  const isCodePrac = codeStr.endsWith('-P') || codeStr.includes('-P_') || codeStr.includes('_P-') || codeStr.includes('-P(');
 
   if (thHours !== null && prHours !== null) {
     if (prHours === 0 && thHours > 0) return 'T';
     if (thHours === 0 && prHours > 0) return 'P';
   } else if (course && course.courseType === 'T') {
     return 'T';
-  } else if (course && course.courseType === 'P') {
+  } else if (course && course.courseType === 'P' && isCodePrac) {
     return 'P';
   }
 
@@ -2077,7 +2092,8 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
     return 'T';
   }
 
-  return (course && course.courseType === 'P') ? 'P' : 'T';
+  // Default is ALWAYS Theory ('T') unless explicit practical code suffix (-P)
+  return (course && course.courseType === 'P' && isCodePrac) ? 'P' : 'T';
 }
 window.determineSlotType = determineSlotType;
 
@@ -2795,7 +2811,9 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   const cleanSlotKey = `${cleanBase}_${day}_${period}`;
   const isPracRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'P' || state.manualSlots[baseSlotKey] === 'P' || state.manualSlots[cleanSlotKey] === 'P'));
   const isTheoryRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'T' || state.manualSlots[baseSlotKey] === 'T' || state.manualSlots[cleanSlotKey] === 'T'));
-  const isMappedPractical = (mData.courseType === 'P') || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P');
+  const isCodePracForModal = courseCode.endsWith('-P') || courseCode.includes('-P_') || courseCode.includes('_P-') || courseCode.includes('-P(');
+  const isRecPracForModal = (course && course.recommendations && course.recommendations[day] && course.recommendations[day][period] === 'P');
+  const isMappedPractical = (mData.courseType === 'P') || (isCodePracForModal && course && course.courseType === 'P') || isCodePracForModal || isRecPracForModal;
 
   const effClassForModal = classNumMatch ? parseInt(classNumMatch[2]) : (course ? (course.class || course.group || 0) : 0);
   const classSuffixForModal = effClassForModal ? `_C${effClassForModal}` : '';
@@ -3184,6 +3202,11 @@ window.assignFacultyFromModal = async function(courseCode, facultyCode) {
       }
     });
 
+    try {
+      const dept = state.currentUser ? state.currentUser.departmentName : '';
+      if (dept) sessionStorage.setItem(`manualSlots_${dept}`, JSON.stringify(state.manualSlots));
+    } catch(e) {}
+
     // Clean up opposite code if teacher was previously in that slot under opposite variant
     if (oppositeCode && oppositeCode !== targetCourseCode) {
       periodsToAssign.forEach(p => {
@@ -3357,6 +3380,10 @@ window.unassignFacultyFromModal = function(courseCode, facultyCode) {
           keysToTry.forEach(k => delete state.manualSlots[`${k}_${day}_${p}`]);
         }
       });
+      try {
+        const dept = state.currentUser ? state.currentUser.departmentName : '';
+        if (dept) sessionStorage.setItem(`manualSlots_${dept}`, JSON.stringify(state.manualSlots));
+      } catch(e) {}
     }
     syncAllocationsToSubjectMapping(courseCode);
     renderFacultySelectList(); // refresh list in modal
@@ -3415,6 +3442,10 @@ window.unassignFaculty = function(courseCode, day, period, facultyCode) {
       if (!anyRemaining) {
         keysToTry.forEach(k => delete state.manualSlots[`${k}_${day}_${period}`]);
       }
+      try {
+        const dept = state.currentUser ? state.currentUser.departmentName : '';
+        if (dept) sessionStorage.setItem(`manualSlots_${dept}`, JSON.stringify(state.manualSlots));
+      } catch(e) {}
     }
     syncAllocationsToSubjectMapping(courseCode);
     renderAllocationMatrix();
@@ -6589,7 +6620,8 @@ function initLocalSubjectMappings() {
     if (!localSubjectMappings[c.code]) {
       const saved = savedMappings[c.code] || {};
       const courseHours = parseInt(saved.hours || c.hours) || 4;
-      const isPrac = (saved.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
+      const isCodePrac = c.code.endsWith('-P') || c.code.includes('-P_');
+      const isPrac = (saved.courseType === 'P' || isCodePrac);
       const courseType = isPrac ? 'P' : 'T';
 
       // Fallback teachers from existing allocations
@@ -6794,7 +6826,8 @@ function updateSubjectMappingWorkloadTracker() {
     const mapping = (typeof localSubjectMappings !== 'undefined' && localSubjectMappings[c.code]) ? localSubjectMappings[c.code] : null;
     if (!mapping) return;
 
-    const isPrac = (mapping.courseType === 'P' || c.courseType === 'P' || c.code.endsWith('-P'));
+    const isCodePrac = c.code.endsWith('-P') || c.code.includes('-P_');
+    const isPrac = (mapping.courseType === 'P' || isCodePrac);
 
     if (isPrac) {
       // Practical lab hours: each assigned practical teacher teaches the lab session (co-teaching)
@@ -6955,9 +6988,10 @@ function renderSubjectMappingTiles() {
 
   let html = '';
   deptCourses.forEach(c => {
+    const isCodePracForCard = c.code.endsWith('-P') || c.code.includes('-P_');
     const mapping = localSubjectMappings[c.code] || {
       hours: parseInt(c.hours) || 4,
-      courseType: (c.courseType === 'P' || c.code.endsWith('-P')) ? 'P' : 'T',
+      courseType: isCodePracForCard ? 'P' : 'T',
       teachers: [],
       teacherHours: {},
       practicalHours: 2,

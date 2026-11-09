@@ -156,6 +156,17 @@ function parseDbData(rawData) {
         c.group = c.class;
         needsDbSave = true;
       }
+      // Normalize courseType: courses without an explicit -P suffix default to Theory ('T') unless pure practical (theoryHours === 0 && practicalHours > 0)
+      const cCodeStr = String(c.code || '').trim();
+      const isPurePracCode = cCodeStr.endsWith('-P') || cCodeStr.includes('-P_') || cCodeStr.includes('_P-') || cCodeStr.includes('-P(');
+      if (!isPurePracCode && c.courseType === 'P') {
+        const thHours = typeof c.theoryHours === 'number' ? c.theoryHours : null;
+        const prHours = typeof c.practicalHours === 'number' ? c.practicalHours : null;
+        if (!(thHours === 0 && prHours > 0)) {
+          c.courseType = 'T';
+          needsDbSave = true;
+        }
+      }
     });
   }
 

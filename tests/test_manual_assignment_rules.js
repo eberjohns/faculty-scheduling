@@ -757,6 +757,55 @@ assert.strictEqual(slot4Type, 'P', 'Period 4 must also be allocated as Practical
 
 console.log('Dynamic Slot State Transition (Practical <-> Theory on Assigned Slots): PASSED');
 
+// -----------------------------------------------------------------------------
+// Test 15: Excel Timetable Import Default Theory Invariance (Zoology format sample)
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 15: Excel Timetable Import Default Theory Invariance ---');
+
+const zooCourse = {
+  code: 'ZOO4CJ203',
+  name: 'CORE COURSE 5 IN MAJOR – ANIMAL DIVERSITY - I – NON CHORDATA',
+  courseType: 'T',
+  department: 'ZOOLOGY',
+  recommendations: {
+    MONDAY: {},
+    TUESDAY: {},
+    WEDNESDAY: {},
+    THURSDAY: {},
+    FRIDAY: { '4': 'P', '5': 'P' }
+  }
+};
+
+// 15a. Single-hour allocated slot on Monday Period 3 (SPA) without 'P' recommendation must be Theory ('T')
+const zooMon3Type = appDetermineSlotType(zooCourse, 'ZOO4CJ203', 'MONDAY', '3', ['SPA'], { '3': ['SPA'] }, null, { manualSlots: {} });
+assert.strictEqual(zooMon3Type, 'T', 'ZOO4CJ203 Mon-3 (SPA) single hour must default to Theory (T)');
+
+// 15b. Single-hour allocated slot on Monday Period 5 (KJ) must be Theory ('T')
+const zooMon5Type = appDetermineSlotType(zooCourse, 'ZOO4CJ203', 'MONDAY', '5', ['KJ'], { '5': ['KJ'] }, null, { manualSlots: {} });
+assert.strictEqual(zooMon5Type, 'T', 'ZOO4CJ203 Mon-5 (KJ) single hour must default to Theory (T)');
+
+// 15c. Co-taught 2 continuous hours on Friday Period 4 & 5 (SPA / KJ) matching recommendation must be Practical ('P')
+const zooFriAlloc = { '4': ['SPA', 'KJ'], '5': ['SPA', 'KJ'] };
+const zooFri4Type = appDetermineSlotType(zooCourse, 'ZOO4CJ203', 'FRIDAY', '4', ['SPA', 'KJ'], zooFriAlloc, null, { manualSlots: {} });
+const zooFri5Type = appDetermineSlotType(zooCourse, 'ZOO4CJ203', 'FRIDAY', '5', ['SPA', 'KJ'], zooFriAlloc, null, { manualSlots: {} });
+assert.strictEqual(zooFri4Type, 'P', 'ZOO4CJ203 Fri-4 co-taught practical must be Practical (P)');
+assert.strictEqual(zooFri5Type, 'P', 'ZOO4CJ203 Fri-5 co-taught practical must be Practical (P)');
+
+// 15d. Course with no -P suffix and no recommendations defaults to Theory ('T') on all single hours
+const zooMinorCourse = {
+  code: 'ZOO2MN101',
+  name: 'INTRODUCTORY HUMAN PHYSIOLOGY',
+  courseType: 'T',
+  department: 'ZOOLOGY',
+  recommendations: {
+    THURSDAY: { '5': 'P', '6': 'P' }
+  }
+};
+const zooWed4Type = appDetermineSlotType(zooMinorCourse, 'ZOO2MN101', 'WEDNESDAY', '4', ['BCF'], { '4': ['BCF'] }, null, { manualSlots: {} });
+assert.strictEqual(zooWed4Type, 'T', 'ZOO2MN101 Wed-4 (BCF) single hour must default to Theory (T)');
+
+console.log('Excel Timetable Import Default Theory Invariance: PASSED');
+
 console.log('\n======================================================');
 console.log('ALL MANUAL ASSIGNMENT RULES WORKING IN PERFECT ORDER!');
 console.log('======================================================');
