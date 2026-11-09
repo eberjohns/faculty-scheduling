@@ -2574,9 +2574,10 @@ function getNextRightPeriod(period) {
 // Global active slot context
 let activeSlotContext = null;
 
-window.setManualAssignType = function(type) {
+window.setManualAssignType = async function(type) {
   if (!activeSlotContext) return;
-  const { period, courseCode } = activeSlotContext;
+  if (isTimetableLocked()) return;
+  const { period, day, courseCode, baseCode } = activeSlotContext;
   const nextPeriod = getNextRightPeriod(period);
   if (type === 'P' && !nextPeriod) {
     showModalAlert('No Next Slot', `Cannot allocate a 2-period practical session starting at Period ${period} because it is the last period of the day.`, 'warning');
@@ -2609,8 +2610,174 @@ window.setManualAssignType = function(type) {
     }
   }
 
-  // Re-render faculty list to reflect availability for 1 vs 2 slots
-  renderFacultySelectList();
+  // Probe all possible keys to see if this slot is already assigned
+  const allCoursesList = (typeof state !== 'undefined' && Array.isArray(state.courses)) ? state.courses : [];
+  const cleanBase = baseCode.replace(/-(T|P)$/, '').replace(/(_G|_C)\d+$/, '');
+  const classNumMatch = (courseCode || baseCode).match(/(_G|_C)(\d+)/);
+  const effClass = classNumMatch ? parseInt(classNumMatch[2]) : null;
+  const classSuffix = effClass ? `_C${effClass}` : '';
+  const hasRealSplitT = !!allCoursesList.find(c => c.code === (cleanBase + '-T') || (c.code.startsWith(cleanBase + '_C') && c.code.endsWith('-T')));
+  const hasRealSplitP = !!allCoursesList.find(c => c.code === (cleanBase + '-P') || (c.code.startsWith(cleanBase + '_C') && c.code.endsWith('-P')));
+
+  const keysToTry = [
+    courseCode,
+    `${courseCode}-T`,
+    `${courseCode}-P`,
+    courseCode.replace(/-(T|P)$/, ''),
+    cleanBase,
+    `${cleanBase}${classSuffix}`,
+    `${cleanBase}${classSuffix}-T`,
+    `${cleanBase}${classSuffix}-P`
+  ];
+
+  const currentAssigned = [];
+  keysToTry.forEach(k => {
+    const list = state.allocations[k]?.[day]?.[period] || [];
+    if (Array.isArray(list)) {
+      list.forEach(fc => {
+        if (fc && !currentAssigned.includes(fc)) currentAssigned.push(fc);
+      });
+    }
+  });
+
+  // If faculty is currently assigned in this slot, directly update the assigned state
+  if (currentAssigned.length > 0) {
+    if (type === 'T') {
+      // 1. Mark this slot as Theory in manualSlots
+      if (!state.manualSlots) state.manualSlots = {};
+      keysToTry.forEach(k => {
+        state.manualSlots[`${k}_${day}_${period}`] = 'T';
+      });
+
+      // 2. If split codes, move assigned faculty on this slot from -P to -T
+      if (hasRealSplitT && hasRealSplitP) {
+        const pCode = `${cleanBase}${classSuffix}-P`;
+        const tCode = `${cleanBase}${classSuffix}-T`;
+        if (!state.allocations[tCode]) state.allocations[tCode] = {};
+        if (!state.allocations[tCode][day]) state.allocations[tCode][day] = {};
+        if (!state.allocations[tCode][day][period]) state.allocations[tCode][day][period] = [];
+
+        currentAssigned.forEach(fc => {
+          if (!state.allocations[tCode][day][period].includes(fc)) {
+            state.allocations[tCode][day][period].push(fc);
+          }
+          if (state.allocations[pCode]?.[day]?.[period]) {
+            state.allocations[pCode][day][period] = state.allocations[pCode][day][period].filter(c => c !== fc);
+          }
+        });
+      }
+
+      try {
+        const dept = state.currentUser ? state.currentUser.departmentName : '';
+        sessionStorage.setItem(`manualSlots_${dept}`, JSON.stringify(state.manualSlots));
+      } catch(e) {}
+
+      syncAllocationsToSubjectMapping(courseCode);
+      renderFacultySelectList();
+      renderAllocationMatrix();
+      updateDeptLiveWorkloadTracker();
+      triggerAutosave();
+    } else if (type === 'P') {
+      // Changing to Practical: requires continuous nextPeriod
+      const targetCourseCode = (hasRealSplitP) ? `${cleanBase}${classSuffix}-P` : (effClass ? `${cleanBase}${classSuffix}` : courseCode);
+      
+      // Validate nextPeriod for each assigned faculty member
+      for (const fc of currentAssigned) {
+        if (checkLocalClash(fc, day, nextPeriod, targetCourseCode)) {
+          showModalAlert(
+            'Hard Booking Clash!',
+            `Cannot change to Practical: Faculty member '${fc}' is already allocated to another course on ${day} Period ${nextPeriod}.`,
+            'danger'
+          );
+          // Revert button UI to Theory
+          if (btnT && btnP) {
+            btnT.className = 'btn btn-xs btn-assign-type-theory active';
+            btnP.className = 'btn btn-xs btn-assign-type-practical';
+          }
+          if (badge) {
+            badge.className = 'badge badge-warning';
+            badge.textContent = `Theory (1 Slot: P${period})`;
+          }
+          activeSlotContext.assignmentType = 'T';
+          renderFacultySelectList();
+          return;
+        }
+
+        const unavailList = (state.teacherUnavailability && state.teacherUnavailability[fc]) || [];
+        const isUnavail = unavailList.some(u => u.day.toUpperCase() === day.toUpperCase() && (u.period === 'all' || String(u.period) === String(nextPeriod)));
+        if (isUnavail) {
+          showModalAlert(
+            'Unavailable Slot',
+            `Cannot change to Practical: Faculty member '${fc}' marked ${day} Period ${nextPeriod} as unavailable.`,
+            'danger'
+          );
+          if (btnT && btnP) {
+            btnT.className = 'btn btn-xs btn-assign-type-theory active';
+            btnP.className = 'btn btn-xs btn-assign-type-practical';
+          }
+          if (badge) {
+            badge.className = 'badge badge-warning';
+            badge.textContent = `Theory (1 Slot: P${period})`;
+          }
+          activeSlotContext.assignmentType = 'T';
+          renderFacultySelectList();
+          return;
+        }
+      }
+
+      // Mark both slots as Practical in manualSlots
+      if (!state.manualSlots) state.manualSlots = {};
+      [period, nextPeriod].forEach(p => {
+        keysToTry.forEach(k => {
+          state.manualSlots[`${k}_${day}_${p}`] = 'P';
+        });
+      });
+
+      // Assign to allocations
+      if (hasRealSplitT && hasRealSplitP) {
+        const pCode = `${cleanBase}${classSuffix}-P`;
+        const tCode = `${cleanBase}${classSuffix}-T`;
+        if (!state.allocations[pCode]) state.allocations[pCode] = {};
+        if (!state.allocations[pCode][day]) state.allocations[pCode][day] = {};
+
+        [period, nextPeriod].forEach(p => {
+          if (!state.allocations[pCode][day][p]) state.allocations[pCode][day][p] = [];
+          currentAssigned.forEach(fc => {
+            if (!state.allocations[pCode][day][p].includes(fc)) {
+              state.allocations[pCode][day][p].push(fc);
+            }
+            if (state.allocations[tCode]?.[day]?.[p]) {
+              state.allocations[tCode][day][p] = state.allocations[tCode][day][p].filter(c => c !== fc);
+            }
+          });
+        });
+      } else {
+        const destCode = effClass ? `${cleanBase}${classSuffix}` : courseCode;
+        if (!state.allocations[destCode]) state.allocations[destCode] = {};
+        if (!state.allocations[destCode][day]) state.allocations[destCode][day] = {};
+        if (!state.allocations[destCode][day][nextPeriod]) state.allocations[destCode][day][nextPeriod] = [];
+        currentAssigned.forEach(fc => {
+          if (!state.allocations[destCode][day][nextPeriod].includes(fc)) {
+            state.allocations[destCode][day][nextPeriod].push(fc);
+          }
+        });
+      }
+
+      try {
+        const dept = state.currentUser ? state.currentUser.departmentName : '';
+        sessionStorage.setItem(`manualSlots_${dept}`, JSON.stringify(state.manualSlots));
+      } catch(e) {}
+
+      syncAllocationsToSubjectMapping(courseCode);
+      renderFacultySelectList();
+      renderAllocationMatrix();
+      updateDeptLiveWorkloadTracker();
+      triggerAutosave();
+    }
+  } else {
+    // Unassigned slot: just refresh faculty list for 1 vs 2 slots
+    renderFacultySelectList();
+  }
 };
 
 window.openFacultySelectModal = function(baseCode, courseCode, day, period, cellElement) {
@@ -2629,14 +2796,27 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   const isPracRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'P' || state.manualSlots[baseSlotKey] === 'P' || state.manualSlots[cleanSlotKey] === 'P'));
   const isTheoryRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'T' || state.manualSlots[baseSlotKey] === 'T' || state.manualSlots[cleanSlotKey] === 'T'));
   const isMappedPractical = (mData.courseType === 'P') || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P');
+
+  const effClassForModal = classNumMatch ? parseInt(classNumMatch[2]) : (course ? (course.class || course.group || 0) : 0);
+  const classSuffixForModal = effClassForModal ? `_C${effClassForModal}` : '';
+  const isAssignedP = !!(
+    (state.allocations[`${cleanBase}${classSuffixForModal}-P`]?.[day]?.[period]?.length > 0) ||
+    (courseCode.endsWith('-P') && state.allocations[courseCode]?.[day]?.[period]?.length > 0) ||
+    (state.allocations[`${baseCode}-P`]?.[day]?.[period]?.length > 0)
+  );
+  const isAssignedT = !!(
+    (state.allocations[`${cleanBase}${classSuffixForModal}-T`]?.[day]?.[period]?.length > 0) ||
+    (courseCode.endsWith('-T') && state.allocations[courseCode]?.[day]?.[period]?.length > 0) ||
+    (state.allocations[`${baseCode}-T`]?.[day]?.[period]?.length > 0)
+  );
   
   const nextPeriod = getNextRightPeriod(period);
-  // Default to Practical (2 slots) only if mapped as practical or previously recorded as practical. Otherwise default to Theory (1 slot).
+  // Default to Practical (2 slots) only if mapped as practical or previously recorded/assigned as practical. Otherwise default to Theory (1 slot).
   let initialType = 'T';
   if (nextPeriod) {
-    if (isPracRecorded) {
+    if (isPracRecorded || isAssignedP) {
       initialType = 'P';
-    } else if (isTheoryRecorded) {
+    } else if (isTheoryRecorded || isAssignedT) {
       initialType = 'T';
     } else if (isMappedPractical) {
       initialType = 'P';

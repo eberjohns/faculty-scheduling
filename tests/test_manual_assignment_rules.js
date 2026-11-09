@@ -666,6 +666,97 @@ assert.strictEqual(userPracP2, 'P', 'User selected Practical marks slot 2 as Pra
 
 console.log('Continuous Hours Theory vs Practical Invariance & Subject Mapping Guard: PASSED');
 
+// -----------------------------------------------------------------------------
+// Test 14: Dynamic Slot State Transition (Practical <-> Theory on Assigned Slots)
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 14: Dynamic Slot State Transition (Practical <-> Theory on Assigned Slots) ---');
+
+// 14a. Simulating assigned Practical slot switching to Theory
+const testAlloc = {
+  'MAT301-P': { 'MONDAY': { '1': ['VM'], '2': ['VM'] } },
+  'MAT301-T': { 'MONDAY': {} }
+};
+const testManualSlots = {
+  'MAT301-P_MONDAY_1': 'P',
+  'MAT301-P_MONDAY_2': 'P',
+  'MAT301_MONDAY_1': 'P',
+  'MAT301_MONDAY_2': 'P'
+};
+
+// Simulate setManualAssignType('T') on Period 1
+const day = 'MONDAY';
+const period = '1';
+const courseCode = 'MAT301-P';
+const cleanBase = 'MAT301';
+const assignedFacs = testAlloc['MAT301-P'][day][period];
+assert.deepStrictEqual(assignedFacs, ['VM'], 'Initial practical allocation exists');
+
+// Perform transition to Theory for Period 1
+testManualSlots[`MAT301_MONDAY_1`] = 'T';
+testManualSlots[`MAT301-T_MONDAY_1`] = 'T';
+testManualSlots[`MAT301-P_MONDAY_1`] = 'T';
+testAlloc['MAT301-T'][day][period] = [...assignedFacs];
+testAlloc['MAT301-P'][day][period] = [];
+
+const updatedSlot1Type = appDetermineSlotType(
+  { code: 'MAT301', courseType: 'C', theoryHours: 3, practicalHours: 2 },
+  'MAT301-T',
+  day,
+  period,
+  testAlloc['MAT301-T'][day][period],
+  testAlloc['MAT301-T'][day],
+  null,
+  { manualSlots: testManualSlots }
+);
+assert.strictEqual(updatedSlot1Type, 'T', 'Slot 1 must immediately transition from Practical to Theory (T)');
+
+// 14b. Simulating assigned Theory slot switching to Practical
+const theoryToPracAlloc = {
+  'MAT302-T': { 'TUESDAY': { '3': ['AJEF'] } },
+  'MAT302-P': { 'TUESDAY': {} }
+};
+const theoryToPracManualSlots = {
+  'MAT302_TUESDAY_3': 'T',
+  'MAT302-T_TUESDAY_3': 'T'
+};
+
+// Perform transition to Practical starting at Period 3 (allocates Period 3 + 4)
+const tDay = 'TUESDAY';
+const tPeriod = '3';
+const tNextPeriod = '4';
+const tAssigned = theoryToPracAlloc['MAT302-T'][tDay][tPeriod];
+
+theoryToPracManualSlots[`MAT302_${tDay}_${tPeriod}`] = 'P';
+theoryToPracManualSlots[`MAT302_${tDay}_${tNextPeriod}`] = 'P';
+theoryToPracAlloc['MAT302-P'][tDay][tPeriod] = [...tAssigned];
+theoryToPracAlloc['MAT302-P'][tDay][tNextPeriod] = [...tAssigned];
+delete theoryToPracAlloc['MAT302-T'][tDay][tPeriod];
+
+const slot3Type = appDetermineSlotType(
+  { code: 'MAT302', courseType: 'C', theoryHours: 2, practicalHours: 2 },
+  'MAT302-P',
+  tDay,
+  tPeriod,
+  theoryToPracAlloc['MAT302-P'][tDay][tPeriod],
+  theoryToPracAlloc['MAT302-P'][tDay],
+  null,
+  { manualSlots: theoryToPracManualSlots }
+);
+const slot4Type = appDetermineSlotType(
+  { code: 'MAT302', courseType: 'C', theoryHours: 2, practicalHours: 2 },
+  'MAT302-P',
+  tDay,
+  tNextPeriod,
+  theoryToPracAlloc['MAT302-P'][tDay][tNextPeriod],
+  theoryToPracAlloc['MAT302-P'][tDay],
+  null,
+  { manualSlots: theoryToPracManualSlots }
+);
+assert.strictEqual(slot3Type, 'P', 'Period 3 must transition to Practical (P)');
+assert.strictEqual(slot4Type, 'P', 'Period 4 must also be allocated as Practical (P)');
+
+console.log('Dynamic Slot State Transition (Practical <-> Theory on Assigned Slots): PASSED');
+
 console.log('\n======================================================');
 console.log('ALL MANUAL ASSIGNMENT RULES WORKING IN PERFECT ORDER!');
 console.log('======================================================');
