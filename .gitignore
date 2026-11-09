@@ -53,3 +53,13 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Local agent skills and lockfiles
+.agent/
+.agents/
+skills-lock.json
+
+# Tutorial folder assets - keep only the HTML motion graphics tutorial
+tutorial/*
+!tutorial/*.html
+public/guides/

@@ -3572,7 +3572,47 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
     if (rec === 'B') return 'B';
   }
 
-  // 4. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
+  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
+
+  // 4. Check Subject-Teacher Mapping if available (Practical IF AND ONLY IF mapped as practical, or explicit user selection)
+  const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
+  const getFromMapping = (m) => {
+    if (!m) return null;
+    return m[codeStr] || m[baseCode] || m[`${baseCode}-T`] || m[`${baseCode}-P`] || null;
+  };
+  const courseMap = deptMapping || 
+    (typeof state !== 'undefined' && state.subjectTeacherMapping && (
+      (course && course.department && getFromMapping(state.subjectTeacherMapping[course.department.toUpperCase()])) ||
+      (typeof activePrintDept !== 'undefined' && activePrintDept && getFromMapping(state.subjectTeacherMapping[activePrintDept.toUpperCase()])) ||
+      (typeof adminActiveTeacherDept !== 'undefined' && adminActiveTeacherDept && getFromMapping(state.subjectTeacherMapping[adminActiveTeacherDept.toUpperCase()]))
+    ));
+
+  if (courseMap) {
+    if (courseMap.courseType === 'P' || (courseMap.practicalHours > 0 && (!courseMap.theoryHours || courseMap.theoryHours === 0))) {
+      return 'P';
+    }
+    if (courseMap.courseType === 'T' || (courseMap.theoryHours > 0 && (!courseMap.practicalHours || courseMap.practicalHours === 0))) {
+      return 'T';
+    }
+    if (assignedList.length > 0) {
+      const isOnlyPractical = assignedList.every(f => 
+        (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
+      );
+      if (isOnlyPractical) return 'P';
+
+      const isOnlyTheory = assignedList.every(f => 
+        (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
+      );
+      if (isOnlyTheory) return 'T';
+
+      // Multiple co-teachers in slot for composite course with practical hours -> Practical lab
+      if (assignedList.length > 1 && (courseMap.practicalHours || 0) > 0) {
+        return 'P';
+      }
+    }
+  }
+
+  // 5. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
   const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
   const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
 
@@ -3581,57 +3621,16 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
     if (thHours === 0 && prHours > 0) return 'P';
   } else if (course && course.courseType === 'T') {
     return 'T';
-  }
-
-  // 5. Composite / Hybrid courses (courses with both Theory and Practical hours)
-  const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
-
-  // 5a. If multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
-  if (assignedList.length > 1) {
+  } else if (course && course.courseType === 'P') {
     return 'P';
   }
 
-  // 5b. Check consecutive periods with the same faculty on the same day (labs are 2+ periods)
-  if (dayAllocations && typeof dayAllocations === 'object') {
-    const pNum = parseInt(String(period).replace(/\D+/g, ''), 10);
-    if (!isNaN(pNum)) {
-      const prevPeriod = String(pNum - 1);
-      const nextPeriod = String(pNum + 1);
-      const prevList = Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
-      const nextList = Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
-      
-      const sharesFacultyPrev = assignedList.length > 0 && assignedList.some(f => prevList.includes(f));
-      const sharesFacultyNext = assignedList.length > 0 && assignedList.some(f => nextList.includes(f));
-      
-      if (sharesFacultyPrev || sharesFacultyNext) {
-        return 'P';
-      }
-    }
+  // 6. Multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
+  if (assignedList.length > 1 && (prHours === null || prHours > 0)) {
+    return 'P';
   }
 
-  // 5c. Check Subject-Teacher Mapping if available
-  const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
-  const courseMap = deptMapping || 
-    (typeof state !== 'undefined' && state.subjectTeacherMapping && (
-      (course && course.department && state.subjectTeacherMapping[course.department.toUpperCase()] && state.subjectTeacherMapping[course.department.toUpperCase()][baseCode]) ||
-      (typeof activePrintDept !== 'undefined' && activePrintDept && state.subjectTeacherMapping[activePrintDept.toUpperCase()] && state.subjectTeacherMapping[activePrintDept.toUpperCase()][baseCode]) ||
-      (typeof adminActiveTeacherDept !== 'undefined' && adminActiveTeacherDept && state.subjectTeacherMapping[adminActiveTeacherDept.toUpperCase()] && state.subjectTeacherMapping[adminActiveTeacherDept.toUpperCase()][baseCode])
-    ));
-
-  if (courseMap && assignedList.length > 0) {
-    const isOnlyPractical = assignedList.every(f => 
-      (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
-    );
-    if (isOnlyPractical) return 'P';
-
-    const isOnlyTheory = assignedList.every(f => 
-      (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
-    );
-    if (isOnlyTheory) return 'T';
-  }
-
-  // 5d. Standalone single-period slot with 1 teacher for a hybrid course
-  // In college schedules, 1-period isolated sessions are Theory lectures
+  // 7. Standalone single-period or continuous theory hours without practical mapping stay Theory
   if (thHours && thHours > 0) {
     return 'T';
   }

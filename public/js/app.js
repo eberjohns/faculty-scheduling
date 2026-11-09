@@ -2012,44 +2012,12 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
 
   const assignedList = Array.isArray(facList) ? facList.filter(Boolean) : [];
 
-  // 3b. Multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> always Practical lab session
-  if (assignedList.length > 1) {
-    return 'P';
-  }
-
-  // 3c. Consecutive periods with the same faculty on the same day (labs are 2+ periods) -> Practical session
-  if (dayAllocations && typeof dayAllocations === 'object' && assignedList.length > 0) {
-    const allPeriods = (typeof state !== 'undefined' && state.config && state.config.periods) || ["1", "2", "3", "LB", "4", "5", "6"];
-    const teachingPeriods = allPeriods.filter(p => String(p).toUpperCase() !== 'LB').map(p => String(p).trim());
-    const pIdx = teachingPeriods.indexOf(String(period).trim());
-    const prevPeriod = (pIdx > 0) ? teachingPeriods[pIdx - 1] : null;
-    const nextPeriod = (pIdx !== -1 && pIdx + 1 < teachingPeriods.length) ? teachingPeriods[pIdx + 1] : null;
-
-    const prevList = prevPeriod && Array.isArray(dayAllocations[prevPeriod]) ? dayAllocations[prevPeriod] : [];
-    const nextList = nextPeriod && Array.isArray(dayAllocations[nextPeriod]) ? dayAllocations[nextPeriod] : [];
-    
-    const sharesFacultyPrev = assignedList.some(f => prevList.includes(f));
-    const sharesFacultyNext = assignedList.some(f => nextList.includes(f));
-    
-    if (sharesFacultyPrev || sharesFacultyNext) {
-      return 'P';
-    }
-  }
-
-  // 4. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
-  const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
-  const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
-
-  if (thHours !== null && prHours !== null) {
-    if (prHours === 0 && thHours > 0) return 'T';
-    if (thHours === 0 && prHours > 0) return 'P';
-  } else if (course && course.courseType === 'T') {
-    return 'T';
-  }
-
-  // 5c. Check Subject-Teacher Mapping if available
+  // 4. Check Subject-Teacher Mapping if available (Practical IF AND ONLY IF mapped as practical, or explicit user selection)
   const baseCode = codeStr.replace(/-(T|P)$/, '').replace(/(_C|_G)\d+$/, '');
-  const getFromMapping = (m) => m ? (m[codeStr] || m[baseCode] || null) : null;
+  const getFromMapping = (m) => {
+    if (!m) return null;
+    return m[codeStr] || m[baseCode] || m[`${baseCode}-T`] || m[`${baseCode}-P`] || null;
+  };
   const courseMap = deptMapping || 
     (typeof localSubjectMappings !== 'undefined' && getFromMapping(localSubjectMappings)) ||
     (typeof state !== 'undefined' && state.subjectTeacherMapping && (
@@ -2058,20 +2026,53 @@ function determineSlotType(course, cCode, day, period, facList = [], dayAllocati
       (typeof activePrintDept !== 'undefined' && activePrintDept && getFromMapping(state.subjectTeacherMapping[activePrintDept.toUpperCase()]))
     ));
 
-  if (courseMap && assignedList.length > 0) {
-    const isOnlyPractical = assignedList.every(f => 
-      (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
-    );
-    if (isOnlyPractical) return 'P';
+  if (courseMap) {
+    // Specifically mapped as pure Practical in subject teacher mapping
+    if (courseMap.courseType === 'P' || (courseMap.practicalHours > 0 && (!courseMap.theoryHours || courseMap.theoryHours === 0))) {
+      return 'P';
+    }
+    // Specifically mapped as pure Theory in subject teacher mapping (continuous 2 hours stay Theory)
+    if (courseMap.courseType === 'T' || (courseMap.theoryHours > 0 && (!courseMap.practicalHours || courseMap.practicalHours === 0))) {
+      return 'T';
+    }
+    // Composite course with both Theory and Practical:
+    if (assignedList.length > 0) {
+      const isOnlyPractical = assignedList.every(f => 
+        (courseMap.practicalTeachers || []).includes(f) && !(courseMap.theoryTeachers || []).includes(f)
+      );
+      if (isOnlyPractical) return 'P';
 
-    const isOnlyTheory = assignedList.every(f => 
-      (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
-    );
-    if (isOnlyTheory) return 'T';
+      const isOnlyTheory = assignedList.every(f => 
+        (courseMap.theoryTeachers || []).includes(f) && !(courseMap.practicalTeachers || []).includes(f)
+      );
+      if (isOnlyTheory) return 'T';
+
+      // Multiple co-teachers assigned together in slot for composite practical session
+      if (assignedList.length > 1 && (courseMap.practicalHours || 0) > 0) {
+        return 'P';
+      }
+    }
   }
 
-  // 5d. Standalone single-period slot with 1 teacher for a hybrid course
-  // In college schedules, 1-period isolated sessions are Theory lectures
+  // 5. Pure course types: pure Theory (practicalHours === 0) or pure Practical (theoryHours === 0)
+  const thHours = (course && typeof course.theoryHours === 'number') ? course.theoryHours : null;
+  const prHours = (course && typeof course.practicalHours === 'number') ? course.practicalHours : null;
+
+  if (thHours !== null && prHours !== null) {
+    if (prHours === 0 && thHours > 0) return 'T';
+    if (thHours === 0 && prHours > 0) return 'P';
+  } else if (course && course.courseType === 'T') {
+    return 'T';
+  } else if (course && course.courseType === 'P') {
+    return 'P';
+  }
+
+  // 6. Multiple co-teachers assigned together in the slot (e.g. 2+ faculty) -> Practical lab session
+  if (assignedList.length > 1 && (prHours === null || prHours > 0)) {
+    return 'P';
+  }
+
+  // 7. Standalone single-period or continuous theory hours without practical mapping stay Theory
   if (thHours && thHours > 0) {
     return 'T';
   }
@@ -2626,11 +2627,21 @@ window.openFacultySelectModal = function(baseCode, courseCode, day, period, cell
   const baseSlotKey = `${baseCode}_${day}_${period}`;
   const cleanSlotKey = `${cleanBase}_${day}_${period}`;
   const isPracRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'P' || state.manualSlots[baseSlotKey] === 'P' || state.manualSlots[cleanSlotKey] === 'P'));
-  const isPracByDefault = isPracRecorded || (mData.courseType === 'P' || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P'));
+  const isTheoryRecorded = !!(state.manualSlots && (state.manualSlots[slotKey] === 'T' || state.manualSlots[baseSlotKey] === 'T' || state.manualSlots[cleanSlotKey] === 'T'));
+  const isMappedPractical = (mData.courseType === 'P') || (course && course.courseType === 'P') || courseCode.endsWith('-P') || ((course && course.recommendations && course.recommendations[day] && course.recommendations[day][period]) === 'P');
   
   const nextPeriod = getNextRightPeriod(period);
-  // Default to Theory ('T') as required; if this specific slot is already recorded as Practical in manualSlots, preserve Practical
-  const initialType = (isPracRecorded && nextPeriod) ? 'P' : 'T';
+  // Default to Practical (2 slots) only if mapped as practical or previously recorded as practical. Otherwise default to Theory (1 slot).
+  let initialType = 'T';
+  if (nextPeriod) {
+    if (isPracRecorded) {
+      initialType = 'P';
+    } else if (isTheoryRecorded) {
+      initialType = 'T';
+    } else if (isMappedPractical) {
+      initialType = 'P';
+    }
+  }
 
   activeSlotContext = { baseCode, courseCode, day, period, cell: cellElement, assignmentType: initialType };
 

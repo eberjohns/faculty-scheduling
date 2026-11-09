@@ -590,6 +590,82 @@ assert.deepStrictEqual(mockImportAlloc['MAT2CJ101_C1']['MONDAY']['3'], ['VM'], '
 assert.deepStrictEqual(mockImportAlloc['MAT2CJ101_C2']['MONDAY']['3'], ['MT'], 'C2 Monday P3 must be MT without overwriting C1');
 console.log('Timetable Format Excel Round-Trip Invariance: PASSED (Zero data loss across split classes)');
 
+// -----------------------------------------------------------------------------
+// Test 13: Continuous Hours Theory vs Practical Invariance & Mapping Guard
+// -----------------------------------------------------------------------------
+console.log('\n--- Test 13: Continuous Hours Theory vs Practical Invariance & Subject Mapping Guard ---');
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const appJs = fs.readFileSync(path.join(__dirname, '../public/js/app.js'), 'utf8');
+const adminJs = fs.readFileSync(path.join(__dirname, '../public/js/admin.js'), 'utf8');
+
+const extractDetermineSlotType = (src) => {
+  const start = src.indexOf('function determineSlotType(');
+  const end = src.indexOf('window.determineSlotType = determineSlotType;', start);
+  const code = src.slice(start, end);
+  return new Function('course', 'cCode', 'day', 'period', 'facList', 'dayAllocations', 'deptMapping', 'state', `
+    ${code}
+    return determineSlotType(course, cCode, day, period, facList, dayAllocations, deptMapping);
+  `);
+};
+
+const appDetermineSlotType = extractDetermineSlotType(appJs);
+const adminDetermineSlotType = extractDetermineSlotType(adminJs);
+
+// 13a. Course mapped as Theory in subject-teacher mapping with 2 continuous hours
+const theoryCourse = { code: 'MAT201', courseType: 'T', theoryHours: 4, practicalHours: 0 };
+const theoryMapping = { 'MAT201': { courseType: 'T', theoryHours: 4, practicalHours: 0, teachers: ['VM'] } };
+const dayAllocContinuous = { '1': ['VM'], '2': ['VM'] };
+
+const p1Type = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '1', ['VM'], dayAllocContinuous, theoryMapping['MAT201'], { manualSlots: {} });
+const p2Type = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '2', ['VM'], dayAllocContinuous, theoryMapping['MAT201'], { manualSlots: {} });
+
+assert.strictEqual(p1Type, 'T', 'Period 1 for Theory course with continuous 2 hours must stay Theory (T)');
+assert.strictEqual(p2Type, 'T', 'Period 2 for Theory course with continuous 2 hours must stay Theory (T)');
+
+// Same verification for Admin determineSlotType
+const adminP1Type = adminDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '1', ['VM'], dayAllocContinuous, theoryMapping['MAT201'], {});
+const adminP2Type = adminDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '2', ['VM'], dayAllocContinuous, theoryMapping['MAT201'], {});
+assert.strictEqual(adminP1Type, 'T', 'Admin: Period 1 for Theory course with continuous 2 hours must stay Theory (T)');
+assert.strictEqual(adminP2Type, 'T', 'Admin: Period 2 for Theory course with continuous 2 hours must stay Theory (T)');
+
+// 13b. User explicitly selected Theory in manualSlots
+const mockStateWithTheory = {
+  manualSlots: {
+    'MAT201_MONDAY_1': 'T',
+    'MAT201_MONDAY_2': 'T'
+  }
+};
+const manP1 = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '1', ['VM'], dayAllocContinuous, null, mockStateWithTheory);
+const manP2 = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '2', ['VM'], dayAllocContinuous, null, mockStateWithTheory);
+assert.strictEqual(manP1, 'T', 'User selected Theory must remain Theory on continuous slots');
+assert.strictEqual(manP2, 'T', 'User selected Theory must remain Theory on continuous slots');
+
+// 13c. Course mapped as Practical in subject-teacher mapping
+const pracCourse = { code: 'MAT202-P', courseType: 'P', theoryHours: 0, practicalHours: 2 };
+const pracMapping = { 'MAT202-P': { courseType: 'P', theoryHours: 0, practicalHours: 2, practicalTeachers: ['VM'] } };
+const pPracType = appDetermineSlotType(pracCourse, 'MAT202-P', 'MONDAY', '1', ['VM'], dayAllocContinuous, pracMapping['MAT202-P'], { manualSlots: {} });
+assert.strictEqual(pPracType, 'P', 'Course mapped as Practical in subject-teacher mapping must be Practical (P)');
+
+// 13d. User selected Practical in manualSlots -> continuous 2 hours mark as P
+const mockStateWithPrac = {
+  manualSlots: {
+    'MAT201_MONDAY_1': 'P',
+    'MAT201_MONDAY_2': 'P'
+  }
+};
+const userPracP1 = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '1', ['VM'], dayAllocContinuous, null, mockStateWithPrac);
+const userPracP2 = appDetermineSlotType(theoryCourse, 'MAT201', 'MONDAY', '2', ['VM'], dayAllocContinuous, null, mockStateWithPrac);
+assert.strictEqual(userPracP1, 'P', 'User selected Practical marks slot 1 as Practical (P)');
+assert.strictEqual(userPracP2, 'P', 'User selected Practical marks slot 2 as Practical (P)');
+
+console.log('Continuous Hours Theory vs Practical Invariance & Subject Mapping Guard: PASSED');
+
 console.log('\n======================================================');
 console.log('ALL MANUAL ASSIGNMENT RULES WORKING IN PERFECT ORDER!');
 console.log('======================================================');
