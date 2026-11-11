@@ -10062,6 +10062,15 @@ async function runAutoGeneration(forceRelaxed = false, bypassParamCheck = false,
 
       document.getElementById('audit-stat-slots').textContent = result.audit.totalAllocatedSlots;
       document.getElementById('audit-stat-clashes').textContent = result.audit.facultyClashes;
+      if (document.getElementById('audit-stat-recs')) {
+        const recText = result.audit.recommendedSlotsTotal
+          ? `${result.audit.recommendedSlotsMatched} / ${result.audit.recommendedSlotsTotal}`
+          : `${result.audit.recommendedSlotsMatched || 0}`;
+        document.getElementById('audit-stat-recs').textContent = recText;
+      }
+      if (document.getElementById('audit-stat-engine')) {
+        document.getElementById('audit-stat-engine').textContent = result.audit.engine || 'OR-Tools CP-SAT';
+      }
       document.getElementById('audit-stat-practicals').textContent = `${result.audit.practicalBlocksPlaced} Blocks`;
       document.getElementById('audit-stat-violations').textContent = result.audit.teacherConsecutiveViolations;
 

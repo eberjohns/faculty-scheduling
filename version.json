@@ -1,11 +1,11 @@
 {
   "version": "2.0.0",
-  "commit": "d78512b",
-  "commitFull": "d78512b1de8921d212052765fe670356e47d2078",
+  "commit": "67b173d",
+  "commitFull": "67b173d19d7d0f31424eaf7b6df881798a75ea41",
   "branch": "main",
-  "commitDate": "2026-11-09 20:34:24 +0530",
-  "commitMessage": "changes in the bug of the assignment in practical and theory classes",
-  "builtAt": "2026-11-09T15:49:04.925Z",
+  "commitDate": "2026-11-09 21:20:45 +0530",
+  "commitMessage": "fixed allocation",
+  "builtAt": "2026-11-11T17:03:21.709Z",
   "nodeVersion": "v24.17.0",
   "platform": "win32",
   "environment": "production"

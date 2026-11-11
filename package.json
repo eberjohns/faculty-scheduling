@@ -14,7 +14,7 @@
     "bump:major": "node scripts/bump-version.js major",
     "setup-hooks": "node scripts/setup-git-hooks.js",
     "postinstall": "node scripts/setup-git-hooks.js",
-    "test": "node tests/test_security.js && node tests/test_scheduler.js && node tests/test_manual_assignment_rules.js && node tests/test_clash_detection_scoping.js && node tests/test_class_split.js && node tests/test_version_bump.js && node tests/test_multi_teacher_hours_and_clash.js && node tests/test_autogen_clash_and_quota.js"
+    "test": "node tests/test_security.js && node tests/test_scheduler.js && node tests/test_manual_assignment_rules.js && node tests/test_clash_detection_scoping.js && node tests/test_class_split.js && node tests/test_version_bump.js && node tests/test_multi_teacher_hours_and_clash.js && node tests/test_autogen_clash_and_quota.js && node tests/test_teacher_quota_and_swap_optimizer.js && node tests/test_fet_engine.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

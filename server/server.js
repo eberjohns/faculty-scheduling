@@ -8,6 +8,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb, readDb, writeDb, restoreDb, reinitSqliteDb, restoreSqliteDbFile, DB_PATH, getSqliteDb } from './db.js';
 import { generateDepartmentSchedule } from './scheduler.js';
+import { generateScheduleWithFet } from './engine/fet_adapter.js';
+import { generateScheduleWithOrTools } from './engine/ortools_adapter.js';
 import {
   hashPassword,
   verifyPassword,
@@ -3389,7 +3391,7 @@ app.post('/api/department/clear-semester', requireDepartment, (req, res) => {
 });
 
 // Auto-generate Timetable Endpoint
-app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
+app.post('/api/department/auto-generate', requireDepartment, async (req, res) => {
   const { departmentName, semester, selectedCourseCodes, courseFacultyMap, courseFacultyConfig, pinnedSlots, maxConsecutiveHours, practicalBlockSize } = req.body;
   const deptUpper = (req.departmentName || departmentName || '').toUpperCase();
   const db = readDb();
@@ -3402,19 +3404,52 @@ app.post('/api/department/auto-generate', requireDepartment, (req, res) => {
   }
 
   try {
-    const result = generateDepartmentSchedule({
-      db,
-      departmentName: deptUpper,
-      semester: semester || '',
-      selectedCourseCodes: selectedCourseCodes || [],
-      courseFacultyMap: courseFacultyMap || {},
-      courseFacultyConfig: courseFacultyConfig || {},
-      pinnedSlots: pinnedSlots || {},
-      maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
-      practicalBlockSize: parseInt(practicalBlockSize) || 2,
-      allowRelaxedFallback: true,
-      forceRelaxed: !!req.body.forceRelaxed
-    });
+    let result = null;
+    try {
+      result = await generateScheduleWithOrTools({
+        db,
+        departmentName: deptUpper,
+        semester: semester || '',
+        selectedCourseCodes: selectedCourseCodes || [],
+        courseFacultyMap: courseFacultyMap || {},
+        courseFacultyConfig: courseFacultyConfig || {},
+        pinnedSlots: pinnedSlots || {},
+        maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
+        practicalBlockSize: parseInt(practicalBlockSize) || 2
+      });
+      console.log(`[Auto-Generate] Timetable solved using Google OR-Tools CP-SAT for ${deptUpper} (${result.audit ? result.audit.totalAllocatedSlots : 0} slots placed, ${result.audit ? result.audit.recommendedSlotsMatched : 0} recs matched)`);
+    } catch (ortoolsErr) {
+      console.warn(`[Auto-Generate] OR-Tools engine fallback: ${ortoolsErr.message}. Trying FET engine...`);
+      try {
+        result = await generateScheduleWithFet({
+          db,
+          departmentName: deptUpper,
+          semester: semester || '',
+          selectedCourseCodes: selectedCourseCodes || [],
+          courseFacultyMap: courseFacultyMap || {},
+          courseFacultyConfig: courseFacultyConfig || {},
+          pinnedSlots: pinnedSlots || {},
+          maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
+          practicalBlockSize: parseInt(practicalBlockSize) || 2
+        });
+        console.log(`[Auto-Generate] Timetable solved using FET Engine 7.12.0 for ${deptUpper} (${result.audit ? result.audit.totalAllocatedSlots : 0} slots placed)`);
+      } catch (fetErr) {
+        console.warn(`[Auto-Generate] FET engine fallback: ${fetErr.message}. Running internal optimizer...`);
+        result = generateDepartmentSchedule({
+          db,
+          departmentName: deptUpper,
+          semester: semester || '',
+          selectedCourseCodes: selectedCourseCodes || [],
+          courseFacultyMap: courseFacultyMap || {},
+          courseFacultyConfig: courseFacultyConfig || {},
+          pinnedSlots: pinnedSlots || {},
+          maxConsecutiveHours: parseInt(maxConsecutiveHours) || 2,
+          practicalBlockSize: parseInt(practicalBlockSize) || 2,
+          allowRelaxedFallback: true,
+          forceRelaxed: !!req.body.forceRelaxed
+        });
+      }
+    }
 
     res.json(result);
   } catch (err) {

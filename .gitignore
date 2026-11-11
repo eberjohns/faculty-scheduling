@@ -54,6 +54,25 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local Binaries, Engine Executables & Runs (Windows FET / DLLs)
+bin/
+*.exe
+*.dll
+*.qm
+bin/fet/runs/
+bin/fet/test_out/
+bin/fet/test_mini_out/
+timetables/
+
+# Transient solver and audit log files
+logs/*.txt
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
 # Local agent skills and lockfiles
 .agent/
 .agents/

@@ -806,6 +806,101 @@ assert.strictEqual(zooWed4Type, 'T', 'ZOO2MN101 Wed-4 (BCF) single hour must def
 
 console.log('Excel Timetable Import Default Theory Invariance: PASSED');
 
+// -------------------------------------------------------------------------------------------
+// TEST 16: Curriculum Blocked ('B') Hard Barrier & Recommended Slots ('T' & 'P') Utilization
+// -------------------------------------------------------------------------------------------
+console.log('\n--- Test 16: Curriculum Blocked (\'B\') Invariance & Recommended Slots Utilization ---');
+
+// 16a. Verify MATHEMATICS Semester 4 respects all blocked ('B') slots strictly under all passes
+const { generateDepartmentSchedule } = await import('../server/scheduler.js');
+const dbForTest = readDb();
+const mathSem4Result = generateDepartmentSchedule({
+  db: dbForTest,
+  departmentName: 'MATHEMATICS',
+  semester: '4'
+});
+assert.strictEqual(mathSem4Result.success, true, 'MATHEMATICS Sem 4 schedule generation must succeed');
+
+let blockedViolationCount = 0;
+if (mathSem4Result.allocations) {
+  Object.entries(mathSem4Result.allocations).forEach(([cCode, days]) => {
+    Object.entries(days).forEach(([day, periods]) => {
+      Object.entries(periods).forEach(([p, facs]) => {
+        if (facs && facs.length > 0) {
+          const course = dbForTest.courses.find(c => c.code === cCode);
+          const rec = course && course.recommendations && course.recommendations[day] && course.recommendations[day][p];
+          if (rec === 'B') {
+            blockedViolationCount++;
+          }
+        }
+      });
+    });
+  });
+}
+assert.strictEqual(blockedViolationCount, 0, 'Zero allocations may be placed into slots marked B (Blocked)');
+
+// 16b. Verify CHEMISTRY Semester 2 recommended practical and theory slots are fully utilized
+const chemSem2Result = generateDepartmentSchedule({
+  db: dbForTest,
+  departmentName: 'CHEMISTRY',
+  semester: '2'
+});
+assert.strictEqual(chemSem2Result.success, true, 'CHEMISTRY Sem 2 schedule generation must succeed');
+
+const chem2Courses = dbForTest.courses.filter(c => c.department === 'CHEMISTRY' && String(c.semester) === '2');
+let totalChemExpected = 0;
+let totalChemMatched = 0;
+chem2Courses.forEach(c => {
+  if (!c.recommendations) return;
+  const expectedRecs = [];
+  Object.entries(c.recommendations).forEach(([d, ps]) => {
+    Object.entries(ps).forEach(([p, val]) => {
+      if (val === 'T' || val === 'P') expectedRecs.push({ d, p, val });
+    });
+  });
+  if (expectedRecs.length > 0) {
+    const alloc = chemSem2Result.allocations && chemSem2Result.allocations[c.code];
+    expectedRecs.forEach(r => {
+      totalChemExpected++;
+      if (alloc && alloc[r.d] && alloc[r.d][r.p]) {
+        totalChemMatched++;
+      }
+    });
+  }
+});
+
+assert.strictEqual(totalChemMatched, totalChemExpected, `All recommended slots (${totalChemExpected}) must be utilized; matched: ${totalChemMatched}`);
+console.log(`Curriculum Blocked ('B') Hard Barrier & Recommended Slots ('T' & 'P') Utilization: PASSED (${totalChemMatched}/${totalChemExpected} recs matched, 0 blocked violations)`);
+
+// 16c. Verify COMMERCE Semester 6 auto-generation strictly respects Admin Blocked Periods (e.g. Period 6 across all weekdays)
+const commSem6Result = generateDepartmentSchedule({
+  db: dbForTest,
+  departmentName: 'COMMERCE',
+  semester: '6'
+});
+assert.strictEqual(commSem6Result.success, true, 'COMMERCE Sem 6 schedule generation must succeed');
+
+const commLocks = (dbForTest.config && dbForTest.config.globalLockedPeriods || []).filter(l => l.department === 'COMMERCE' && l.semester === '6_UG');
+let commBlockedViolations = 0;
+if (commSem6Result.allocations) {
+  Object.entries(commSem6Result.allocations).forEach(([cCode, days]) => {
+    const course = dbForTest.courses.find(c => c.code === cCode && c.department === 'COMMERCE');
+    if (!course || String(course.semester) !== '6') return;
+    Object.entries(days).forEach(([day, periods]) => {
+      Object.entries(periods).forEach(([p, facs]) => {
+        if (facs && facs.length > 0) {
+          const isLock = commLocks.some(l => l.day === day && String(l.period) === String(p));
+          if (isLock) {
+            commBlockedViolations++;
+          }
+        }
+      });
+    });
+  });
+}
+assert.strictEqual(commBlockedViolations, 0, 'Zero COMMERCE Semester 6 allocations may be placed into Admin Blocked periods');
+console.log('COMMERCE Semester 6 Admin Blocked Periods Invariance: PASSED (0 blocked violations)');
+
 console.log('\n======================================================');
 console.log('ALL MANUAL ASSIGNMENT RULES WORKING IN PERFECT ORDER!');
 console.log('======================================================');
